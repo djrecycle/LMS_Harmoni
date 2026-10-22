@@ -23,13 +23,25 @@ Tampilan berbahasa **Indonesia** secara bawaan dan bisa diganti ke **Inggris** k
 
 ## Tangkapan layar
 
-| Dashboard guru | Kuis dengan jawaban piano |
-|---|---|
-| <img src="docs/screenshots/dashboard-guru.png" alt="Dashboard guru" /> | <img src="docs/screenshots/kuis-midi.png" alt="Soal kuis yang dijawab dengan piano" /> |
-| **Perangkat Ajar (AI)** | **Piano virtual + metronom (mode gelap)** |
-| <img src="docs/screenshots/perangkat-ajar.png" alt="Perangkat Ajar berbantuan AI" /> | <img src="docs/screenshots/piano-virtual-gelap.png" alt="Piano virtual mode gelap" /> |
+**Dashboard guru**: ringkasan kelas, siswa yang belum mengerjakan kuis, dan aktivitas terbaru.
 
-<p align="center"><img src="docs/screenshots/siswa-hp.png" alt="Beranda siswa di HP" width="300" /><br /><sub>Beranda siswa di HP</sub></p>
+<img src="docs/screenshots/dashboard-guru.png" alt="Dashboard guru" />
+
+**Kuis dengan jawaban piano**: siswa menjawab dengan menekan tuts di layar, keyboard komputer, atau keyboard MIDI.
+
+<img src="docs/screenshots/kuis-midi.png" alt="Soal kuis yang dijawab dengan piano" />
+
+**Perangkat Ajar (AI)**: susun CP–TP–ATP, Modul Ajar, dan LKPD, lalu unduh sebagai berkas Word.
+
+<img src="docs/screenshots/perangkat-ajar.png" alt="Perangkat Ajar berbantuan AI" />
+
+**Piano virtual + metronom** (mode gelap).
+
+<img src="docs/screenshots/piano-virtual-gelap.png" alt="Piano virtual mode gelap" />
+
+**Beranda siswa di HP**.
+
+<p align="center"><img src="docs/screenshots/siswa-hp.png" alt="Beranda siswa di HP" width="320" /></p>
 
 ## Fitur
 
@@ -90,7 +102,9 @@ Akun guru sendiri dibuat lewat `/register` → pilih **Guru**. **Guru pertama ya
 ## Menjalankan di server (Docker)
 
 ```bash
-cp .env.docker.example .env.docker   # isi POSTGRES_PASSWORD, BETTER_AUTH_SECRET, BETTER_AUTH_URL
+# Salin contoh konfigurasi, lalu isi POSTGRES_PASSWORD,
+# BETTER_AUTH_SECRET, dan BETTER_AUTH_URL di .env.docker
+cp .env.docker.example .env.docker
 docker compose --env-file .env.docker up -d --build
 ```
 
