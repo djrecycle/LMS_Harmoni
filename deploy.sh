@@ -21,6 +21,19 @@ SSH_OPTS=(-i "$SSH_KEY" -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o Co
 SSH=(ssh "${SSH_OPTS[@]}")
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+# Only deploy committed code, so every live version can be found in git history.
+if ! git rev-parse --git-dir >/dev/null 2>&1; then
+  echo "!! This folder is not a git repository — deploy cancelled." >&2
+  exit 1
+fi
+if [ -n "$(git status --porcelain)" ]; then
+  echo "!! There are uncommitted changes — commit them first, then deploy again:" >&2
+  git status --short >&2
+  exit 1
+fi
+COMMIT="$(git rev-parse HEAD)"
+echo "==> Deploying commit $(git log -1 --format='%h %s' "$COMMIT")"
+
 echo "==> Syncing files to $VPS_HOST:$REMOTE_DIR"
 for attempt in 1 2 3; do
   rsync -az --delete --timeout=60 \
@@ -76,6 +89,11 @@ if [ "$code" != "0" ]; then
   echo "!! Rebuild did not finish cleanly (exit: $code). The old container keeps running. Full log: ssh $VPS_HOST tail -n 100 $LOG" >&2
   exit 1
 fi
+
+# Mark the commit that is now live.
+TAG="deploy-$(date +%F-%H%M)"
+git tag "$TAG" "$COMMIT"
+echo "==> Tagged the live commit as $TAG"
 
 echo "==> Done. Status:"
 "${SSH[@]}" "$VPS_HOST" "cd $REMOTE_DIR && $COMPOSE ps"
