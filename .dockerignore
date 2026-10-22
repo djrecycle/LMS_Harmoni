@@ -16,3 +16,7 @@ docker-compose.yml
 .dockerignore
 AGENTS.md
 CLAUDE.md
+README.en.md
+docs
+LICENSE
+.deploy.env*

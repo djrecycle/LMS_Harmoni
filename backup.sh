@@ -6,7 +6,11 @@
 #
 set -euo pipefail
 
-VPS_HOST="${VPS_HOST:-root@203.0.113.10}"
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+# Server details live in .deploy.env (not in git). Copy .deploy.env.example to start.
+[ -f .deploy.env ] && source .deploy.env
+VPS_HOST="${VPS_HOST:?Set VPS_HOST in .deploy.env (e.g. root@203.0.113.10)}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/harmoni}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 LOCAL_DIR="${LOCAL_DIR:-$HOME/harmoni-backups}"

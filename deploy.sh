@@ -7,8 +7,11 @@
 # doesn't stop it: this script just reconnects and keeps following the log until it finishes.
 #
 set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
-VPS_HOST="${VPS_HOST:-root@203.0.113.10}"
+# Server details live in .deploy.env (not in git). Copy .deploy.env.example to start.
+[ -f .deploy.env ] && source .deploy.env
+VPS_HOST="${VPS_HOST:?Set VPS_HOST in .deploy.env (e.g. root@203.0.113.10)}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/harmoni}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519}"
 
@@ -19,7 +22,6 @@ COMPOSE="docker compose --env-file .env.docker --profile proxy"
 
 SSH_OPTS=(-i "$SSH_KEY" -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o ConnectTimeout=15)
 SSH=(ssh "${SSH_OPTS[@]}")
-cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # Only deploy committed code, so every live version can be found in git history.
 if ! git rev-parse --git-dir >/dev/null 2>&1; then
@@ -44,6 +46,7 @@ for attempt in 1 2 3; do
     --exclude 'tsconfig.tsbuildinfo' \
     --exclude '.env.local' \
     --exclude '.env.docker' \
+    --exclude '.deploy.env' \
     --exclude '.git' \
     -e "ssh ${SSH_OPTS[*]}" \
     ./ "$VPS_HOST:$REMOTE_DIR/" && break
