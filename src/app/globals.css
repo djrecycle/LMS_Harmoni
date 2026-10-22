@@ -1,0 +1,170 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: oklch(0.985 0.006 285);
+  --foreground: oklch(0.22 0.03 285);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.03 285);
+  --muted: oklch(0.955 0.012 285);
+  --muted-foreground: oklch(0.5 0.03 285);
+  --border: oklch(0.91 0.015 285);
+  --input: oklch(0.88 0.02 285);
+  --primary: oklch(0.52 0.22 277);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-soft: oklch(0.94 0.04 277);
+  --accent: oklch(0.82 0.16 75);
+  --accent-foreground: oklch(0.28 0.06 60);
+  --success: oklch(0.6 0.16 155);
+  --success-soft: oklch(0.95 0.05 155);
+  --danger: oklch(0.58 0.22 25);
+  --danger-soft: oklch(0.96 0.03 25);
+  --warning-soft: oklch(0.96 0.06 85);
+  --ring: oklch(0.52 0.22 277 / 0.45);
+  --radius: 0.9rem;
+}
+
+.dark {
+  color-scheme: dark; /* native controls (dropdown popups, scrollbars) follow the dark theme */
+  --background: oklch(0.17 0.02 285);
+  --foreground: oklch(0.95 0.01 285);
+  --card: oklch(0.21 0.025 285);
+  --card-foreground: oklch(0.95 0.01 285);
+  --muted: oklch(0.26 0.025 285);
+  --muted-foreground: oklch(0.7 0.03 285);
+  --border: oklch(0.31 0.03 285);
+  --input: oklch(0.35 0.03 285);
+  --primary: oklch(0.7 0.16 277);
+  --primary-foreground: oklch(0.16 0.03 285);
+  --primary-soft: oklch(0.29 0.06 277);
+  --accent: oklch(0.8 0.15 75);
+  --accent-foreground: oklch(0.2 0.04 60);
+  --success: oklch(0.74 0.16 155);
+  --success-soft: oklch(0.28 0.06 155);
+  --danger: oklch(0.7 0.19 25);
+  --danger-soft: oklch(0.29 0.07 25);
+  --warning-soft: oklch(0.3 0.06 85);
+  --ring: oklch(0.7 0.16 277 / 0.5);
+}
+
+@theme inline {
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning-soft: var(--warning-soft);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 0.2rem);
+  --radius-sm: calc(var(--radius) - 0.4rem);
+  --radius-xl: calc(var(--radius) + 0.3rem);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  /* A single-column grid (`grid` without grid-cols-*) gets an `auto` track, which grows to the min-content of
+     its items: one long `truncate`/nowrap line (an answer key, a title) then widened the whole page on phones.
+     minmax(0, 1fr) keeps the column within its container. Any grid-cols-* utility still overrides this
+     (utilities layer > base layer); `lg:grid` etc. are different class names and are not matched. */
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Dropdown list of a native <select>: without this it is white with light text in the dark theme */
+  select option,
+  select optgroup {
+    background-color: var(--card);
+    color: var(--foreground);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  /* Cegah zoom otomatis iOS pada input */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  @media (min-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: 0.925rem;
+    }
+  }
+}
+
+/* Konten Markdown materi */
+.prose-materi {
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.prose-materi > * + * {
+  margin-top: 0.9em;
+}
+.prose-materi h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.01em; }
+.prose-materi h2 { font-size: 1.25rem; font-weight: 700; margin-top: 1.4em; }
+.prose-materi h3 { font-size: 1.1rem; font-weight: 700; margin-top: 1.2em; }
+.prose-materi ul { list-style: disc; padding-left: 1.4em; }
+.prose-materi ol { list-style: decimal; padding-left: 1.4em; }
+.prose-materi li + li { margin-top: 0.25em; }
+.prose-materi a { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.prose-materi strong { font-weight: 700; }
+.prose-materi blockquote { border-left: 4px solid var(--primary-soft); padding-left: 1rem; color: var(--muted-foreground); }
+.prose-materi code { background: var(--muted); padding: 0.1em 0.4em; border-radius: 0.35rem; font-size: 0.9em; }
+.prose-materi table { width: 100%; border-collapse: collapse; font-size: 0.925rem; }
+.prose-materi th, .prose-materi td { border: 1px solid var(--border); padding: 0.4rem 0.6rem; text-align: left; }
+/* Break table cells between words only ("anywhere" above split "Istilah" into "Istila|h" on phones); a table
+   too wide for the screen scrolls inside its wrapper (see Markdown) instead. */
+.prose-materi th, .prose-materi td { overflow-wrap: break-word; }
+.prose-materi th { background: var(--muted); }
+.prose-materi img { max-width: 100%; border-radius: var(--radius); }
+
+/* Tuts piano: sentuhan responsif tanpa gulir/zoom */
+.piano-scroll {
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+.piano-key {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; color: black; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

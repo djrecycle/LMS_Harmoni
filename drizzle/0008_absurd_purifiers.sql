@@ -1,0 +1,1 @@
+ALTER TABLE "material" ADD COLUMN "interactive_data" jsonb;

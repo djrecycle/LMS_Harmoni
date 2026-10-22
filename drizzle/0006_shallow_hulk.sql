@@ -1,0 +1,1 @@
+ALTER TYPE "public"."type_media" ADD VALUE 'interactive';

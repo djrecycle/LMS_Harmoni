@@ -1,0 +1,81 @@
+/** Note utilities. Used on the server (grading) and the client (piano). */
+
+export const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
+
+const OFFSET: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+
+/** "C4" -> 60, "Db4" -> 61, "F#3" -> 54. Returns null if invalid. */
+export function noteToMidi(note: string): number | null {
+  const m = /^([A-Ga-g])([#b♯♭]?)(-?\d)$/.exec(note.trim());
+  if (!m) return null;
+  let n = OFFSET[m[1].toUpperCase()];
+  if (m[2] === "#" || m[2] === "♯") n += 1;
+  if (m[2] === "b" || m[2] === "♭") n -= 1;
+  return (Number(m[3]) + 1) * 12 + n;
+}
+
+/** 60 -> "C4" (always uses sharps). */
+export function midiToNote(midi: number): string {
+  return `${NOTE_NAMES[((midi % 12) + 12) % 12]}${Math.floor(midi / 12) - 1}`;
+}
+
+export function midiToFrequency(midi: number): number {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
+
+/** Split free text ("C4 E4, G4") into a list of valid notes. Returns null if any is invalid. */
+export function parseNoteList(text: string): string[] | null {
+  const part = text
+    .split(/[\s,;-]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const result: string[] = [];
+  for (const b of part) {
+    const m = noteToMidi(b);
+    if (m === null) return null;
+    result.push(midiToNote(m));
+  }
+  return result;
+}
+
+export function isBlackKey(midi: number) {
+  return [1, 3, 6, 8, 10].includes(((midi % 12) + 12) % 12);
+}
+
+/** 61 -> "c#/4" (VexFlow's StaveNote key format: lowercase letter, accidental, "/", octave). */
+export function midiToVexKey(midi: number): string {
+  const name = NOTE_NAMES[((midi % 12) + 12) % 12];
+  const octave = Math.floor(midi / 12) - 1;
+  return `${name[0].toLowerCase()}${name.slice(1)}/${octave}`;
+}
+
+const SOLFEGE: Record<number, string> = { 0: "do", 2: "re", 4: "mi", 5: "fa", 7: "sol", 9: "la", 11: "si" };
+
+/** Solfège syllable of a note in the major key whose "do" is `doMidi` (movable do). Null for notes outside the scale. */
+export function solfegeOf(midi: number, doMidi: number): string | null {
+  return SOLFEGE[(((midi - doMidi) % 12) + 12) % 12] ?? null;
+}
+
+/** Spelling variants of solfège used in schools ("sol"/"so", "si"/"ti"), all reduced to one form for comparing. */
+export function normalizeSolfege(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (w === "so" ? "sol" : w === "ti" ? "si" : w))
+    .join(" ");
+}
+
+/** Accepted spellings of a solfège answer ("sol"/"so", "si"/"ti") for fill-in keys. */
+export function solfegeVariants(text: string): string[] {
+  const words = normalizeSolfege(text).split(" ");
+  const swap = (w: string, so: boolean, ti: boolean) => (w === "sol" && so ? "so" : w === "si" && ti ? "ti" : w);
+  const all = [
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true],
+  ].map(([so, ti]) => words.map((w) => swap(w, so, ti)).join(" "));
+  return [...new Set(all)];
+}

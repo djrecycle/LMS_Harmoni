@@ -1,0 +1,10 @@
+# Reverse proxy + automatic HTTPS (Let's Encrypt) for the app.
+# Only used by the "caddy" service (profile "proxy") in docker-compose.yml.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}
+
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}

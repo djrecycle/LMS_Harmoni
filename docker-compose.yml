@@ -1,0 +1,108 @@
+# Harmoni Music Class: PostgreSQL + the app.
+#
+#   cp .env.docker.example .env.docker      # then fill in BETTER_AUTH_SECRET and POSTGRES_PASSWORD
+#   docker compose --env-file .env.docker up -d --build
+#   docker compose --env-file .env.docker --profile tools run --rm seed     # (optional) sample data
+#
+# Database only (keep running the app with `npm run dev` on your laptop):
+#   docker compose --env-file .env.docker up -d db
+#   then set DATABASE_URL in .env.local (see the README, Docker section)
+
+name: harmoni
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://harmoni:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker}@db:5432/harmoni
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env.docker (openssl rand -base64 32)}
+  BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+  UPLOAD_DIR: /data/uploads
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  AI_MODEL: ${AI_MODEL:-claude-opus-5}
+  AI_FALLBACK: ${AI_FALLBACK:-on}
+  AI_DAILY_LIMIT: ${AI_DAILY_LIMIT:-50}
+  TEACHER_SIGNUP_CODE: ${TEACHER_SIGNUP_CODE:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASS: ${SMTP_PASS:-}
+  SMTP_FROM: ${SMTP_FROM:-Harmoni Music Class <no-reply@localhost>}
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: harmoni
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker}
+      POSTGRES_DB: harmoni
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Only reachable from this machine (not from the network); useful for `npm run dev` on the host.
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harmoni -d harmoni"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      target: runner
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *app-env
+      AUTO_MIGRATE: "1" # run migrations automatically on start
+      STORAGE_DRIVER: local
+    volumes:
+      - uploads:/data/uploads
+      - claude_home:/home/nextjs
+    ports:
+      # Only reachable from this machine; the public goes through the caddy proxy (HTTPS).
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+
+  # HTTPS reverse proxy for production (VPS). Needs DOMAIN in .env.docker and DNS pointing here.
+  caddy:
+    profiles: ["proxy"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env.docker}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # Fill in sample data (teacher/student accounts, class, lessons, questions, quizzes). Only run manually.
+  seed:
+    profiles: ["tools"]
+    build:
+      context: .
+      target: builder
+    user: "1001:1001" # same user as the app, so files in the uploads volume are readable/writable by the app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      <<: *app-env
+      HOME: /tmp
+      STORAGE_DRIVER: local
+    volumes:
+      - uploads:/data/uploads
+    command: ["node_modules/.bin/tsx", "scripts/seed.ts"]
+
+volumes:
+  pgdata:
+  uploads:
+  claude_home:
+  caddy_data:
+  caddy_config:
