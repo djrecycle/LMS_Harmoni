@@ -26,6 +26,12 @@ export async function getOwnedPracticeMaterial(teacherId: string, id: string) {
   return m ?? null;
 }
 
+export async function getOwnedPianoSong(teacherId: string, id: string) {
+  if (!isUuid(id)) return null;
+  const [m] = await db.select().from(S.pianoSong).where(and(eq(S.pianoSong.id, id), eq(S.pianoSong.teacherId, teacherId))).limit(1);
+  return m ?? null;
+}
+
 export async function getOwnedQuestion(teacherId: string, id: string) {
   if (!isUuid(id)) return null;
   const [m] = await db.select().from(S.question).where(and(eq(S.question.id, id), eq(S.question.teacherId, teacherId))).limit(1);

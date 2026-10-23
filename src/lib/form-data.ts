@@ -123,3 +123,13 @@ export async function practiceMaterialFormData(teacherId: string) {
   ]);
   return { classroom, lessons, providers, remaining: allowance.remaining, limit: await dailyLimit() };
 }
+
+/** Data for the piano song form: the teacher's classes and the AI allowance. */
+export async function pianoSongFormData(teacherId: string) {
+  const [classroom, providers, allowance] = await Promise.all([
+    db.select({ id: schema.classroom.id, name: schema.classroom.name }).from(schema.classroom).where(eq(schema.classroom.teacherId, teacherId)).orderBy(schema.classroom.name),
+    providerOptions(),
+    remainingAllowance(teacherId),
+  ]);
+  return { classroom, providers, remaining: allowance.remaining, limit: await dailyLimit() };
+}

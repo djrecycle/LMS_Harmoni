@@ -4,11 +4,12 @@ import { useState } from "react";
 import { ListMusic, Piano as PianoIcon } from "lucide-react";
 import { Piano } from "@/components/piano";
 import { SongPlayer } from "@/components/song-player";
+import type { Song } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 
 /** Virtual piano page: free play, or play a song with falling notes. */
-export function PianoModes() {
+export function PianoModes({ songs }: { songs: Song[] }) {
   const t = useT();
   const [tab, setTab] = useState<"free" | "song">("song");
   const tabs = [
@@ -32,7 +33,7 @@ export function PianoModes() {
         ))}
       </div>
       {/* Only one is mounted at a time so their computer-keyboard shortcuts don't both fire. */}
-      {tab === "song" ? <SongPlayer /> : <Piano />}
+      {tab === "song" ? <SongPlayer songs={songs} /> : <Piano />}
     </div>
   );
 }

@@ -48,10 +48,10 @@ const EMPTY_KEYS: KeyState = { target: [], sounding: [], good: [], bad: [] };
  *  - play: the song waits at each note until the student presses the right key.
  *  - listen: the song plays by itself and the keys light up.
  */
-export function SongPlayer() {
+export function SongPlayer({ songs = SONGS, saveScores = true }: { songs?: Song[]; saveScores?: boolean }) {
   const t = useT();
-  const [songId, setSongId] = useState(SONGS[0].id);
-  const song = SONGS.find((s) => s.id === songId) ?? SONGS[0];
+  const [songId, setSongId] = useState(songs[0].id);
+  const song = songs.find((s) => s.id === songId) ?? songs[0];
   const [mode, setMode] = useState<Mode>("play");
   const [speed, setSpeed] = useState<number>(0.75);
   const [labels, setLabels] = useState<Labels>("letter");
@@ -78,8 +78,8 @@ export function SongPlayer() {
     flash: new Map<number, { ok: boolean; until: number }>(),
     keySig: "",
   });
-  const settings = useRef({ song, mode, speed, labels, range });
-  settings.current = { song, mode, speed, labels, range };
+  const settings = useRef({ song, mode, speed, labels, range, saveScores });
+  settings.current = { song, mode, speed, labels, range, saveScores };
 
   useEffect(() => {
     void loadAudio();
@@ -101,8 +101,8 @@ export function SongPlayer() {
     stopAllNotes();
   }, []);
 
-  // A new song or mode starts over.
-  useEffect(() => reset(), [songId, mode, reset]);
+  // A new song (or a changed melody in the teacher's preview) or mode starts over.
+  useEffect(() => reset(), [song, mode, reset]);
 
   const togglePlay = async () => {
     await unlockAudio();
@@ -116,8 +116,8 @@ export function SongPlayer() {
   /** Called once when a song ends: in "play" mode the score goes to the student's practice history. */
   const onFinish = async () => {
     const s = g.current;
-    const { song, mode, speed } = settings.current;
-    if (mode !== "play" || s.hit.size < song.notes.length) return;
+    const { song, mode, speed, saveScores } = settings.current;
+    if (!saveScores || mode !== "play" || s.hit.size < song.notes.length) return;
     const score = Math.round((s.hit.size / (s.hit.size + s.wrong)) * 100);
     const detail: SongDetail = { songId: song.id, speed, notesTotal: song.notes.length, wrong: s.wrong };
     setSaved("saving");
@@ -332,12 +332,23 @@ export function SongPlayer() {
       <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
         <label className="grid gap-1 text-sm font-semibold">
           {t("Song")}
-          <Select value={songId} onChange={(e) => setSongId(e.target.value)}>
-            {SONGS.map((s) => (
-              <option key={s.id} value={s.id}>
-                {"★".repeat(s.level)} {t(s.title)}
-              </option>
-            ))}
+          <Select value={song.id} onChange={(e) => setSongId(e.target.value)}>
+            {[
+              { label: t("Songs from your teacher"), list: songs.filter((s) => s.custom) },
+              { label: t("Practice songs"), list: songs.filter((s) => !s.custom && !s.origin) },
+              { label: t("Indonesian folk songs"), list: songs.filter((s) => !s.custom && s.origin) },
+            ]
+              .filter((g) => g.list.length)
+              .map((g) => (
+                <optgroup key={g.label} label={g.label}>
+                  {g.list.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {"★".repeat(s.level)} {t(s.title)}
+                      {s.origin ? ` (${s.origin})` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
           </Select>
         </label>
         <div className="flex flex-wrap items-center gap-2">

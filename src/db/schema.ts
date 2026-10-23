@@ -463,6 +463,44 @@ export const classroomPracticeMaterial = pgTable(
   ],
 );
 
+/** A piano song a teacher adds for the "Play a Song" mode (falling notes). The melody is kept as editable text. */
+export const pianoSong = pgTable(
+  "piano_song",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    teacherId: text("teacher_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    /** Region of a folk song, composer, or source. */
+    origin: text("origin").notNull().default(""),
+    level: integer("level").notNull().default(1),
+    bpm: integer("bpm").notNull().default(90),
+    /** "angka" (notasi angka, with doNote) or "letters" (C4:1 E4:0.5 ...). See src/lib/songs.ts. */
+    format: text("format").$type<"angka" | "letters">().notNull().default("angka"),
+    doNote: text("do_note").notNull().default("C4"),
+    notation: text("notation").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("piano_song_teacher_idx").on(t.teacherId)],
+);
+
+/** Which classes see a teacher's piano song. */
+export const classroomPianoSong = pgTable(
+  "classroom_piano_song",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    songId: uuid("song_id")
+      .notNull()
+      .references(() => pianoSong.id, { onDelete: "cascade" }),
+    classroomId: uuid("classroom_id")
+      .notNull()
+      .references(() => classroom.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("classroom_piano_song_unique").on(t.songId, t.classroomId), index("classroom_piano_song_classroom_idx").on(t.classroomId)],
+);
+
 /** The teacher's written analysis of one student's practice in one lesson, generated on demand (rule-based or AI). */
 export const practiceAnalysis = pgTable(
   "practice_analysis",
