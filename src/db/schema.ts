@@ -38,7 +38,7 @@ export const answerTypeEnum = pgEnum("answer_type", [
 ]);
 export const typeMediaEnum = pgEnum("type_media", ["text", "image", "audio", "video", "interactive"]);
 export const attemptStatusEnum = pgEnum("attempt_status", ["in_progress", "completed"]);
-export const practiceKindEnum = pgEnum("practice_kind", ["note", "rhythm", "interval", "chord", "scale", "tempo", "melody", "solfege"]);
+export const practiceKindEnum = pgEnum("practice_kind", ["note", "rhythm", "interval", "chord", "scale", "tempo", "melody", "solfege", "song"]);
 export const practiceAnalysisSourceEnum = pgEnum("practice_analysis_source", ["rule", "ai"]);
 export const teachingDocKindEnum = pgEnum("teaching_doc_kind", ["cp_tp_atp", "modul_ajar", "materi_guru", "materi_siswa"]);
 export const teachingDocStatusEnum = pgEnum("teaching_doc_status", ["pending", "done", "error"]);

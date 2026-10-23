@@ -1,5 +1,5 @@
 import type { Translate } from "@/i18n";
-import { PRACTICE_KIND_LABEL, type MelodyDetail, type PracticeKind, type RhythmDetail, type SolfegeDetail, type TempoDetail } from "@/lib/practice";
+import { PRACTICE_KIND_LABEL, type MelodyDetail, type PracticeKind, type RhythmDetail, type SolfegeDetail, type SongDetail, type TempoDetail } from "@/lib/practice";
 
 /** One saved practice attempt, oldest first. */
 export type PracticeAttempt = { kind: PracticeKind; score: number; detail: Record<string, unknown> | null; createdAt: Date; inLesson: boolean };
@@ -63,6 +63,13 @@ function summarizeKind(t: Translate, kind: PracticeKind, list: PracticeAttempt[]
       .map(([s]) => s);
     if (worst.length) notes.push(t("most often mistakes {0}", worst.join(", ")));
     else notes.push(t("names every note correctly"));
+  }
+
+  if (kind === "song" && last.detail) {
+    const d = last.detail as SongDetail;
+    if (d.wrong === 0) notes.push(t("played the last song without a wrong key"));
+    else notes.push(t("pressed {0} wrong keys in the last song", d.wrong));
+    if (d.speed < 1) notes.push(t("still practicing at {0}% speed", Math.round(d.speed * 100)));
   }
 
   return { kind, attempts: list.length, first: scores[0], last: scores[scores.length - 1], best: Math.max(...scores), average: Math.round(mean(scores)), notes };

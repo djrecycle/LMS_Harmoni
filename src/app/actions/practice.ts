@@ -16,7 +16,7 @@ const S = schema;
 const refresh = () => revalidatePath("/", "layout");
 
 const resultSchema = z.object({
-  kind: z.enum(["note", "rhythm", "interval", "chord", "scale", "tempo", "melody", "solfege"]),
+  kind: z.enum(["note", "rhythm", "interval", "chord", "scale", "tempo", "melody", "solfege", "song"]),
   title: z.string().trim().min(2).max(120),
   score: z.number().int().min(0).max(100),
   detail: z.record(z.string(), z.unknown()).optional(),

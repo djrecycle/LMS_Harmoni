@@ -73,6 +73,7 @@ export const PRACTICE_KIND_LABEL = {
   tempo: "Tempo",
   melody: "Melody",
   solfege: "Solfège",
+  song: "Songs",
 } as const;
 
 export type PracticeKind = keyof typeof PRACTICE_KIND_LABEL;
@@ -92,6 +93,8 @@ export type TempoDetail = { bpm: number; actualBpm: number | null; cv: number | 
 export type MelodyDetail = { total: number; correct: number; wrongPitch: number; wrongRhythm: number; missing: number; extra: number };
 /** Solfège: hear notes, answer with do-re-mi. `missed` counts the expected syllables answered wrongly. */
 export type SolfegeDetail = { rounds: number; notesTotal: number; notesCorrect: number; missed: Record<string, number> };
+/** Song (falling notes): every note must be played to finish, so the score comes from the wrong keys pressed. */
+export type SongDetail = { songId: string; speed: number; notesTotal: number; wrong: number };
 
 /**
  * Grade steady-tempo taps. `expected` are the beat times (s) the student should keep after the metronome stops,

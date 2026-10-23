@@ -1,0 +1,1 @@
+ALTER TYPE "public"."practice_kind" ADD VALUE 'song';
