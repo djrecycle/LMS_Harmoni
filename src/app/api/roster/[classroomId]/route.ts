@@ -6,6 +6,7 @@ import { studentListToExcel, studentListToPdf } from "@/lib/student-list-export"
 import { contentDisposition } from "@/lib/storage";
 import { getCurrentUser } from "@/lib/session";
 import { getT } from "@/i18n/server";
+import { memberOf, membersOf } from "@/lib/members";
 
 export const runtime = "nodejs";
 
@@ -25,7 +26,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ classroomId: st
     .select({ name: S.user.name, username: S.user.username, email: S.user.email })
     .from(S.classroomMembership)
     .innerJoin(S.user, eq(S.user.id, S.classroomMembership.studentId))
-    .where(eq(S.classroomMembership.classroomId, classroom.id))
+    .where(memberOf(classroom.id))
     .orderBy(S.user.name);
 
   const baseName = `Daftar_Siswa_${classroom.name}`.replace(/["\r\n]/g, "").slice(0, 150);

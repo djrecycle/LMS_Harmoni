@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { QuizForm } from "@/components/quiz-form";
 import { PageHeader } from "@/components/ui/misc";
 import { db, schema } from "@/db";
@@ -25,7 +25,13 @@ export default async function EditQuiz({ params }: { params: Promise<{ id: strin
   const [data, question, taken] = await Promise.all([
     quizFormData(teacher.id),
     db.select({ questionId: S.quizQuestion.questionId }).from(S.quizQuestion).where(eq(S.quizQuestion.quizId, quiz.id)).orderBy(asc(S.quizQuestion.position)),
-    db.select({ id: S.attempt.id }).from(S.attempt).where(eq(S.attempt.quizId, quiz.id)).limit(1),
+    // The teacher's own tries in Student view do not lock the quiz.
+    db
+      .select({ id: S.attempt.id })
+      .from(S.attempt)
+      .innerJoin(S.user, eq(S.user.id, S.attempt.studentId))
+      .where(and(eq(S.attempt.quizId, quiz.id), isNull(S.user.demoOwnerId)))
+      .limit(1),
   ]);
   return (
     <>

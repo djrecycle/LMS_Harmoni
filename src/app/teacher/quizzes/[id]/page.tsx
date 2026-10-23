@@ -11,6 +11,7 @@ import { getOwnedQuiz } from "@/lib/access";
 import { requireTeacher } from "@/lib/session";
 import { round, formatDateTime } from "@/lib/utils";
 import { getT } from "@/i18n/server";
+import { memberOf, membersOf } from "@/lib/members";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
@@ -31,7 +32,7 @@ export default async function DetailQuiz({ params }: { params: Promise<{ id: str
       .select({ id: S.user.id, name: S.user.name })
       .from(S.classroomMembership)
       .innerJoin(S.user, eq(S.user.id, S.classroomMembership.studentId))
-      .where(eq(S.classroomMembership.classroomId, quiz.classroomId))
+      .where(memberOf(quiz.classroomId))
       .orderBy(S.user.name),
     db.select().from(S.attempt).where(eq(S.attempt.quizId, quiz.id)),
     db.select({ id: S.quizQuestion.id }).from(S.quizQuestion).where(eq(S.quizQuestion.quizId, quiz.id)),

@@ -3,6 +3,7 @@ import { db, schema } from "@/db";
 import { isOngoing, nowWib } from "@/lib/days";
 import { getOwnedSchedule } from "@/lib/access";
 import { today } from "@/lib/utils";
+import { memberOf, membersOf } from "@/lib/members";
 
 const S = schema;
 
@@ -65,7 +66,7 @@ export async function liveClassData(teacherId: string, scheduleId: string): Prom
       .from(S.classroomMembership)
       .innerJoin(S.user, eq(S.user.id, S.classroomMembership.studentId))
       .leftJoin(S.userPresence, eq(S.userPresence.userId, S.user.id))
-      .where(eq(S.classroomMembership.classroomId, classroom.id))
+      .where(memberOf(classroom.id))
       .orderBy(asc(S.user.name)),
     db
       .select({ id: S.material.id, title: S.material.title, typeMedia: S.material.typeMedia, date: S.classroomMaterial.date })

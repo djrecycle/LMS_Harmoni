@@ -1883,4 +1883,15 @@ export const id: Record<string, string> = {
   "one octave up": "satu oktaf ke atas",
   "{0} notes": "{0} not",
   "{0} notes · {1} BPM": "{0} not · {1} BPM",
+  // Student view (teacher as a test student)
+  "Test student": "Siswa Uji",
+  "View as student": "Lihat sebagai siswa",
+  "Try the student pages of this class with a test student. It is not counted in grades or reports.": "Coba halaman siswa kelas ini dengan siswa uji. Tidak dihitung di nilai maupun laporan.",
+  "Student view": "Mode Siswa",
+  "You are seeing class {0} as a test student. Quizzes and practice you do here are saved for the test student only and are not counted in grades or reports.": "Kamu melihat kelas {0} sebagai siswa uji. Kuis dan latihan di sini hanya tersimpan untuk siswa uji dan tidak dihitung di nilai maupun laporan.",
+  "You are using a test student.": "Kamu sedang memakai siswa uji.",
+  "Erase the test student's quiz attempts, practice scores and recordings": "Hapus kuis, skor latihan, dan rekaman milik siswa uji",
+  "Reset test data": "Reset data uji",
+  "Back to teacher": "Kembali jadi guru",
+  "This is not available in Student view.": "Ini tidak tersedia di Mode Siswa.",
 };

@@ -1,7 +1,7 @@
 "use server";
 
 import { eq } from "drizzle-orm";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { APIError } from "better-auth/api";
 import { z } from "zod";
@@ -10,7 +10,7 @@ import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, formValues, type ActionResult } from "@/lib/action-result";
 import { auth, signupContext } from "@/lib/auth";
 import { rateLimit } from "@/lib/ratelimit";
-import { dashboardPathFor, requireUser } from "@/lib/session";
+import { dashboardPathFor, requireUser, STUDENT_VIEW_COOKIE } from "@/lib/session";
 import { getT } from "@/i18n/server";
 import type { Translate } from "@/i18n";
 
@@ -104,6 +104,7 @@ export async function signInWithGoogle() {
 }
 
 export async function signOut() {
+  (await cookies()).delete(STUDENT_VIEW_COOKIE);
   try {
     await auth.api.signOut({ headers: await headers() });
   } catch {
@@ -151,7 +152,8 @@ export async function resetPassword(_: ActionResult, fd: FormData): Promise<Acti
 
 export async function editProfile(_: ActionResult, fd: FormData): Promise<ActionResult> {
   const t = await getT();
-  await requireUser();
+  // In Student view the session belongs to the teacher: never change the teacher's account from here.
+  if ((await requireUser()).studentView) return fail(t("This is not available in Student view."));
   const p = z.object({ name: z.string().trim().min(2, t("Name must be at least 2 characters")).max(80) }).safeParse(Object.fromEntries(fd));
   if (!p.success) return zodError(p.error, fd);
   try {
@@ -169,6 +171,7 @@ const changePasswordSchema = z
 export async function changePassword(_: ActionResult, fd: FormData): Promise<ActionResult> {
   const t = await getT();
   const user = await requireUser();
+  if (user.studentView) return fail(t("This is not available in Student view."));
   const p = changePasswordSchema.safeParse(Object.fromEntries(fd));
   if (!p.success) return zodError(p.error, fd);
   const rate = rateLimit(`ubahsandi:${user.id}`, 6, 10 * 60 * 1000);

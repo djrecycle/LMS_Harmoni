@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { FileSpreadsheet, FileText } from "lucide-react";
+import { Eye, FileSpreadsheet, FileText } from "lucide-react";
 import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 import { removeStudent } from "@/app/actions/classroom";
+import { enterStudentView } from "@/app/actions/student-view";
 import { AddStudentForm } from "@/components/add-student-form";
 import { DeleteButton } from "@/components/delete-button";
 import { ClassForm } from "@/components/classroom-form";
@@ -59,7 +60,17 @@ export default async function DetailClassroom({ params }: { params: Promise<{ id
 
   return (
     <>
-      <PageHeader title={classroom.name} description={classroom.description ?? t("Manage the students, lessons, and quizzes of this class.")} />
+      <PageHeader
+        title={classroom.name}
+        description={classroom.description ?? t("Manage the students, lessons, and quizzes of this class.")}
+        action={
+          <form action={enterStudentView.bind(null, classroom.id)}>
+            <Button type="submit" variant="outline" title={t("Try the student pages of this class with a test student. It is not counted in grades or reports.")}>
+              <Eye /> {t("View as student")}
+            </Button>
+          </form>
+        }
+      />
 
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border bg-gradient-to-br from-primary-soft to-card p-4 shadow-xs sm:col-span-1">

@@ -68,6 +68,8 @@ export const user = pgTable(
     banned: boolean("banned").default(false),
     banReason: text("ban_reason"),
     banExpires: timestamp("ban_expires", { withTimezone: true }),
+    /** Set on a teacher's test student for "Student view" (the teacher's id). Such an account has no password and cannot log in. */
+    demoOwnerId: text("demo_owner_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -158,6 +160,8 @@ export const classroomMembership = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     joinedAt: timestamp("join_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The teacher's test student (Student view). Left out of rosters, grades, recaps, attendance and exports. */
+    isDemo: boolean("is_demo").notNull().default(false),
   },
   (t) => [
     uniqueIndex("membership_unique").on(t.classroomId, t.studentId),

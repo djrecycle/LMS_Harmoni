@@ -2,6 +2,7 @@ import { and, asc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { Translate } from "@/i18n";
 import { summarizeAttempts, type KindSummary, type PracticeAttempt } from "@/lib/practice-analysis";
+import { memberOf, membersOf } from "@/lib/members";
 
 const S = schema;
 
@@ -38,9 +39,7 @@ export async function loadPracticeRecap(t: Translate, materialId: string): Promi
         .from(S.classroomMembership)
         .innerJoin(S.user, eq(S.user.id, S.classroomMembership.studentId))
         .where(
-          inArray(
-            S.classroomMembership.classroomId,
-            classes.map((c) => c.id),
+          membersOf(classes.map((c) => c.id),
           ),
         )
     : [];

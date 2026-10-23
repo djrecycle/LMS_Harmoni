@@ -12,6 +12,7 @@ import { planJournalGeneration, type GeneratedRow } from "@/lib/journal-generate
 import { classRoster, doneCalendarData, existingSessionKeys, scheduleForGeneration } from "@/lib/journal-data";
 import { requireTeacher } from "@/lib/session";
 import { getT } from "@/i18n/server";
+import { memberOf, membersOf } from "@/lib/members";
 
 const S = schema;
 const refresh = () => revalidatePath("/teacher/journal");
@@ -44,7 +45,7 @@ export async function saveClassSession(data: unknown): Promise<ActionResult<{ id
   if (!classroom) return fail(t("Class not found."));
 
   // Defense in depth: only students actually enrolled in this class may receive an attendance status.
-  const member = await db.select({ id: S.classroomMembership.studentId }).from(S.classroomMembership).where(eq(S.classroomMembership.classroomId, classroom.id));
+  const member = await db.select({ id: S.classroomMembership.studentId }).from(S.classroomMembership).where(memberOf(classroom.id));
   const memberIds = new Set(member.map((m) => m.id));
   if (v.attendance.some((a) => !memberIds.has(a.studentId))) return fail(t("One of the students is not in this class."));
 

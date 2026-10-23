@@ -3,6 +3,7 @@ import { db, schema } from "@/db";
 import type { KaldikData } from "@/lib/calendar-data";
 import type { DayOfWeek } from "@/lib/days";
 import { docContext } from "@/lib/perangkat/store";
+import { memberOf, membersOf } from "@/lib/members";
 
 const S = schema;
 
@@ -55,7 +56,7 @@ export async function classRoster(classroomId: string): Promise<RosterMember[]> 
     .select({ id: S.user.id, name: S.user.name, username: S.user.username })
     .from(S.classroomMembership)
     .innerJoin(S.user, eq(S.user.id, S.classroomMembership.studentId))
-    .where(eq(S.classroomMembership.classroomId, classroomId))
+    .where(memberOf(classroomId))
     .orderBy(S.user.name);
 }
 

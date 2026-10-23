@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { ClipboardList, Download, Eye, Headphones, Image as ImageIcon, Library, NotebookText, Pencil, Plus, Sparkles, Type, Video } from "lucide-react";
 import { deleteMaterial, setMaterialKelas } from "@/app/actions/material";
 import { DeleteButton } from "@/components/delete-button";
@@ -48,7 +48,11 @@ export default async function MaterialList({ searchParams }: { searchParams: Pro
         .orderBy(S.classroomMaterial.date)
     : [];
   const completed = ids.length
-    ? await db.select({ materialId: S.materialProgress.materialId }).from(S.materialProgress).where(inArray(S.materialProgress.materialId, ids))
+    ? await db
+        .select({ materialId: S.materialProgress.materialId })
+        .from(S.materialProgress)
+        .innerJoin(S.user, eq(S.user.id, S.materialProgress.studentId))
+        .where(and(inArray(S.materialProgress.materialId, ids), isNull(S.user.demoOwnerId))) // not the teacher's test student
     : [];
   const day = today();
 

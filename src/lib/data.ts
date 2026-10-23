@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, lte } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { round, today } from "./utils";
+import { memberOf, membersOf } from "@/lib/members";
 
 const S = schema;
 
@@ -66,7 +67,7 @@ export async function classStats(classroomId: string): Promise<ClassStats> {
     .select({ id: S.user.id, name: S.user.name, email: S.user.email, username: S.user.username, joinedAt: S.classroomMembership.joinedAt })
     .from(S.classroomMembership)
     .innerJoin(S.user, eq(S.user.id, S.classroomMembership.studentId))
-    .where(eq(S.classroomMembership.classroomId, classroomId))
+    .where(memberOf(classroomId))
     .orderBy(S.user.name);
   const studentIds = member.map((a) => a.id);
 
@@ -137,7 +138,7 @@ export async function recentActivity(teacherId: string, limit = 12): Promise<Act
     .select({ id: S.classroomMembership.studentId })
     .from(S.classroomMembership)
     .innerJoin(S.classroom, eq(S.classroom.id, S.classroomMembership.classroomId))
-    .where(eq(S.classroom.teacherId, teacherId));
+    .where(and(eq(S.classroom.teacherId, teacherId), eq(S.classroomMembership.isDemo, false)));
   const ids = [...new Set(member.map((a) => a.id))];
   if (!ids.length) return [];
 
@@ -216,7 +217,7 @@ export async function teacherQuizList(teacherId: string, limit?: number): Promis
       .from(S.quizQuestion)
       .innerJoin(S.question, eq(S.question.id, S.quizQuestion.questionId))
       .where(inArray(S.quizQuestion.quizId, quizIds)),
-    db.select({ classroomId: S.classroomMembership.classroomId, studentId: S.classroomMembership.studentId }).from(S.classroomMembership).where(inArray(S.classroomMembership.classroomId, classroomIds)),
+    db.select({ classroomId: S.classroomMembership.classroomId, studentId: S.classroomMembership.studentId }).from(S.classroomMembership).where(membersOf(classroomIds)),
     bestGrades(quizIds),
   ]);
   return rows.map(({ quiz, classroomName }) => {
@@ -248,7 +249,7 @@ export async function studentsPendingQuiz(teacherId: string, quizLimit = 3) {
       .select({ id: S.user.id, name: S.user.name })
       .from(S.classroomMembership)
       .innerJoin(S.user, eq(S.user.id, S.classroomMembership.studentId))
-      .where(eq(S.classroomMembership.classroomId, k.classroomId))
+      .where(memberOf(k.classroomId))
       .orderBy(S.user.name);
     const done = new Set((await bestGrades([k.id])).map((n) => n.studentId));
     result.push({ quizId: k.id, title: k.title, classroomName: k.classroomName, student: member.filter((a) => !done.has(a.id)) });
@@ -274,7 +275,7 @@ export async function classGradeMatrix(classroomId: string): Promise<ClassGradeM
       .select({ id: S.user.id, name: S.user.name, email: S.user.email })
       .from(S.classroomMembership)
       .innerJoin(S.user, eq(S.user.id, S.classroomMembership.studentId))
-      .where(eq(S.classroomMembership.classroomId, classroomId))
+      .where(memberOf(classroomId))
       .orderBy(S.user.name),
     db
       .select({ id: S.quiz.id, title: S.quiz.title })

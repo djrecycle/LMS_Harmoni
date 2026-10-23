@@ -17,6 +17,7 @@ import { newInviteCode, parseRosterWorkbook, type RosterRow } from "@/lib/roster
 import { firstNameBase, shortUsername, usernameField } from "@/lib/username";
 import { getT } from "@/i18n/server";
 import type { Translate } from "@/i18n";
+import { memberOf, membersOf } from "@/lib/members";
 
 const S = schema;
 const refresh = () => revalidatePath("/", "layout");
@@ -227,7 +228,7 @@ export async function resetClassPasswords(classroomId: string, studentIds: unkno
     .select({ studentId: S.user.id, name: S.user.name, username: S.user.username })
     .from(S.classroomMembership)
     .innerJoin(S.user, eq(S.user.id, S.classroomMembership.studentId))
-    .where(and(eq(S.classroomMembership.classroomId, classroom.id), inArray(S.user.id, ids.data)))
+    .where(and(memberOf(classroom.id), inArray(S.user.id, ids.data)))
     .orderBy(S.user.name);
   const rows = students.filter((s): s is ResetPasswordRow => !!s.username);
   if (rows.length === 0) return fail(t("Choose at least one student."));
@@ -265,7 +266,7 @@ export async function previewShortUsernames(classroomId: string): Promise<Action
     .select({ id: S.user.id, name: S.user.name, username: S.user.username })
     .from(S.classroomMembership)
     .innerJoin(S.user, eq(S.user.id, S.classroomMembership.studentId))
-    .where(eq(S.classroomMembership.classroomId, classroom.id))
+    .where(memberOf(classroom.id))
     .orderBy(S.user.name);
   const used = new Set((await db.select({ username: S.user.username }).from(S.user)).map((u) => u.username).filter((u): u is string => !!u));
 
@@ -303,7 +304,7 @@ export async function applyShortUsernames(classroomId: string, data: unknown): P
     .select({ id: S.user.id, username: S.user.username, email: S.user.email })
     .from(S.classroomMembership)
     .innerJoin(S.user, eq(S.user.id, S.classroomMembership.studentId))
-    .where(eq(S.classroomMembership.classroomId, classroom.id));
+    .where(memberOf(classroom.id));
   const byId = new Map(members.map((m) => [m.id, m]));
   if (items.some((i) => !byId.get(i.studentId)?.username)) return fail(t("The list of usernames is invalid. Open the preview again."));
 

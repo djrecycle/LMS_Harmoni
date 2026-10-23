@@ -82,6 +82,8 @@ export async function removeStudent(id: string): Promise<ActionResult> {
 export async function joinClassroom(_: ActionResult, fd: FormData): Promise<ActionResult> {
   const t = await getT();
   const student = await requireStudent();
+  // The test student stays in the one class Student view was opened for.
+  if (student.studentView) return fail(t("This is not available in Student view."));
   const code = String(fd.get("code") ?? "").trim().toUpperCase().replace(/\s+/g, "");
   if (code.length < 4) return { ok: false, error: t("Enter the class code from your teacher."), fieldErrors: { code: t("Enter the class code") } };
 
