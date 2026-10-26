@@ -190,7 +190,11 @@ export function PianoSongForm({
                 </p>
                 <p>
                   <b>{t("Keyboard")}:</b>{" "}
-                  {t("Space = play/stop · Delete = delete · Ctrl+Z / Ctrl+Y = undo/redo · Ctrl+A = select all · Ctrl+B = duplicate · ↑↓ = semitone (Shift = octave) · ←→ = move · P / E / D = draw / select / erase")}
+                  {t("Space = play/stop · Delete = delete · Ctrl+Z / Ctrl+Y = undo/redo · Ctrl+A = select all · Ctrl+B = duplicate · ↑↓ = semitone (Shift = octave) · ←→ = move")}
+                </p>
+                <p>
+                  <b>{t("Touch piano")}:</b>{" "}
+                  {t("press the keys under the roll to write notes one after another at the green line, like typing. Rest = a silence, Step back = remove the last step.")}
                 </p>
                 <p>{t("Click the bar numbers to play from that bar. Notes may overlap (chords, held bass notes). Download MIDI opens the song in FL Studio or another DAW.")}</p>
               </>
@@ -222,7 +226,8 @@ export function PianoSongForm({
       {preview && (
         <div className="grid gap-2">
           <p className="text-sm font-semibold">{t("Try it")}</p>
-          <SongPlayer key={`${v.format}|${v.doNote}|${v.notation}|${v.bpm}`} songs={[preview]} saveScores={false} />
+          {/* In the piano roll the laptop keyboard belongs to the touch piano that writes notes. */}
+          <SongPlayer key={`${v.format}|${v.doNote}|${v.notation}|${v.bpm}`} songs={[preview]} saveScores={false} computerKeys={v.format !== "roll"} />
         </div>
       )}
 

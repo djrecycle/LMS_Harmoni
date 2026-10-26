@@ -48,7 +48,8 @@ const EMPTY_KEYS: KeyState = { target: [], sounding: [], good: [], bad: [] };
  *  - play: the song waits at each note until the student presses the right key.
  *  - listen: the song plays by itself and the keys light up.
  */
-export function SongPlayer({ songs = SONGS, saveScores = true }: { songs?: Song[]; saveScores?: boolean }) {
+/** `computerKeys`: play with the laptop keyboard (off when another piano on the page uses it). */
+export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = true }: { songs?: Song[]; saveScores?: boolean; computerKeys?: boolean }) {
   const t = useT();
   const [songId, setSongId] = useState(songs[0].id);
   const song = songs.find((s) => s.id === songId) ?? songs[0];
@@ -168,6 +169,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true }: { songs?: Song[
   }, []);
 
   useEffect(() => {
+    if (!computerKeys) return;
     const notTyping = (el: EventTarget | null) => !(el instanceof HTMLElement) || (!/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) && !el.isContentEditable);
     const keyToMidi = (k: string): number | null => {
       const base = settings.current.range.first;
@@ -197,7 +199,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true }: { songs?: Song[
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, [press, release]);
+  }, [press, release, computerKeys]);
   const togglePlayRef = useRef(togglePlay);
   togglePlayRef.current = togglePlay;
 
@@ -482,7 +484,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true }: { songs?: Song[
           </Button>
         ) : null}
       </div>
-      <p className="hidden text-xs text-muted-foreground sm:block">
+      <p className={cn("hidden text-xs text-muted-foreground", computerKeys && "sm:block")}>
         {t("Computer keyboard: A S D F G H J K L for white keys, W E T Y U O P for black keys, Space to play/pause.")}
       </p>
     </div>
