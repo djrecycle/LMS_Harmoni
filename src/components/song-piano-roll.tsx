@@ -10,7 +10,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ArrowDown, ArrowUp, Circle, Copy, Delete, Download, Eraser, MousePointer2, Pause, Pencil, Piano as PianoIcon, Play, Redo2, Square, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowDown, ArrowUp, Circle, Copy, Delete, Download, Eraser, Maximize2, Minimize2, MousePointer2, Pause, Pencil, Piano as PianoIcon, Play, Redo2, Square, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { Piano } from "@/components/piano";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -103,6 +103,11 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
   const [record, setRecord] = useState(true);
   const [writeAt, setWriteAtState] = useState(() => Math.ceil(initial.reduce((m, n) => Math.max(m, n.start + n.beats), 0)));
   const writeAtRef = useRef(writeAt);
+  // Full screen: the editor covers the whole window (and the browser's own full screen where supported).
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [full, setFull] = useState(false);
+  const viaApi = useRef(false);
+  const [viewW, setViewW] = useState(0);
   const held = useRef(0);
   const chordStart = useRef(0);
   const [, setHistoryVersion] = useState(0);
@@ -202,7 +207,9 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
   };
 
   const songEnd = useMemo(() => notes.reduce((m, n) => Math.max(m, n.start + n.beats), 0), [notes]);
-  const totalBeats = Math.min(MAX_ROLL_BEATS, Math.max(BAR * 8, Math.ceil((songEnd + BAR * 2) / BAR) * BAR));
+  // At least 8 bars, two empty bars after the song, and enough to fill the visible width.
+  const fillBeats = Math.ceil((viewW - KEYS_W) / zoom / BAR) * BAR;
+  const totalBeats = Math.min(MAX_ROLL_BEATS, Math.max(BAR * 8, fillBeats, Math.ceil((songEnd + BAR * 2) / BAR) * BAR));
   const gridW = totalBeats * zoom;
   const gridH = (HIGH - LOW + 1) * ROW_H;
   const rows = useMemo(() => Array.from({ length: HIGH - LOW + 1 }, (_, i) => HIGH - i), []);
@@ -481,6 +488,53 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setViewW(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  /* ------------------------------- full screen ------------------------------- */
+
+  const enterFull = () => {
+    setFull(true);
+    const el = rootRef.current;
+    if (el?.requestFullscreen) {
+      el.requestFullscreen()
+        .then(() => (viaApi.current = true))
+        .catch(() => {}); // e.g. iPhone: the editor still fills the window
+    }
+  };
+  const exitFull = () => {
+    setFull(false);
+    if (viaApi.current && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    viaApi.current = false;
+  };
+  useEffect(() => {
+    if (!full) return;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    // Leaving the browser's full screen (Esc) also closes the editor's full screen.
+    const onFullscreenChange = () => {
+      if (viaApi.current && !document.fullscreenElement) {
+        viaApi.current = false;
+        setFull(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.defaultPrevented) setFull(false);
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = overflow;
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [full]);
+
   /* -------------------------------- playback -------------------------------- */
 
   const placePlayhead = useCallback(
@@ -545,7 +599,7 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
     else if (mod && k === "a") (setSelected(new Set(notesRef.current.map((n) => n.id))), handled());
     else if (mod && k === "b") (duplicateSelected(), handled());
     else if (k === "delete" || k === "backspace") (deleteSelected(), handled());
-    else if (k === "escape") setSelected(new Set());
+    else if (k === "escape" && selected.size) (setSelected(new Set()), handled());
     else if (k === " ") (playing ? stop() : void play(), handled());
     else if (k === "arrowup" || k === "arrowdown") (shiftSelected((k === "arrowup" ? 1 : -1) * (e.shiftKey ? 12 : 1), 0), handled());
     else if ((k === "arrowleft" || k === "arrowright") && selected.size) (shiftSelected(0, (k === "arrowright" ? 1 : -1) * snap), handled());
@@ -561,7 +615,15 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
   const bars = totalBeats / BAR;
 
   return (
-    <div className="grid min-w-0 gap-2">
+    <div ref={rootRef} className={cn(full ? "fixed inset-0 z-50 flex flex-col gap-2 overflow-y-auto bg-background p-3 sm:p-4" : "grid min-w-0 gap-2")}>
+      {full && (
+        <div className="flex items-center gap-2">
+          <p className="min-w-0 flex-1 font-bold break-words">{title.trim() || t("Piano roll")}</p>
+          <Button type="button" size="sm" onClick={exitFull}>
+            <Minimize2 /> {t("Done")}
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" onClick={() => (playing ? stop() : void play())} disabled={!notes.length}>
           {playing ? <Square /> : <Play />} {playing ? t("Stop") : playFrom > 0 ? t("Play from bar {0}", Math.floor(playFrom / BAR) + 1) : t("Play")}
@@ -650,6 +712,11 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
           >
             <ZoomIn />
           </Button>
+          {!full && (
+            <Button type="button" size="sm" variant="outline" onClick={enterFull}>
+              <Maximize2 /> {t("Full screen")}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -659,7 +726,7 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
         onKeyDown={onKeyDown}
         aria-label={t("Piano roll")}
         // contain:inline-size keeps the wide roll from stretching the page on phones; it scrolls here instead.
-        className="h-[26rem] overflow-auto overscroll-contain rounded-xl border bg-neutral-900 outline-none select-none [contain:inline-size] focus-visible:ring-2 focus-visible:ring-primary"
+        className={cn(full ? "min-h-[16rem] flex-1" : "h-[26rem]", "overflow-auto overscroll-contain rounded-xl border bg-neutral-900 outline-none select-none [contain:inline-size] focus-visible:ring-2 focus-visible:ring-primary")}
       >
         <div
           className="grid"
@@ -834,7 +901,7 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
         </span>
       </div>
 
-      <div className="grid gap-3 rounded-xl border p-3">
+      <div className={cn("grid gap-3 rounded-xl border p-3", full && "shrink-0")}>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" size="sm" variant={pianoOn ? "secondary" : "outline"} aria-expanded={pianoOn} onClick={() => setPianoOn((x) => !x)}>
             <PianoIcon /> {pianoOn ? t("Hide touch piano") : t("Show touch piano")}
@@ -871,12 +938,12 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
         </div>
         {pianoOn && (
           <>
-            {record && (
+            {record && !full && (
               <p className="text-xs text-muted-foreground">
                 {t("Press the keys: each note is written at the green line with the chosen note length, then the line moves on. Hold keys together for a chord. Laptop keys A S D F… and a MIDI keyboard work too.")}
               </p>
             )}
-            <Piano onNotePress={onPianoPress} onNoteRelease={onPianoRelease} />
+            <Piano onNotePress={onPianoPress} onNoteRelease={onPianoRelease} keysClassName={full ? "h-32 sm:h-40" : undefined} />
           </>
         )}
       </div>

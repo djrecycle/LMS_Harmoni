@@ -30,6 +30,8 @@ type Props = {
   formatName?: boolean;
   bolehMidi?: boolean;
   className?: string;
+  /** Overrides the height of the keys (default h-44 sm:h-56). */
+  keysClassName?: string;
 };
 
 export function Piano({
@@ -43,6 +45,7 @@ export function Piano({
   formatName = true,
   bolehMidi = true,
   className,
+  keysClassName,
 }: Props) {
   const t = useT();
   const storeRef = useRef<HTMLDivElement>(null);
@@ -213,7 +216,7 @@ export function Piano({
         ref={storeRef}
         role="group"
         aria-label={t("Virtual piano")}
-        className={cn("relative h-44 w-full select-none overflow-hidden rounded-xl bg-neutral-900 p-1.5 pt-3 shadow-inner sm:h-56", disabled && "opacity-60")}
+        className={cn("relative h-44 w-full select-none overflow-hidden rounded-xl bg-neutral-900 p-1.5 pt-3 shadow-inner sm:h-56", keysClassName, disabled && "opacity-60")}
       >
         <div className="relative flex h-full w-full">
           {white.map((m) => (

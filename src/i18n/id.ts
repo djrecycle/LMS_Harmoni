@@ -1946,4 +1946,5 @@ export const id: Record<string, string> = {
   "Click to choose where playback starts and where the touch piano writes": "Klik untuk memilih titik mulai pemutaran dan tempat piano sentuh menulis",
   "Touch piano": "Piano sentuh",
   "press the keys under the roll to write notes one after another at the green line, like typing. Rest = a silence, Step back = remove the last step.": "tekan tuts di bawah piano roll untuk menulis not berurutan di garis hijau, seperti mengetik. Jeda = diam, Mundur = hapus langkah terakhir.",
+  "Full screen": "Layar penuh",
 };
