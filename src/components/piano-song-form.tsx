@@ -5,14 +5,16 @@ import { ChevronDown, ChevronUp, FileMusic, LoaderCircle, Upload, WandSparkles, 
 import { generateSongDraft, savePianoSong, type SongDraft } from "@/app/actions/piano-song";
 import { FormMessage } from "@/components/form-message";
 import { ProviderSelect, providerReady, useProviderPick, type ProviderOption } from "@/components/provider-select";
+import { SongPianoRoll } from "@/components/song-piano-roll";
 import { SongPlayer } from "@/components/song-player";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { Alert, Badge } from "@/components/ui/misc";
 import { SubmitButton } from "@/components/ui/submit";
 import { initialState } from "@/lib/action-result";
-import { MidiFileError, midiToNotation, parseMidiFile, type MidiFile } from "@/lib/midi-file";
-import { parseSongNotation, songParseMessage, type Song, type SongFormat } from "@/lib/songs";
+import { MidiFileError, midiToNotation, notesToAngka, parseMidiFile, type MidiFile } from "@/lib/midi-file";
+import { noteToMidi } from "@/lib/music";
+import { MAX_SONG_NOTES, notesToRoll, parseSongNotation, songParseMessage, type Song, type SongFormat, type SongNote } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 
@@ -39,6 +41,9 @@ export function PianoSongForm({
   const [v, setV] = useState<Values>(song ?? { title: "", origin: "", level: 1, bpm: 90, format: "angka", doNote: "C4", notation: "" });
   const [classroomIds, setClassroomIds] = useState<string[]>(initialClassroomIds);
   const [showHelp, setShowHelp] = useState(false);
+  // Bumped whenever the notation is replaced from outside the piano roll, so the roll reloads it.
+  const [rollKey, setRollKey] = useState(0);
+  const [formatNote, setFormatNote] = useState("");
   const set = <K extends keyof Values>(k: K, x: Values[K]) => setV((o) => ({ ...o, [k]: x }));
   const e = state.fieldErrors ?? {};
 
@@ -54,6 +59,33 @@ export function PianoSongForm({
   function fill(d: Partial<Values>) {
     // The melody is replaced; title and region only fill empty fields.
     setV((o) => ({ ...o, ...d, title: o.title.trim() || d.title || "", origin: o.origin.trim() || d.origin || "" }));
+    setRollKey((k) => k + 1);
+    setFormatNote("");
+  }
+
+  /** Switching to the piano roll keeps the melody exactly; switching away writes it as text (overlaps become chords). */
+  function changeFormat(f: SongFormat) {
+    if (f === v.format) return;
+    setFormatNote("");
+    let format = f;
+    let notation = v.notation;
+    if (f === "roll") {
+      if (!parsed.ok && v.notation.trim()) return setFormatNote(t("Fix the melody first, then open it in the piano roll."));
+      notation = parsed.ok ? notesToRoll(parsed.notes) : "";
+    } else if (v.format === "roll" && parsed.ok) {
+      const asLetters = () => midiToNotation(parsed.notes, { melodyOnly: false, keepLeadingRest: true });
+      if (f === "angka") {
+        const angka = notesToAngka(parsed.notes, noteToMidi(v.doNote) ?? 60, { melodyOnly: false, keepLeadingRest: true });
+        if (angka === null) {
+          format = "letters";
+          notation = asLetters();
+          setFormatNote(t("Some notes are not in the scale of do = {0}, so the melody is written in note letters.", v.doNote.replace(/\d/, "")));
+        } else notation = angka;
+      } else notation = asLetters();
+      if (format === f) setFormatNote(t("The piano roll was written as text. Notes that overlap became chords; check the preview."));
+    }
+    setV((o) => ({ ...o, format, notation }));
+    setRollKey((k) => k + 1);
   }
 
   return (
@@ -91,13 +123,14 @@ export function PianoSongForm({
             [
               ["angka", t("Notasi angka (1 2 3)")],
               ["letters", t("Note letters (C4 D4 E4)")],
+              ["roll", t("Piano roll (like FL Studio)")],
             ] as const
           ).map(([f, label]) => (
             <button
               key={f}
               type="button"
               aria-pressed={v.format === f}
-              onClick={() => set("format", f)}
+              onClick={() => changeFormat(f)}
               className={cn("rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors", v.format === f ? "border-primary bg-primary text-primary-foreground" : "hover:bg-muted")}
             >
               {label}
@@ -115,18 +148,30 @@ export function PianoSongForm({
               </Select>
             </label>
           )}
-          {v.format === "letters" && <input type="hidden" name="doNote" value="C4" />}
+          {v.format !== "angka" && <input type="hidden" name="doNote" value="C4" />}
         </div>
 
-        <Textarea
-          rows={7}
-          value={v.notation}
-          onChange={(x) => set("notation", x.target.value)}
-          className="font-mono text-sm"
-          spellCheck={false}
-          placeholder={v.format === "angka" ? "1 3 1 3 | 4 5 5 - | 7 1':0.5 7:0.5 5 0 |" : "E4 D4 C4 D4 | E4 E4 E4:2 |"}
-          aria-label={t("Melody")}
-        />
+        {formatNote && <Alert kind="info">{formatNote}</Alert>}
+
+        {v.format === "roll" ? (
+          <SongPianoRoll
+            key={rollKey}
+            initial={parsed.ok ? parsed.notes : []}
+            bpm={v.bpm >= 30 && v.bpm <= 240 ? v.bpm : 90}
+            title={v.title}
+            onChange={(notes) => set("notation", notesToRoll(notes))}
+          />
+        ) : (
+          <Textarea
+            rows={7}
+            value={v.notation}
+            onChange={(x) => set("notation", x.target.value)}
+            className="font-mono text-sm"
+            spellCheck={false}
+            placeholder={v.format === "angka" ? "1 3 1 3 | 4 5 5 - | 7 1':0.5 7:0.5 5 0 |" : "E4 D4 C4 D4 | E4 E4 E4:2 |"}
+            aria-label={t("Melody")}
+          />
+        )}
         {(parseError || e.notation) && <p className="text-xs font-medium text-danger">{parseError ?? e.notation}</p>}
         {parsed.ok && <p className="text-xs text-muted-foreground">{t("{0} notes", parsed.notes.length)}</p>}
 
@@ -135,7 +180,21 @@ export function PianoSongForm({
         </button>
         {showHelp && (
           <div className="grid gap-1.5 rounded-lg bg-muted p-3 text-sm">
-            {v.format === "angka" ? (
+            {v.format === "roll" ? (
+              <>
+                <p>
+                  <b>{t("Mouse")}:</b> {t("click an empty spot to add a note, drag a note to move it, drag its right edge to make it longer, right-click to delete. Shift+click selects several notes.")}
+                </p>
+                <p>
+                  <b>{t("Phone / tablet")}:</b> {t("tap to add a note, drag a note to move it, swipe the empty grid to scroll. Use the Erase tool to delete.")}
+                </p>
+                <p>
+                  <b>{t("Keyboard")}:</b>{" "}
+                  {t("Space = play/stop · Delete = delete · Ctrl+Z / Ctrl+Y = undo/redo · Ctrl+A = select all · Ctrl+B = duplicate · ↑↓ = semitone (Shift = octave) · ←→ = move · P / E / D = draw / select / erase")}
+                </p>
+                <p>{t("Click the bar numbers to play from that bar. Notes may overlap (chords, held bass notes). Download MIDI opens the song in FL Studio or another DAW.")}</p>
+              </>
+            ) : v.format === "angka" ? (
               <>
                 <p>
                   <code>1 2 3 4 5 6 7</code> = do re mi fa sol la si · <code>1&apos;</code> = {t("one octave up")} · <code>5.</code> = {t("one octave down")} · <code>0</code> = {t("rest")}
@@ -146,12 +205,16 @@ export function PianoSongForm({
                 <code>C4 D#4 Bb3</code> = {t("note name and octave (middle C = C4)")} · <code>R</code> = {t("rest")}
               </p>
             )}
-            <p>
-              <code>-</code> = {t("hold the previous note one more beat")} · <code>:0.5</code> = {t("eighth note")} · <code>:2</code> = {t("half note")} · <code>:1.5</code> = {t("dotted quarter")}
-            </p>
-            <p>
-              <code>|</code> = {t("bar line (optional, ignored)")} · <code>{v.format === "angka" ? "1+3+5:2" : "C4+E4+G4:2"}</code> = {t("chord")}
-            </p>
+            {v.format !== "roll" && (
+              <>
+              <p>
+                <code>-</code> = {t("hold the previous note one more beat")} · <code>:0.5</code> = {t("eighth note")} · <code>:2</code> = {t("half note")} · <code>:1.5</code> = {t("dotted quarter")}
+              </p>
+              <p>
+                <code>|</code> = {t("bar line (optional, ignored)")} · <code>{v.format === "angka" ? "1+3+5:2" : "C4+E4+G4:2"}</code> = {t("chord")}
+              </p>
+              </>
+            )}
           </div>
         )}
       </fieldset>
@@ -231,10 +294,20 @@ function SongAiPanel({ providers, remaining: remainingInitial, limit, onFill }: 
 
   const midiText = midi ? midiToNotation(midi.file.notes, { melodyOnly }) : "";
 
+  /** Opens the MIDI file in the piano roll as it is (or only its top melody line). No AI needed. */
   function fromMidi() {
     if (!midi) return;
-    onFill({ format: "letters", doNote: "C4", notation: midiText, bpm: midi.file.bpm, title: midi.name.replace(/\.midi?$/i, "").replace(/[_-]+/g, " ") });
-    setResult({ note: t("Converted from the MIDI file without AI. Check the melody and remove parts you don't need."), warning: null });
+    let notes: SongNote[] = midi.file.notes;
+    if (melodyOnly) {
+      const r = parseSongNotation("letters", midiToNotation(notes, { melodyOnly: true, keepLeadingRest: true }));
+      notes = r.ok ? r.notes : [];
+    }
+    // Start at the first bar that has a note.
+    const offset = Math.floor(Math.min(...notes.map((n) => n.start)) / 4) * 4;
+    notes = notes.slice(0, MAX_SONG_NOTES).map((n) => ({ midi: n.midi, start: Math.round((n.start - offset) * 1000) / 1000, beats: Math.max(0.01, Math.round(n.beats * 1000) / 1000) }));
+    onFill({ format: "roll", doNote: "C4", notation: notesToRoll(notes), bpm: midi.file.bpm, title: midi.name.replace(/\.midi?$/i, "").replace(/[_-]+/g, " ") });
+    const note = t("The MIDI file is open in the piano roll below (no AI). Check the melody and remove parts you don't need.");
+    setResult({ note: midi.file.notes.length > MAX_SONG_NOTES && !melodyOnly ? `${note} ${t("Only the first {0} notes were kept.", MAX_SONG_NOTES)}` : note, warning: null });
   }
 
   function withAi() {
@@ -316,7 +389,7 @@ function SongAiPanel({ providers, remaining: remainingInitial, limit, onFill }: 
                 </label>
                 <div>
                   <Button type="button" variant="secondary" size="sm" onClick={fromMidi}>
-                    <FileMusic /> {t("Use the MIDI directly (no AI)")}
+                    <FileMusic /> {t("Open in the piano roll (no AI)")}
                   </Button>
                 </div>
               </div>

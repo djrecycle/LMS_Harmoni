@@ -6,8 +6,10 @@
  *    1-7 = do-si, ' after = an octave up, . after = an octave down, 0 = rest,
  *    - = hold the previous note one more beat, :0.5 = length in beats, | bar lines are ignored.
  *  Chords in both: join notes with "+", e.g. "C4+E4+G4:2" or "1+3+5:2".
+ *  - `roll` (written by the piano roll editor): every note has its own start, "C4@0:1 E4@0:2 G4@1.5:0.5"
+ *    (note@start-beat:length-in-beats), so notes may overlap freely, as in a DAW.
  */
-import { noteToMidi } from "./music";
+import { midiToNote, noteToMidi } from "./music";
 
 export type SongNote = { midi: number; start: number; beats: number };
 /** `origin`: the region of an Indonesian folk song (lagu daerah). */
@@ -93,7 +95,8 @@ const SOURCES: SongSource[] = [
 const SCALE_STEPS = [0, 2, 4, 5, 7, 9, 11];
 export const MAX_SONG_NOTES = 2000;
 
-export type SongFormat = "angka" | "letters";
+export type SongFormat = "angka" | "letters" | "roll";
+export const SONG_FORMATS = ["angka", "letters", "roll"] as const;
 /** A melody that cannot be read: `token` is the part of the text that is wrong. */
 export type SongParseResult = { ok: true; notes: SongNote[] } | { ok: false; error: "empty" | "token" | "do" | "range" | "too_long"; token?: string };
 
@@ -102,6 +105,7 @@ export type SongParseResult = { ok: true; notes: SongNote[] } | { ok: false; err
  *  Never throws, so teacher input can be checked live.
  */
 export function parseSongNotation(format: SongFormat, notation: string, doNote = "C4"): SongParseResult {
+  if (format === "roll") return parseRoll(notation);
   const doMidi = noteToMidi(doNote);
   if (format === "angka" && doMidi === null) return { ok: false, error: "do", token: doNote };
   const notes: SongNote[] = [];
@@ -141,6 +145,38 @@ export function parseSongNotation(format: SongFormat, notation: string, doNote =
   }
   if (!notes.length) return { ok: false, error: "empty" };
   return { ok: true, notes };
+}
+
+const ROLL_TOKEN = /^([A-Ga-g][#b]?-?\d)@(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/;
+/** The longest song the piano roll accepts, in beats. */
+export const MAX_ROLL_BEATS = 4096;
+
+function parseRoll(notation: string): SongParseResult {
+  const notes: SongNote[] = [];
+  for (const token of notation.split(/\s+/).filter((x) => x && x !== "|")) {
+    const m = ROLL_TOKEN.exec(token);
+    const midi = m ? noteToMidi(m[1]) : null;
+    const start = m ? Number(m[2]) : NaN;
+    const beats = m ? Number(m[3]) : NaN;
+    if (midi === null || !(start >= 0 && start < MAX_ROLL_BEATS) || !(beats > 0 && beats <= 64)) return { ok: false, error: "token", token };
+    if (midi < 21 || midi > 108) return { ok: false, error: "range", token };
+    notes.push({ midi, start, beats });
+    if (notes.length > MAX_SONG_NOTES) return { ok: false, error: "too_long" };
+  }
+  if (!notes.length) return { ok: false, error: "empty" };
+  // The song player walks the notes in time order.
+  notes.sort((a, b) => a.start - b.start || b.midi - a.midi);
+  return { ok: true, notes };
+}
+
+const fmtBeat = (x: number) => String(Number(x.toFixed(3)));
+
+/** Notes -> "roll" text (lossless). Eight notes per line keep it readable. */
+export function notesToRoll(notes: SongNote[]): string {
+  return [...notes]
+    .sort((a, b) => a.start - b.start || b.midi - a.midi)
+    .map((n) => `${midiToNote(n.midi)}@${fmtBeat(n.start)}:${fmtBeat(n.beats)}`)
+    .reduce((acc, tok, i) => acc + (i === 0 ? "" : i % 8 === 0 ? "\n" : " ") + tok, "");
 }
 
 /** English message for a parse error (translate it with t(); `{0}` is the wrong token). */

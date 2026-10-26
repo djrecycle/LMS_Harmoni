@@ -480,8 +480,8 @@ export const pianoSong = pgTable(
     origin: text("origin").notNull().default(""),
     level: integer("level").notNull().default(1),
     bpm: integer("bpm").notNull().default(90),
-    /** "angka" (notasi angka, with doNote) or "letters" (C4:1 E4:0.5 ...). See src/lib/songs.ts. */
-    format: text("format").$type<"angka" | "letters">().notNull().default("angka"),
+    /** "angka" (notasi angka, with doNote), "letters" (C4:1 E4:0.5 ...) or "roll" (piano roll, C4@0:1). See src/lib/songs.ts. */
+    format: text("format").$type<"angka" | "letters" | "roll">().notNull().default("angka"),
     doNote: text("do_note").notNull().default("C4"),
     notation: text("notation").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

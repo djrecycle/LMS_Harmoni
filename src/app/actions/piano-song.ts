@@ -9,7 +9,7 @@ import { getOwnedPianoSong } from "@/lib/access";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
 import { AiError, aiErrorMessage, generateJson, isPerangkatAiAvailable, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, remainingAllowance, takeAllowance } from "@/lib/ai";
-import { parseSongNotation, songParseMessage, type SongFormat } from "@/lib/songs";
+import { parseSongNotation, SONG_FORMATS, songParseMessage, type SongFormat } from "@/lib/songs";
 import { requireTeacher } from "@/lib/session";
 import { getT } from "@/i18n/server";
 
@@ -21,9 +21,9 @@ const songSchema = z.object({
   origin: z.string().trim().max(120).default(""),
   level: z.coerce.number().int().min(1).max(3),
   bpm: z.coerce.number().int().min(30, "Tempo must be 30-240 BPM").max(240, "Tempo must be 30-240 BPM"),
-  format: z.enum(["angka", "letters"]),
+  format: z.enum(SONG_FORMATS),
   doNote: z.string().trim().max(4).default("C4"),
-  notation: z.string().max(20_000),
+  notation: z.string().max(60_000),
 });
 
 export async function savePianoSong(_: ActionResult, fd: FormData): Promise<ActionResult> {
