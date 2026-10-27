@@ -6,7 +6,9 @@ import { PracticeMaterialCard } from "@/components/practice-material-view";
 import { Badge, PageHeader } from "@/components/ui/misc";
 import { db, schema } from "@/db";
 import { PRACTICE_KIND_LABEL } from "@/lib/practice";
+import { isRhythmOnly, rhythmBlocksOf } from "@/lib/rhythm-materials";
 import { requireStudent } from "@/lib/session";
+import { studentPracticeMaterials } from "@/lib/student-data";
 import { formatDateTime } from "@/lib/utils";
 import { getT } from "@/i18n/server";
 
@@ -29,19 +31,13 @@ export default async function PracticeHub() {
   const t = await getT();
   const student = await requireStudent();
   const S = schema;
-  const [latest, materialRows] = await Promise.all([
+  const [latest, allMaterials] = await Promise.all([
     db.select().from(S.practiceResult).where(eq(S.practiceResult.studentId, student.id)).orderBy(desc(S.practiceResult.createdAt)).limit(6),
-    // Practice materials the teacher showed to one of this student's classes.
-    db
-      .select({ id: S.practiceMaterial.id, title: S.practiceMaterial.title, description: S.practiceMaterial.description, typeMedia: S.practiceMaterial.typeMedia })
-      .from(S.classroomPracticeMaterial)
-      .innerJoin(S.classroomMembership, eq(S.classroomMembership.classroomId, S.classroomPracticeMaterial.classroomId))
-      .innerJoin(S.practiceMaterial, eq(S.practiceMaterial.id, S.classroomPracticeMaterial.practiceMaterialId))
-      .where(eq(S.classroomMembership.studentId, student.id))
-      .orderBy(desc(S.practiceMaterial.updatedAt)),
+    studentPracticeMaterials(student.id),
   ]);
-  // A student in two classes that both see the same material gets it once.
-  const materials = materialRows.filter((m, i) => materialRows.findIndex((x) => x.id === m.id) === i);
+  // Rhythm-only materials are practised in Rhythm Practice, not listed here as separate cards.
+  const materials = allMaterials.filter((m) => !isRhythmOnly(m));
+  const teacherRhythms = allMaterials.reduce((n, m) => n + rhythmBlocksOf(m.content).length, 0);
   return (
     <>
       <PageHeader title={t("Instrument Practice")} description={t("Practice any time. The more you play, the smoother you get!")} />
@@ -54,6 +50,11 @@ export default async function PracticeHub() {
             <div>
               <h2 className="text-lg font-bold">{t(title)}</h2>
               <p className="text-sm text-muted-foreground">{t(content)}</p>
+              {href === "/student/practice/rhythm" && teacherRhythms > 0 && (
+                <Badge tone="primary" className="mt-1.5">
+                  {t("{0} patterns from your teacher", teacherRhythms)}
+                </Badge>
+              )}
             </div>
           </Link>
         ))}

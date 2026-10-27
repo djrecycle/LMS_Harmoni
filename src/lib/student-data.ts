@@ -131,3 +131,22 @@ export async function studentProgress(studentId: string) {
     lastScore: last ?? null,
   };
 }
+
+/** Practice materials the teacher showed to one of the student's classes (each once), newest first. */
+export async function studentPracticeMaterials(studentId: string) {
+  const rows = await db
+    .select({
+      id: S.practiceMaterial.id,
+      title: S.practiceMaterial.title,
+      description: S.practiceMaterial.description,
+      typeMedia: S.practiceMaterial.typeMedia,
+      content: S.practiceMaterial.content,
+    })
+    .from(S.classroomPracticeMaterial)
+    .innerJoin(S.classroomMembership, eq(S.classroomMembership.classroomId, S.classroomPracticeMaterial.classroomId))
+    .innerJoin(S.practiceMaterial, eq(S.practiceMaterial.id, S.classroomPracticeMaterial.practiceMaterialId))
+    .where(eq(S.classroomMembership.studentId, studentId))
+    .orderBy(desc(S.practiceMaterial.updatedAt));
+  // A student in two classes that both see the same material gets it once.
+  return rows.filter((m, i) => rows.findIndex((x) => x.id === m.id) === i);
+}

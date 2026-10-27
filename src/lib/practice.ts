@@ -1,12 +1,32 @@
-/** Practice rhythm patterns. `onset` is in beats (1 = quarter note), counted from the start of the pattern. */
-export type RhythmPattern = { id: string; name: string; description: string; onset: number[]; length: number };
+import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
+
+/**
+ * Practice rhythm patterns. `onset` is in beats (1 = quarter note), counted from the start of the pattern;
+ *  `length` in beats (4 per bar). `level`: 1 = one bar, 2 = two bars, 3 = four bars.
+ *  Patterns written by a teacher (a rhythm block of a practice material) also carry their note values, tempo and material.
+ */
+export type RhythmPattern = {
+  id: string;
+  name: string;
+  description: string;
+  onset: number[];
+  length: number;
+  level?: 1 | 2 | 3;
+  glyphs?: NoteGlyphKind[];
+  bpm?: number;
+  materialId?: string;
+};
 
 export const RHYTHM_PATTERNS: RhythmPattern[] = [
   { id: "base", name: "Basic beats", description: "Ta – ta – ta – ta", onset: [0, 1, 2, 3], length: 4 },
   { id: "ta-ti-ti", name: "Ta – ti-ti – ta", description: "One beat split into two on beat 2", onset: [0, 1, 1.5, 2, 3], length: 4 },
   { id: "ta-ta-ti-ti", name: "Two beats then ti-ti", description: "Ta – ta – ti-ti – ta", onset: [0, 1, 2, 2.5, 3], length: 4 },
   { id: "sinkopasi", name: "Light syncopation", description: "Emphasis between the beats", onset: [0, 0.5, 1.5, 2, 3], length: 4 },
-  { id: "two-bar", name: "Two bars", description: "A longer pattern for a challenge", onset: [0, 1, 1.5, 2, 3, 4, 4.5, 5, 6, 6.5, 7], length: 8 },
+  { id: "two-bar", name: "Two bars", description: "A longer pattern for a challenge", onset: [0, 1, 1.5, 2, 3, 4, 4.5, 5, 6, 6.5, 7], length: 8, level: 2 },
+  { id: "two-bar-long", name: "Two bars with a long note", description: "Ta – ti-ti – ta – ta | ta-a – ta – ta", onset: [0, 1, 1.5, 2, 3, 4, 6, 7], length: 8, level: 2 },
+  { id: "two-bar-syncopation", name: "Two bars of syncopation", description: "Off-beat notes in the first bar, steady beats after", onset: [0, 0.5, 1.5, 2, 3, 4, 5, 5.5, 6], length: 8, level: 2 },
+  { id: "four-bar", name: "Four bars", description: "A whole phrase: steady beats, ti-ti, then long notes", onset: [0, 1, 2, 3, 4, 5, 5.5, 6, 7, 8, 8.5, 9, 10, 12, 14], length: 16, level: 3 },
+  { id: "four-bar-syncopation", name: "Four bars with syncopation", description: "A long, lively phrase with notes between the beats", onset: [0, 1, 1.5, 2, 3, 4, 4.5, 5.5, 6, 7, 8, 9, 9.5, 10, 10.5, 11, 12, 13, 14], length: 16, level: 3 },
   // "Bank Pola" from the Pola Irama Sederhana lesson (Kelas VII).
   { id: "pola-a", name: "Pola A — Tepuk Dasar", description: "tepuk – tepuk – diam – tepuk", onset: [0, 1, 3], length: 4 },
   { id: "pola-b", name: "Pola B — Langkah Ganda", description: "dua bunyi pendek lalu satu bunyi panjang", onset: [0, 0.5, 1, 2, 2.5, 3], length: 4 },

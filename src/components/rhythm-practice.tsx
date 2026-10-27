@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Drum, Headphones, RotateCcw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { BookOpen, CircleDot, Drum, Headphones, Music2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { savePracticeResult } from "@/app/actions/practice";
 import { PRACTICE_NOT_LINKED } from "@/lib/practice";
@@ -9,11 +10,18 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/misc";
 import { Select } from "@/components/ui/input";
 import { unlockAudio, scheduleClick, audioLatency, scheduleNote, audioTime } from "@/lib/audio";
-import { gradeRhythm, RHYTHM_PATTERNS, type BeatResult } from "@/lib/practice";
+import { gradeRhythm, RHYTHM_PATTERNS, type BeatResult, type RhythmPattern } from "@/lib/practice";
+import { ScoreView } from "@/components/score-view";
+import { isRestGlyph, NOTE_GLYPH_BEATS } from "@/lib/music-blocks";
+import { onsetsToPattern } from "@/lib/rhythm";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 
 type Phase = "ready" | "listen" | "turn" | "result";
+type View = "dots" | "staff";
+
+const LEVEL_LABEL: Record<1 | 2 | 3, string> = { 1: "Easy (1 bar)", 2: "Medium (2 bars)", 3: "Hard (4 bars)" };
+const VIEW_KEY = "rhythm-practice-view";
 
 /**
  * `saveResult: false` keeps the score local — saving needs a student session (a teacher previewing a lesson would be redirected).
@@ -24,16 +32,54 @@ export function RhythmPractice({
   initialBpm,
   saveResult = true,
   materialId,
-}: { initialPatternId?: string; initialBpm?: number; saveResult?: boolean; materialId?: string } = {}) {
+  teacherPatterns = [],
+}: {
+  initialPatternId?: string;
+  initialBpm?: number;
+  saveResult?: boolean;
+  materialId?: string;
+  /** Rhythm blocks of the teacher's practice materials (see src/lib/rhythm-materials.ts). */
+  teacherPatterns?: RhythmPattern[];
+} = {}) {
   const t = useT();
-  const [patternId, setPatternId] = useState(RHYTHM_PATTERNS.some((p) => p.id === initialPatternId) ? initialPatternId! : RHYTHM_PATTERNS[0].id);
-  const [bpm, setBpm] = useState(initialBpm ?? 80);
+  const patterns = useMemo(() => [...teacherPatterns, ...RHYTHM_PATTERNS], [teacherPatterns]);
+  const [patternId, setPatternId] = useState(patterns.some((p) => p.id === initialPatternId) ? initialPatternId! : patterns[0].id);
+  const [bpm, setBpm] = useState(initialBpm ?? patterns.find((p) => p.id === patternId)?.bpm ?? 80);
+  const [view, setView] = useState<View>("dots");
+  const [cursor, setCursor] = useState<number | null>(null);
+  const viewRef = useRef<View>("dots");
+  viewRef.current = view;
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(VIEW_KEY);
+      if (v === "dots" || v === "staff") setView(v);
+    } catch {}
+  }, []);
+  const chooseView = (v: View) => {
+    setView(v);
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {}
+  };
   const [phase, setPhase] = useState<Phase>("ready");
   const [info, setInfo] = useState("");
   const [result, setResult] = useState<{ score: number; detail: BeatResult[]; extra: number } | null>(null);
   const [tapCount, setTapCount] = useState(0);
 
-  const pattern = RHYTHM_PATTERNS.find((p) => p.id === patternId)!;
+  const pattern = patterns.find((p) => p.id === patternId) ?? patterns[0];
+  // Note values for the staff view: the teacher's own, or worked out from the onsets; padded with rests to the full length.
+  const glyphs = useMemo(() => {
+    const g = pattern.glyphs ?? onsetsToPattern(pattern.onset);
+    let beats = g.reduce((s, x) => s + NOTE_GLYPH_BEATS[x], 0);
+    const out = [...g];
+    while (beats < pattern.length - 1e-6) {
+      const quarter = pattern.length - beats >= 1 && Math.abs(beats - Math.round(beats)) < 1e-6;
+      out.push(quarter ? "rest-quarter" : "rest-eighth");
+      beats += quarter ? 1 : 0.5;
+    }
+    return out;
+  }, [pattern]);
+  const staffEvents = useMemo(() => glyphs.map((g) => ({ midis: isRestGlyph(g) ? null : [71], beats: NOTE_GLYPH_BEATS[g] })), [glyphs]);
   const phaseRef = useRef<Phase>("ready");
   const taps = useRef<number[]>([]);
   const schedule = useRef({ tS: 0, d: 0 });
@@ -68,6 +114,10 @@ export function RhythmPractice({
       if (playhead.current) {
         playhead.current.style.opacity = percent >= 0 ? "1" : "0";
         if (percent >= 0) playhead.current.style.left = `${percent}%`;
+      }
+      if (viewRef.current === "staff") {
+        const beat = percent >= 0 ? (percent / 100) * L : null;
+        setCursor((prev) => (prev === beat ? prev : beat));
       }
       if (phaseRef.current === "listen" || phaseRef.current === "turn") raf.current = requestAnimationFrame(frame);
     };
@@ -104,6 +154,7 @@ export function RhythmPractice({
   async function completed() {
     cancelAnimationFrame(raf.current);
     if (playhead.current) playhead.current.style.opacity = "0";
+    setCursor(null);
     const { tS, d } = schedule.current;
     const h = gradeRhythm(
       pattern.onset.map((o) => tS + o * d),
@@ -114,7 +165,14 @@ export function RhythmPractice({
     setPhaseAll("result");
     setInfo("");
     if (!saveResult) return;
-    const r = await savePracticeResult({ kind: "rhythm", title: t("Rhythm: {0} ({1} BPM)", t(pattern.name), bpm), score: h.score, detail: { patternId, bpm, diffs: h.detail.map((d) => d.diffMs), extra: h.extra }, materialId });
+    const name = pattern.materialId ? pattern.name : t(pattern.name);
+    const r = await savePracticeResult({
+      kind: "rhythm",
+      title: t("Rhythm: {0} ({1} BPM)", name, bpm),
+      score: h.score,
+      detail: { patternId: pattern.materialId ? `teacher:${pattern.materialId}` : patternId, bpm, diffs: h.detail.map((d) => d.diffMs), extra: h.extra },
+      materialId,
+    });
     if (!r.ok) toast.error(r.error);
     else if (materialId && !r.data?.linked) toast.warning(PRACTICE_NOT_LINKED);
   }
@@ -149,17 +207,41 @@ export function RhythmPractice({
       <div className="grid gap-3 rounded-xl border bg-card p-4 shadow-xs sm:grid-cols-[1fr_12rem_auto] sm:items-end">
         <label className="text-sm font-semibold">
           {t("Rhythm pattern")}
-          <Select value={patternId} onChange={(e) => setPatternId(e.target.value)} disabled={activeInProgress} className="mt-1.5">
-            {RHYTHM_PATTERNS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {t(p.name)}
-              </option>
+          <Select
+            value={patternId}
+            onChange={(e) => {
+              setPatternId(e.target.value);
+              setResult(null);
+              setPhaseAll("ready");
+              const next = patterns.find((p) => p.id === e.target.value);
+              if (next?.bpm) setBpm(next.bpm);
+            }}
+            disabled={activeInProgress}
+            className="mt-1.5"
+          >
+            {teacherPatterns.length > 0 && (
+              <optgroup label={t("From your teacher")}>
+                {teacherPatterns.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {"★".repeat(p.level ?? 1)} {p.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {([1, 2, 3] as const).map((level) => (
+              <optgroup key={level} label={`${"★".repeat(level)} ${t(LEVEL_LABEL[level])}`}>
+                {RHYTHM_PATTERNS.filter((p) => (p.level ?? 1) === level).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {t(p.name)}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </Select>
         </label>
         <label className="text-sm font-semibold">
           {t("Tempo:")} {bpm} BPM
-          <input type="range" min={50} max={140} value={bpm} onChange={(e) => setBpm(Number(e.target.value))} disabled={activeInProgress} className="mt-3 block w-full accent-[var(--primary)]" />
+          <input type="range" min={40} max={200} value={bpm} onChange={(e) => setBpm(Number(e.target.value))} disabled={activeInProgress} className="mt-3 block w-full accent-[var(--primary)]" />
         </label>
         <Button size="lg" onClick={start} disabled={activeInProgress}>
           {phase === "result" ? <RotateCcw /> : <Headphones />} {phase === "result" ? t("Repeat") : t("Start")}
@@ -167,15 +249,49 @@ export function RhythmPractice({
       </div>
 
       <div className="rounded-2xl border bg-card p-5 shadow-sm sm:p-7">
-        <p className="mb-1 text-sm text-muted-foreground">{t(pattern.description)}</p>
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+            {"★".repeat(pattern.level ?? 1)} · {t("{0} bars", pattern.length / 4)} · {pattern.materialId ? pattern.description : t(pattern.description)}
+          </p>
+          {pattern.materialId && (
+            <Link href={`/student/practice/materials/${pattern.materialId}`} className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
+              <BookOpen className="size-4" /> {t("See the material")}
+            </Link>
+          )}
+          <div className="inline-flex rounded-lg border bg-card p-0.5" role="radiogroup" aria-label={t("Display")}>
+            {(
+              [
+                ["dots", CircleDot, t("Dots")],
+                ["staff", Music2, t("Staff notation")],
+              ] as const
+            ).map(([v, Icon, label]) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={view === v}
+                onClick={() => chooseView(v)}
+                className={cn("inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-semibold", view === v ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
+              >
+                <Icon className="size-4" /> {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {view === "staff" && <ScoreView events={staffEvents} clef="rhythm" cursorBeat={cursor} className="my-4" />}
 
         {/* Pattern timeline */}
-        <div className="relative my-6 h-20 rounded-xl bg-muted" aria-hidden>
+        <div className={cn("relative my-6 h-20 rounded-xl bg-muted", view === "staff" && "hidden")} aria-hidden>
           {Array.from({ length: pattern.length + 1 }, (_, b) => (
             <span key={b} className={cn("absolute top-0 h-full w-px", b % 4 === 0 ? "bg-foreground/30" : "bg-foreground/10")} style={{ left: `${(b / pattern.length) * 100}%` }} />
           ))}
           {pattern.onset.map((o, i) => (
-            <span key={i} className="absolute top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow" style={{ left: `${(o / pattern.length) * 100}%` }} />
+            <span
+              key={i}
+              className={cn("absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary shadow", pattern.length > 8 ? "size-4" : "size-6")}
+              style={{ left: `${(o / pattern.length) * 100}%` }}
+            />
           ))}
           <div ref={playhead} className="absolute top-0 h-full w-1 -translate-x-1/2 rounded-full bg-accent opacity-0 shadow-[0_0_12px_var(--accent)]" />
         </div>

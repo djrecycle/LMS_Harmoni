@@ -4,7 +4,8 @@
  * Sheet music (VexFlow) for the chord and rhythm blocks: a sequence of events — a chord/note, or a rest — each a
  *  number of beats long, laid out in 4/4 bars. Notes that cross a bar line are split and tied; eighths are beamed;
  *  chord names sit above the notes. `cursorBeat` draws a moving play cursor over the score.
- *  `clef="percussion"` draws rhythms on a one-line percussion staff (pitch does not matter there).
+ *  `clef="percussion"` draws rhythms on a one-line percussion staff, `clef="rhythm"` on a five-line staff with a
+ *  percussion clef (pitch does not matter in either: every note sits on the middle line).
  */
 import { useEffect, useRef, useState } from "react";
 import { midiToNote, midiToVexKey } from "@/lib/music";
@@ -49,7 +50,7 @@ export function totalBeats(events: ScoreEvent[]) {
   return events.reduce((s, e) => s + e.beats, 0);
 }
 
-export function ScoreView({ events, clef = "treble", cursorBeat = null, className }: { events: ScoreEvent[]; clef?: "treble" | "percussion"; cursorBeat?: number | null; className?: string }) {
+export function ScoreView({ events, clef = "treble", cursorBeat = null, className }: { events: ScoreEvent[]; clef?: "treble" | "percussion" | "rhythm"; cursorBeat?: number | null; className?: string }) {
   const boxRef = useRef<HTMLDivElement>(null);
   const positions = useRef<{ beat: number; x: number }[]>([]);
   const [size, setSize] = useState({ top: 0, height: 0 });
@@ -66,6 +67,7 @@ export function ScoreView({ events, clef = "treble", cursorBeat = null, classNam
       const box = boxRef.current;
       if (!box || cancelled) return;
       box.innerHTML = "";
+      const drum = clef !== "treble";
       const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, ChordSymbol, Dot, Beam, StaveTie } = VF;
 
       // Lay the events out in bars.
@@ -76,11 +78,11 @@ export function ScoreView({ events, clef = "treble", cursorBeat = null, classNam
         split(pos, e.beats).forEach((p, pi) => {
           const rest = !e.midis || e.midis.length === 0;
           const sorted = rest ? [] : [...e.midis!].sort((a, b) => a - b);
-          const keys = rest || clef === "percussion" ? ["b/4"] : sorted.map(midiToVexKey);
-          const note = new StaveNote({ keys, duration: p.value[1] + (rest ? "r" : ""), clef: clef === "percussion" ? "percussion" : "treble", autoStem: clef !== "percussion" });
-          if (clef === "percussion" && !rest) note.setStemDirection(1);
+          const keys = rest || drum ? ["b/4"] : sorted.map(midiToVexKey);
+          const note = new StaveNote({ keys, duration: p.value[1] + (rest ? "r" : ""), clef: drum ? "percussion" : "treble", autoStem: !drum });
+          if (drum && !rest) note.setStemDirection(1);
           if (p.value[2]) Dot.buildAndAttach([note], { all: true });
-          if (clef !== "percussion") sorted.forEach((m, k) => midiToNote(m).includes("#") && note.addModifier(new Accidental("#"), k));
+          if (!drum) sorted.forEach((m, k) => midiToNote(m).includes("#") && note.addModifier(new Accidental("#"), k));
           // Chord symbols line up above the staff, whatever the notes' height.
           if (pi === 0 && e.label) note.addModifier(new ChordSymbol().addText(e.label).setFont("Arial", 15, "bold").setVertical("top"));
           const bar = Math.floor(p.start / BAR + EPS);
@@ -92,14 +94,14 @@ export function ScoreView({ events, clef = "treble", cursorBeat = null, classNam
       const end = Math.max(BAR, Math.ceil(pos / BAR - EPS) * BAR);
       if (end > pos + EPS) {
         split(pos, end - pos).forEach((p) => {
-          const note = new StaveNote({ keys: ["b/4"], duration: p.value[1] + "r", clef: clef === "percussion" ? "percussion" : "treble" });
+          const note = new StaveNote({ keys: ["b/4"], duration: p.value[1] + "r", clef: drum ? "percussion" : "treble" });
           if (p.value[2]) Dot.buildAndAttach([note], { all: true });
           (bars[Math.floor(p.start / BAR + EPS)] ??= []).push({ note, start: p.start, event: -1, first: true, rest: true });
         });
       }
 
-      const top = clef === "percussion" ? 10 : 30;
-      const height = clef === "percussion" ? 110 : 160;
+      const top = clef === "percussion" ? 10 : clef === "rhythm" ? 20 : 30;
+      const height = clef === "percussion" ? 110 : clef === "rhythm" ? 130 : 160;
       const widths = bars.map((parts, i) => Math.max(110, 40 + parts.length * 34 + parts.reduce((s, p) => s + (p.first && events[p.event]?.label ? events[p.event].label!.length * 4 : 0), 0)) + (i === 0 ? 70 : 0));
       const renderer = new Renderer(box, Renderer.Backends.SVG);
       renderer.resize(16 + widths.reduce((a, b) => a + b, 0), height);
@@ -109,14 +111,14 @@ export function ScoreView({ events, clef = "treble", cursorBeat = null, classNam
       const all: Part[] = [];
       bars.forEach((parts, bi) => {
         const stave = new Stave(x, top, widths[bi], clef === "percussion" ? { numLines: 1 } : undefined);
-        if (bi === 0) stave.addClef(clef).addTimeSignature("4/4");
+        if (bi === 0) stave.addClef(drum ? "percussion" : "treble").addTimeSignature("4/4");
         if (bi === bars.length - 1) stave.setEndBarType(3); // final double bar
         stave.setContext(ctx).draw();
         const notes = parts.map((p) => p.note);
         const voice = new Voice({ numBeats: 4, beatValue: 4 }).setStrict(false);
         voice.addTickables(notes);
         new Formatter().joinVoices([voice]).format([voice], Math.max(20, stave.getNoteEndX() - stave.getNoteStartX() - 10));
-        const beams = Beam.generateBeams(notes.filter((n) => !n.isRest()), clef === "percussion" ? { stemDirection: 1 } : undefined);
+        const beams = Beam.generateBeams(notes.filter((n) => !n.isRest()), drum ? { stemDirection: 1 } : undefined);
         voice.draw(ctx, stave);
         beams.forEach((b) => b.setContext(ctx).draw());
         all.push(...parts);
