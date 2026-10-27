@@ -1,19 +1,22 @@
 "use client";
 
 /**
- * Student-side widgets for the music blocks of lessons and practice materials (see src/lib/music-blocks.ts):
+ * Widgets for the music blocks of lessons and practice materials (see src/lib/music-blocks.ts), shared by the
+ * students' view and the teacher's block editor:
  *  - SongBlockPlayer: a "Lagu Piano" block (or an old Melody block) in the full song player;
- *  - RhythmBlockPlayer: a rhythm pattern that plays at a chosen tempo, with metronome, and lets the student tap along;
- *  - ChordChips: chord / note names that sound when clicked.
+ *  - RhythmBlockPlayer: a rhythm on a percussion staff that plays at a tempo, with metronome, and lets the student tap along;
+ *  - ChordBlockPlayer: a chord progression on a staff that plays at a tempo; each chord can be clicked to hear it;
+ *  - useTransport, TempoControl, MetronomeButton: the count-in / metronome / play cursor they share.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Hand, Minus, Play, Plus, Square, Timer, Volume2 } from "lucide-react";
-import { NoteGlyph, type NoteGlyphKind } from "@/components/lessons/note-glyph";
+import { ScoreView, totalBeats, type ScoreEvent } from "@/components/score-view";
 import { SongPlayer } from "@/components/song-player";
 import { Button } from "@/components/ui/button";
-import { audioTime, loadAudio, playChord, scheduleClick, unlockAudio } from "@/lib/audio";
+import { audioTime, loadAudio, playChord, scheduleClick, scheduleNote, unlockAudio } from "@/lib/audio";
+import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
 import { chordMidis } from "@/lib/music";
-import { isRestGlyph, NOTE_GLYPH_BEATS } from "@/lib/music-blocks";
+import { CHORDS_DEFAULT_BPM, isRestGlyph, NOTE_GLYPH_BEATS, RHYTHM_DEFAULT_BPM } from "@/lib/music-blocks";
 import type { Song, SongNote } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
@@ -29,110 +32,66 @@ export function SongBlockPlayer({ id, title, bpm, doMidi, notes }: { id: string;
   return <SongPlayer songs={[song]} saveScores={false} />;
 }
 
-/* --------------------------------- rhythm --------------------------------- */
+/* -------------------------------- transport -------------------------------- */
 
-const COUNT_IN = 4;
-
-/** Glyph start beats, sounding onsets, and total length of a pattern. */
-function layout(pattern: NoteGlyphKind[]) {
-  let beat = 0;
-  const starts: number[] = [];
-  const onsets: number[] = [];
-  for (const g of pattern) {
-    starts.push(beat);
-    if (!isRestGlyph(g)) onsets.push(beat);
-    beat += NOTE_GLYPH_BEATS[g];
-  }
-  return { starts, onsets, total: beat };
-}
+export type TransportRun = { t0: number; spb: number };
 
 /**
- * Plays a rhythm pattern after a one-bar count-in, highlighting each note as it sounds. The student can tap along
- *  (button, or Space / Enter while the player has focus); taps are matched to the notes and scored at the end.
+ * Plays scheduled sounds on a beat grid: an optional count-in, metronome clicks, and `sounds` (each gets the exact
+ *  audio time to start at). `beat` follows the music for a play cursor (negative during the count-in, null when stopped).
  */
-export function RhythmBlockPlayer({ pattern }: { pattern: NoteGlyphKind[] }) {
-  const t = useT();
-  const [bpm, setBpm] = useState(80);
-  const [metronome, setMetronome] = useState(true);
-  const [sound, setSound] = useState(true);
-  const [playing, setPlaying] = useState(false);
-  const [count, setCount] = useState<number | null>(null);
-  const [active, setActive] = useState<number | null>(null);
-  const [tapFlash, setTapFlash] = useState(false);
-  const [result, setResult] = useState<{ hit: number; total: number; extra: number } | null>(null);
-  const run = useRef<{ t0: number; spb: number; taps: number[]; raf: number; timer: ReturnType<typeof setInterval> } | null>(null);
-  const { starts, onsets, total } = useMemo(() => layout(pattern), [pattern]);
+export function useTransport() {
+  const [beat, setBeat] = useState<number | null>(null);
+  const run = useRef<(TransportRun & { raf: number; timer: ReturnType<typeof setInterval> }) | null>(null);
+
+  const stop = useCallback(() => {
+    const r = run.current;
+    if (r) {
+      cancelAnimationFrame(r.raf);
+      clearInterval(r.timer);
+    }
+    run.current = null;
+    setBeat(null);
+  }, []);
 
   useEffect(() => {
     void loadAudio();
-    return () => stop();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      const r = run.current;
+      if (r) {
+        cancelAnimationFrame(r.raf);
+        clearInterval(r.timer);
+      }
+    };
   }, []);
 
-  function stop() {
-    const r = run.current;
-    if (!r) return;
-    cancelAnimationFrame(r.raf);
-    clearInterval(r.timer);
-    run.current = null;
-    setPlaying(false);
-    setCount(null);
-    setActive(null);
-  }
-
-  function score(r: NonNullable<typeof run.current>) {
-    if (!r.taps.length) return setResult(null);
-    const tol = Math.min(0.15, r.spb * 0.3);
-    const used = new Set<number>();
-    let hit = 0;
-    for (const o of onsets) {
-      const at = r.t0 + o * r.spb;
-      let best = -1;
-      r.taps.forEach((tap, i) => {
-        if (!used.has(i) && Math.abs(tap - at) <= tol && (best < 0 || Math.abs(tap - at) < Math.abs(r.taps[best] - at))) best = i;
-      });
-      if (best >= 0) {
-        used.add(best);
-        hit++;
-      }
-    }
-    setResult({ hit, total: onsets.length, extra: r.taps.length - used.size });
-  }
-
-  async function play() {
+  async function start(o: { bpm: number; countIn: number; total: number; metronome: boolean; sounds: { beat: number; play: (time: number, spb: number) => void }[]; onEnd?: (r: TransportRun) => void }) {
     stop();
-    setResult(null);
     await unlockAudio();
-    const spb = 60 / bpm;
-    const t0 = audioTime() + 0.15 + COUNT_IN * spb;
-    // Every click in time order (the scheduler below walks them once).
-    const events: { at: number; accent: boolean; voice: "click" | "kentongan" }[] = [];
-    for (let i = 0; i < COUNT_IN; i++) events.push({ at: t0 - (COUNT_IN - i) * spb, accent: i === 0, voice: "click" });
-    if (metronome) for (let b = 0; b < Math.ceil(total); b++) events.push({ at: t0 + b * spb, accent: b % 4 === 0, voice: "click" });
-    if (sound) for (const o of onsets) events.push({ at: t0 + o * spb, accent: true, voice: "kentongan" });
+    const spb = 60 / o.bpm;
+    const t0 = audioTime() + 0.15 + o.countIn * spb;
+    const events: { at: number; fn: (time: number) => void }[] = [];
+    for (let i = 0; i < o.countIn; i++) events.push({ at: t0 - (o.countIn - i) * spb, fn: (time) => scheduleClick(time, i === 0, "click") });
+    if (o.metronome) for (let b = 0; b < Math.ceil(o.total - 1e-6); b++) events.push({ at: t0 + b * spb, fn: (time) => scheduleClick(time, b % 4 === 0, "click") });
+    for (const s of o.sounds) events.push({ at: t0 + s.beat * spb, fn: (time) => s.play(time, spb) });
     events.sort((a, b) => a.at - b.at);
     let next = 0;
     const timer = setInterval(() => {
       while (next < events.length && events[next].at < audioTime() + 0.15) {
         const e = events[next++];
-        scheduleClick(e.at, e.accent, e.voice);
+        e.fn(e.at);
       }
     }, 25);
-    const r = { t0, spb, taps: [] as number[], raf: 0, timer };
+    const r = { t0, spb, raf: 0, timer };
     run.current = r;
-    setPlaying(true);
+    setBeat(-o.countIn);
     const tick = () => {
       if (run.current !== r) return;
-      const beat = (audioTime() - t0) / spb;
-      setCount(beat < 0 ? Math.min(COUNT_IN, Math.floor(beat) + COUNT_IN + 1) : null);
-      let idx: number | null = null;
-      starts.forEach((s, i) => {
-        if (beat >= s && beat < s + NOTE_GLYPH_BEATS[pattern[i]]) idx = i;
-      });
-      setActive(idx);
-      if (beat > total + 0.5) {
+      const b = (audioTime() - t0) / spb;
+      setBeat(b);
+      if (b > o.total + 0.3) {
         stop();
-        score(r);
+        o.onEnd?.(r);
         return;
       }
       r.raf = requestAnimationFrame(tick);
@@ -140,10 +99,112 @@ export function RhythmBlockPlayer({ pattern }: { pattern: NoteGlyphKind[] }) {
     r.raf = requestAnimationFrame(tick);
   }
 
+  return { beat, playing: beat !== null, start, stop, current: () => run.current as TransportRun | null };
+}
+
+export function TempoControl({ bpm, onChange, disabled }: { bpm: number; onChange: (bpm: number) => void; disabled?: boolean }) {
+  const t = useT();
+  return (
+    <div className="inline-flex items-center gap-1 rounded-lg border p-0.5" role="group" aria-label={t("Tempo")}>
+      <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("Slower")} disabled={disabled || bpm <= 40} onClick={() => onChange(Math.max(40, bpm - 5))}>
+        <Minus />
+      </Button>
+      <span className="min-w-[4.5rem] text-center text-sm font-semibold">
+        {t("Tempo")} {bpm}
+      </span>
+      <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("Faster")} disabled={disabled || bpm >= 200} onClick={() => onChange(Math.min(200, bpm + 5))}>
+        <Plus />
+      </Button>
+    </div>
+  );
+}
+
+export function MetronomeButton({ on, onChange, disabled }: { on: boolean; onChange: (on: boolean) => void; disabled?: boolean }) {
+  const t = useT();
+  return (
+    <Button type="button" size="sm" variant={on ? "secondary" : "outline"} aria-pressed={on} disabled={disabled} onClick={() => onChange(!on)}>
+      <Timer /> {t("Metronome")}
+    </Button>
+  );
+}
+
+/** "Count: 3" during the count-in. */
+export function CountIn({ beat }: { beat: number | null }) {
+  const t = useT();
+  if (beat === null || beat >= 0) return null;
+  return <span className="text-sm font-bold text-primary">{t("Count: {0}", Math.min(4, Math.floor(beat) + 5))}</span>;
+}
+
+/* --------------------------------- rhythm --------------------------------- */
+
+const RHYTHM_PITCH = 71; // any pitch: drawn on a one-line percussion staff
+
+export function rhythmEvents(pattern: NoteGlyphKind[]): ScoreEvent[] {
+  return pattern.map((g) => ({ midis: isRestGlyph(g) ? null : [RHYTHM_PITCH], beats: NOTE_GLYPH_BEATS[g] }));
+}
+
+export function rhythmOnsetBeats(pattern: NoteGlyphKind[]): number[] {
+  const out: number[] = [];
+  let beat = 0;
+  for (const g of pattern) {
+    if (!isRestGlyph(g)) out.push(beat);
+    beat += NOTE_GLYPH_BEATS[g];
+  }
+  return out;
+}
+
+/** Matches taps (audio times) to the notes; a tap counts within 0.15 s (or 0.3 beat if shorter). */
+function scoreTaps(taps: number[], onsets: number[], r: TransportRun) {
+  const tol = Math.min(0.15, r.spb * 0.3);
+  const used = new Set<number>();
+  let hit = 0;
+  for (const o of onsets) {
+    const at = r.t0 + o * r.spb;
+    let best = -1;
+    taps.forEach((tap, i) => {
+      if (!used.has(i) && Math.abs(tap - at) <= tol && (best < 0 || Math.abs(tap - at) < Math.abs(taps[best] - at))) best = i;
+    });
+    if (best >= 0) {
+      used.add(best);
+      hit++;
+    }
+  }
+  return { hit, total: onsets.length, extra: taps.length - used.size };
+}
+
+/**
+ * Plays a rhythm pattern after a one-bar count-in, with a cursor over the staff. The student can tap along
+ *  (button, or Space / Enter while the player has focus); taps are matched to the notes and scored at the end.
+ */
+export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM }: { pattern: NoteGlyphKind[]; bpm?: number }) {
+  const t = useT();
+  const [tempo, setTempo] = useState(bpm);
+  const [metronome, setMetronome] = useState(true);
+  const [sound, setSound] = useState(true);
+  const [tapFlash, setTapFlash] = useState(false);
+  const [result, setResult] = useState<{ hit: number; total: number; extra: number } | null>(null);
+  const taps = useRef<number[]>([]);
+  const tr = useTransport();
+  const events = useMemo(() => rhythmEvents(pattern), [pattern]);
+  const onsets = useMemo(() => rhythmOnsetBeats(pattern), [pattern]);
+  const total = totalBeats(events);
+
+  function play() {
+    setResult(null);
+    taps.current = [];
+    void tr.start({
+      bpm: tempo,
+      countIn: 4,
+      total,
+      metronome,
+      sounds: sound ? onsets.map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, "kentongan") })) : [],
+      onEnd: (r) => setResult(taps.current.length ? scoreTaps(taps.current, onsets, r) : null),
+    });
+  }
+
   function tap() {
-    const r = run.current;
-    if (!r) return;
-    r.taps.push(audioTime());
+    if (!tr.playing) return;
+    taps.current.push(audioTime());
     setTapFlash(true);
     setTimeout(() => setTapFlash(false), 120);
   }
@@ -155,42 +216,26 @@ export function RhythmBlockPlayer({ pattern }: { pattern: NoteGlyphKind[] }) {
       className="grid gap-3 outline-none"
       tabIndex={0}
       onKeyDown={(e) => {
-        if (playing && (e.key === " " || e.key === "Enter")) {
+        if (tr.playing && (e.key === " " || e.key === "Enter")) {
           e.preventDefault();
           tap();
         }
       }}
     >
-      <div className="flex flex-wrap items-end gap-1.5">
-        {pattern.map((g, i) => (
-          <span key={i} className={cn("rounded-md p-1 transition-colors", active === i && (isRestGlyph(g) ? "bg-muted" : "bg-primary text-primary-foreground"))}>
-            <NoteGlyph kind={g} className="size-8" />
-          </span>
-        ))}
-      </div>
+      <ScoreView events={events} clef="percussion" cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" onClick={() => (playing ? stop() : void play())}>
-          {playing ? <Square /> : <Play />} {playing ? t("Stop") : t("Play")}
+        <Button type="button" size="sm" onClick={() => (tr.playing ? tr.stop() : play())}>
+          {tr.playing ? <Square /> : <Play />} {tr.playing ? t("Stop") : t("Play")}
         </Button>
-        <div className="inline-flex items-center gap-1 rounded-lg border p-0.5" role="group" aria-label={t("Tempo")}>
-          <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("Slower")} disabled={playing || bpm <= 40} onClick={() => setBpm((b) => b - 5)}>
-            <Minus />
-          </Button>
-          <span className="min-w-16 text-center text-sm font-semibold">{bpm} BPM</span>
-          <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("Faster")} disabled={playing || bpm >= 180} onClick={() => setBpm((b) => b + 5)}>
-            <Plus />
-          </Button>
-        </div>
-        <Button type="button" size="sm" variant={metronome ? "secondary" : "outline"} aria-pressed={metronome} disabled={playing} onClick={() => setMetronome((x) => !x)}>
-          <Timer /> {t("Metronome")}
-        </Button>
+        <TempoControl bpm={tempo} onChange={setTempo} disabled={tr.playing} />
+        <MetronomeButton on={metronome} onChange={setMetronome} disabled={tr.playing} />
         <label className="inline-flex items-center gap-1.5 text-sm font-semibold">
-          <input type="checkbox" checked={sound} disabled={playing} onChange={(e) => setSound(e.target.checked)} className="size-4 accent-[var(--primary)]" />
+          <input type="checkbox" checked={sound} disabled={tr.playing} onChange={(e) => setSound(e.target.checked)} className="size-4 accent-[var(--primary)]" />
           {t("Play the pattern")}
         </label>
-        {count !== null && <span className="text-sm font-bold text-primary">{t("Count: {0}", count)}</span>}
+        <CountIn beat={tr.beat} />
       </div>
-      {playing && (
+      {tr.playing && (
         <Button
           type="button"
           variant="outline"
@@ -215,44 +260,105 @@ export function RhythmBlockPlayer({ pattern }: { pattern: NoteGlyphKind[] }) {
 
 /* --------------------------------- chords --------------------------------- */
 
-export function ChordChips({ label, items }: { label?: string; items: string[] }) {
+export function chordEvents(items: string[], beats: number[]): ScoreEvent[] {
+  return items.map((item, i) => ({ midis: chordMidis(item), beats: beats[i] ?? 4, label: item }));
+}
+
+/** Index of the event sounding at `beat`, or null. */
+export function activeEvent(events: ScoreEvent[], beat: number | null) {
+  if (beat === null || beat < 0) return null;
+  let pos = 0;
+  for (let i = 0; i < events.length; i++) {
+    if (beat >= pos && beat < pos + events[i].beats) return i;
+    pos += events[i].beats;
+  }
+  return null;
+}
+
+/** Plays every chord of the progression at its time (piano sound). */
+export function chordSounds(events: ScoreEvent[]) {
+  let pos = 0;
+  return events.flatMap((e) => {
+    const start = pos;
+    pos += e.beats;
+    const midis = e.midis;
+    if (!midis?.length) return [];
+    return [{ beat: start, play: (time: number, spb: number) => midis.forEach((m) => scheduleNote(m, time, e.beats * spb * 0.95, 0.7)) }];
+  });
+}
+
+/** Chord / note names; each sounds when clicked, and lights up while the progression plays. */
+export function ChordChipRow({ items, active }: { items: string[]; active?: number | null }) {
   const t = useT();
-  const [playingIdx, setPlayingIdx] = useState<number | null>(null);
+  const [clicked, setClicked] = useState<number | null>(null);
   return (
-    <>
-      <span className="text-sm font-semibold">{label ?? t("Chords / notes")}:</span>
+    <div className="flex flex-wrap items-center gap-1.5">
+      {items.map((item, i) => {
+        const midis = chordMidis(item);
+        const on = active === i || clicked === i;
+        if (!midis) {
+          return (
+            <span key={i} className="rounded-full bg-primary-soft px-3 py-1 text-xs font-semibold">
+              {item}
+            </span>
+          );
+        }
+        return (
+          <button
+            key={i}
+            type="button"
+            title={t("Click to hear it")}
+            onClick={() => {
+              playChord(midis);
+              setClicked(i);
+              setTimeout(() => setClicked((x) => (x === i ? null : x)), 600);
+            }}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full bg-primary-soft px-3 py-1 text-xs font-semibold transition-colors hover:bg-primary hover:text-primary-foreground",
+              on && "bg-primary text-primary-foreground",
+            )}
+          >
+            <Volume2 className="size-3" /> {item}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ChordBlockPlayer({ label, items, beats, bpm = CHORDS_DEFAULT_BPM }: { label?: string; items: string[]; beats?: number[]; bpm?: number }) {
+  const t = useT();
+  const [tempo, setTempo] = useState(bpm);
+  const [metronome, setMetronome] = useState(true);
+  const tr = useTransport();
+  const events = useMemo(() => chordEvents(items, beats ?? []), [items, beats]);
+  const playable = events.some((e) => e.midis?.length);
+
+  return (
+    <div className="grid gap-3">
+      <p className="text-sm font-semibold">{label || t("Chords / notes")}</p>
       {items.length === 0 ? (
         <span className="text-sm text-muted-foreground">—</span>
       ) : (
-        items.map((item, i) => {
-          const midis = chordMidis(item);
-          if (!midis) {
-            return (
-              <span key={i} className="rounded-full bg-primary-soft px-3 py-1 text-xs font-semibold">
-                {item}
-              </span>
-            );
-          }
-          return (
-            <button
-              key={i}
-              type="button"
-              title={t("Click to hear it")}
-              onClick={() => {
-                playChord(midis);
-                setPlayingIdx(i);
-                setTimeout(() => setPlayingIdx((x) => (x === i ? null : x)), 600);
-              }}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full bg-primary-soft px-3 py-1 text-xs font-semibold transition-colors hover:bg-primary hover:text-primary-foreground",
-                playingIdx === i && "bg-primary text-primary-foreground",
-              )}
-            >
-              <Volume2 className="size-3" /> {item}
-            </button>
-          );
-        })
+        <>
+          {playable && <ScoreView events={events} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />}
+          <ChordChipRow items={items} active={activeEvent(events, tr.beat)} />
+          {playable && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => (tr.playing ? tr.stop() : void tr.start({ bpm: tempo, countIn: metronome ? 4 : 0, total: totalBeats(events), metronome, sounds: chordSounds(events) }))}
+              >
+                {tr.playing ? <Square /> : <Play />} {tr.playing ? t("Stop") : t("Play")}
+              </Button>
+              <TempoControl bpm={tempo} onChange={setTempo} disabled={tr.playing} />
+              <MetronomeButton on={metronome} onChange={setMetronome} disabled={tr.playing} />
+              <CountIn beat={tr.beat} />
+            </div>
+          )}
+        </>
       )}
-    </>
+    </div>
   );
 }

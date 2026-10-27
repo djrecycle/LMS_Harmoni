@@ -15,8 +15,14 @@ import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
 import { midiToNote } from "@/lib/music";
 
 export type MediaBlockData = { kind: "audio" | "video"; key: string; title?: string };
-export type RhythmBlockData = { pattern: NoteGlyphKind[] };
-export type ChordsBlockData = { label?: string; items: string[] };
+/** `bpm`: the tempo the pattern is played at (80 when missing, as in older blocks). */
+export type RhythmBlockData = { pattern: NoteGlyphKind[]; bpm?: number };
+/** `beats[i]`: how long chord i lasts (4 = one bar when missing). `bpm`: playback tempo (90 when missing). */
+export type ChordsBlockData = { label?: string; items: string[]; beats?: number[]; bpm?: number };
+
+export const RHYTHM_DEFAULT_BPM = 80;
+export const CHORDS_DEFAULT_BPM = 90;
+export const CHORD_LENGTHS = [1, 2, 4] as const;
 /**
  * A monophonic melody on a grid of eighth-note units (one bar = 8 units). Each note has its own length and
  * starts on a multiple of its own length, so it never crosses a beat/bar boundary. Anything not covered by a
@@ -107,6 +113,8 @@ export type DecodedMusicBlock =
   | ({ lang: "music:melody" } & MelodyBlockData)
   | ({ lang: "music:song" } & SongBlockData);
 
+const tempo = (v: unknown) => (typeof v === "number" && v >= 30 && v <= 240 ? Math.round(v) : undefined);
+
 /** Decodes a fenced block's language + raw body. Returns null for an unrecognized lang or malformed JSON — never throws. */
 export function decodeFence(lang: string | null | undefined, raw: string): DecodedMusicBlock | null {
   if (!isMusicFenceLang(lang)) return null;
@@ -126,12 +134,15 @@ export function decodeFence(lang: string | null | undefined, raw: string): Decod
   if (lang === "music:rhythm") {
     if (!Array.isArray(d.pattern)) return null;
     const pattern = d.pattern.filter((p): p is NoteGlyphKind => NOTE_GLYPH_KINDS.includes(p));
-    return { lang, pattern };
+    return { lang, pattern, bpm: tempo(d.bpm) };
   }
   if (lang === "music:chords") {
     if (!Array.isArray(d.items)) return null;
-    const items = d.items.filter((i): i is string => typeof i === "string" && i.trim().length > 0);
-    return { lang, label: typeof d.label === "string" ? d.label : undefined, items };
+    // Lengths stay paired with their chords when empty items are dropped.
+    const rawBeats = Array.isArray(d.beats) ? d.beats : [];
+    const pairs = d.items.flatMap((item, i) => (typeof item === "string" && item.trim() ? [{ item, beats: rawBeats[i] }] : []));
+    const beats = pairs.map((p) => (typeof p.beats === "number" && p.beats > 0 && p.beats <= 16 ? p.beats : 4));
+    return { lang, label: typeof d.label === "string" ? d.label : undefined, items: pairs.map((p) => p.item), beats, bpm: tempo(d.bpm) };
   }
   if (lang === "music:song") {
     if (typeof d.roll !== "string") return null;

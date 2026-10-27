@@ -123,3 +123,19 @@ export function chordMidis(item: string): number[] | null {
   if (root >= 67) root -= 12; // G and above start an octave lower, to stay around middle C
   return CHORD_INTERVALS[m[3] ?? ""].map((i) => root + i);
 }
+
+/** The name of the chord made by these notes ("C", "Am", "G7", inversions too), or null when it is not a known chord. */
+export function chordNameOf(midis: number[]): string | null {
+  if (midis.length < 2) return null;
+  const pcs = [...new Set(midis.map((m) => ((m % 12) + 12) % 12))];
+  const bass = ((Math.min(...midis) % 12) + 12) % 12;
+  // Prefer the bass note as root (root position), then try the others (inversions).
+  for (const root of [bass, ...pcs.filter((p) => p !== bass)]) {
+    for (const [quality, intervals] of Object.entries(CHORD_INTERVALS)) {
+      if (quality === "maj" || quality === "min") continue;
+      const set = intervals.map((i) => (root + i) % 12);
+      if (set.length === pcs.length && set.every((x) => pcs.includes(x))) return NOTE_NAMES[root] + quality;
+    }
+  }
+  return null;
+}

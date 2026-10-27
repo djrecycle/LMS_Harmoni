@@ -4,17 +4,34 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Bold, Eye, EyeOff, GripVertical, Guitar, Heading2, Italic, Link2, List, ListOrdered, Minus, Music2, Piano as PianoIcon, Pilcrow, Table2, Trash2, Video as VideoIcon, Volume2, X } from "lucide-react";
+import { Bold, Circle, Eye, EyeOff, GripVertical, Guitar, Hand, Heading2, Italic, Link2, List, ListOrdered, Minus, Music2, Piano as PianoIcon, Pilcrow, Play, Plus, Square, Table2, Trash2, Undo2, Video as VideoIcon, Volume2, X } from "lucide-react";
 import { emptyBlock, parseToBlocks, retemplateRaw, serializeBlocks, type AddKind, type EditorBlock, type RawKind } from "@/lib/block-editor";
 import { NoteGlyph, type NoteGlyphKind } from "@/components/lessons/note-glyph";
 import { MediaPlayer } from "@/components/media-player";
 import { MediaUploader } from "@/components/media-uploader";
 import { listSongsForBlocks, type BlockSongOption } from "@/app/actions/piano-song";
+import {
+  activeEvent,
+  ChordChipRow,
+  chordEvents,
+  chordSounds,
+  CountIn,
+  MetronomeButton,
+  rhythmEvents,
+  rhythmOnsetBeats,
+  TempoControl,
+  useTransport,
+} from "@/components/lessons/music-block-players";
+import { Piano } from "@/components/piano";
+import { ScoreView, totalBeats } from "@/components/score-view";
 import { SongPianoRoll } from "@/components/song-piano-roll";
 import { SongPlayer } from "@/components/song-player";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
-import { midiToNote, noteToMidi } from "@/lib/music";
+import { audioTime, playChord, scheduleClick } from "@/lib/audio";
+import { chordNameOf, chordMidis, midiToNote, NOTE_NAMES, noteToMidi } from "@/lib/music";
+import { CHORD_LENGTHS } from "@/lib/music-blocks";
+import { onsetsToPattern } from "@/lib/rhythm";
 import { parseSongNotation, SONGS, type Song } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
@@ -42,10 +59,29 @@ const ADD_BUTTONS: { kind: AddKind; label: string; icon: typeof Heading2 }[] = [
   { kind: "hr", label: "Divider", icon: Minus },
   { kind: "audio", label: "Audio clip", icon: Volume2 },
   { kind: "video", label: "Video", icon: VideoIcon },
-  { kind: "rhythm", label: "Rhythm pattern", icon: Music2 },
-  { kind: "chords", label: "Chords / notes", icon: Guitar },
-  { kind: "song", label: "Piano song (piano roll)", icon: PianoIcon },
 ];
+
+/** The "Piano" button offers these three music blocks. */
+const PIANO_CHOICES: { kind: AddKind; label: string; hint: string; icon: typeof Heading2 }[] = [
+  { kind: "song", label: "Melody", hint: "Piano roll like FL Studio: write or record a song", icon: PianoIcon },
+  { kind: "chords", label: "Chords", hint: "Chord progression on the staff, written or played on the piano", icon: Guitar },
+  { kind: "rhythm", label: "Rhythm pattern", hint: "Rhythm on the staff, written or tapped along with the metronome", icon: Music2 },
+];
+
+const CHORD_QUALITIES: [string, string][] = [
+  ["", "major"],
+  ["m", "minor"],
+  ["7", "7"],
+  ["maj7", "maj7"],
+  ["m7", "m7"],
+  ["dim", "dim"],
+  ["aug", "aug"],
+  ["sus2", "sus2"],
+  ["sus4", "sus4"],
+  ["6", "6"],
+];
+/** How long a recording by tapping lasts at most (4 bars). */
+const RECORD_BEATS = 16;
 
 /** The key's "do" choices, as in the piano song form. */
 const DO_NOTES = ["C4", "C#4", "D4", "D#4", "E4", "F4", "F#4", "G4", "G#4", "A3", "A#3", "B3"];
@@ -187,32 +223,134 @@ function MediaCard({ block, onChange, onDelete }: { block: Extract<EditorBlock, 
 
 function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock, { type: "rhythm" }>; onChange: (b: EditorBlock) => void; onDelete: () => void }) {
   const t = useT();
+  const tr = useTransport();
+  const [metronome, setMetronome] = useState(true);
+  const [recording, setRecording] = useState(false);
+  const [undoPattern, setUndoPattern] = useState<NoteGlyphKind[] | null>(null);
+  const [tapFlash, setTapFlash] = useState(false);
+  const taps = useRef<number[]>([]);
+  const events = useMemo(() => rhythmEvents(block.pattern), [block.pattern]);
+
+  function play() {
+    void tr.start({
+      bpm: block.bpm,
+      countIn: 4,
+      total: totalBeats(events),
+      metronome,
+      sounds: rhythmOnsetBeats(block.pattern).map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, "kentongan") })),
+    });
+  }
+
+  /** Recording: after a one-bar count-in the teacher taps the rhythm with the metronome; taps become the pattern. */
+  function record() {
+    taps.current = [];
+    setRecording(true);
+    void tr.start({ bpm: block.bpm, countIn: 4, total: RECORD_BEATS, metronome: true, sounds: [], onEnd: (r) => finishRecording(r) });
+  }
+  function finishRecording(r: { t0: number; spb: number } | null) {
+    setRecording(false);
+    if (!r || !taps.current.length) return;
+    const pattern = onsetsToPattern(taps.current.map((tap) => (tap - r.t0) / r.spb).filter((b) => b > -0.25 && b < RECORD_BEATS));
+    if (!pattern.length) return;
+    setUndoPattern(block.pattern);
+    onChange({ ...block, pattern });
+  }
+  function stopRecording() {
+    const r = tr.current();
+    tr.stop();
+    finishRecording(r);
+  }
+  function tap() {
+    if (!recording) return;
+    taps.current.push(audioTime());
+    scheduleClick(audioTime() + 0.005, true, "kentongan");
+    setTapFlash(true);
+    setTimeout(() => setTapFlash(false), 120);
+  }
+
   return (
     <CardChrome id={block.id} label={t("Rhythm pattern")} onDelete={onDelete}>
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        {NOTE_PALETTE.map((kind) => (
-          <Button key={kind} type="button" size="sm" variant="outline" className="h-9 px-2.5" onClick={() => onChange({ ...block, pattern: [...block.pattern, kind] })}>
-            <NoteGlyph kind={kind} className="size-5" />
+      <div
+        className="grid gap-3 outline-none"
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          if (recording && (e.key === " " || e.key === "Enter")) {
+            e.preventDefault();
+            tap();
+          }
+        }}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" onClick={() => (tr.playing && !recording ? tr.stop() : play())} disabled={recording || !block.pattern.length}>
+            {tr.playing && !recording ? <Square /> : <Play />} {tr.playing && !recording ? t("Stop") : t("Play")}
           </Button>
-        ))}
-      </div>
-      <div className="flex min-h-14 flex-wrap items-end gap-2 rounded-lg border border-dashed p-2">
-        {block.pattern.length === 0 ? (
-          <span className="self-center text-sm text-muted-foreground">{t("Tap a note or rest above to build the pattern.")}</span>
-        ) : (
-          block.pattern.map((kind, i) => (
-            <button
-              key={i}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => (recording ? stopRecording() : record())}
+            disabled={tr.playing && !recording}
+            className={cn("border-danger/60 text-danger", recording && "animate-pulse bg-danger text-white")}
+            title={t("Tap the rhythm along with the metronome after a one-bar count-in")}
+          >
+            <Circle className="fill-current" /> {recording ? t("Stop recording") : t("Record by tapping")}
+          </Button>
+          <TempoControl bpm={block.bpm} onChange={(bpm) => onChange({ ...block, bpm })} disabled={tr.playing} />
+          <MetronomeButton on={metronome} onChange={setMetronome} disabled={tr.playing} />
+          <CountIn beat={tr.beat} />
+          {undoPattern && !recording && (
+            <Button
               type="button"
-              aria-label={t("Remove")}
-              className="group relative rounded-md border bg-card p-1.5 hover:border-danger"
-              onClick={() => onChange({ ...block, pattern: block.pattern.filter((_, j) => j !== i) })}
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                onChange({ ...block, pattern: undoPattern });
+                setUndoPattern(null);
+              }}
             >
-              <NoteGlyph kind={kind} className="size-6" />
-              <X className="absolute -top-1.5 -right-1.5 size-3.5 rounded-full bg-danger text-white opacity-0 group-hover:opacity-100" />
-            </button>
-          ))
+              <Undo2 /> {t("Undo recording")}
+            </Button>
+          )}
+        </div>
+        {recording && (
+          <Button
+            type="button"
+            variant="outline"
+            className={cn("h-14 text-base", tapFlash && "border-primary bg-primary-soft")}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              tap();
+            }}
+          >
+            <Hand /> {t("Tap here (or Space) — up to 4 bars")}
+          </Button>
         )}
+        <ScoreView events={events} clef="percussion" cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
+        <div className="flex flex-wrap gap-1.5">
+          {NOTE_PALETTE.map((kind) => (
+            <Button key={kind} type="button" size="sm" variant="outline" className="h-9 px-2.5" onClick={() => onChange({ ...block, pattern: [...block.pattern, kind] })}>
+              <NoteGlyph kind={kind} className="size-5" />
+            </Button>
+          ))}
+        </div>
+        <div className="flex min-h-14 flex-wrap items-end gap-2 rounded-lg border border-dashed p-2">
+          {block.pattern.length === 0 ? (
+            <span className="self-center text-sm text-muted-foreground">{t("Tap a note or rest above, or record by tapping.")}</span>
+          ) : (
+            block.pattern.map((kind, i) => (
+              <button
+                key={i}
+                type="button"
+                aria-label={t("Remove")}
+                className="group relative rounded-md border bg-card p-1.5 hover:border-danger"
+                onClick={() => onChange({ ...block, pattern: block.pattern.filter((_, j) => j !== i) })}
+              >
+                <NoteGlyph kind={kind} className="size-6" />
+                <X className="absolute -top-1.5 -right-1.5 size-3.5 rounded-full bg-danger text-white opacity-0 group-hover:opacity-100" />
+              </button>
+            ))
+          )}
+        </div>
       </div>
     </CardChrome>
   );
@@ -220,45 +358,164 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
 
 function ChordsCard({ block, onChange, onDelete }: { block: Extract<EditorBlock, { type: "chords" }>; onChange: (b: EditorBlock) => void; onDelete: () => void }) {
   const t = useT();
+  const tr = useTransport();
   const [draft, setDraft] = useState("");
+  const [root, setRoot] = useState("C");
+  const [quality, setQuality] = useState("");
+  const [length, setLength] = useState<number>(4);
+  const [metronome, setMetronome] = useState(true);
+  const [fromPiano, setFromPiano] = useState(false);
+  const held = useRef(new Set<number>());
+  const played = useRef(new Set<number>());
+  const events = useMemo(() => chordEvents(block.items, block.beats), [block.items, block.beats]);
 
-  function addItem() {
-    const v = draft.trim();
+  const add = (item: string) => {
+    const v = item.trim();
     if (!v) return;
-    onChange({ ...block, items: [...block.items, v] });
-    setDraft("");
-  }
+    onChange({ ...block, items: [...block.items, v], beats: [...block.beats, length] });
+  };
+  const remove = (i: number) => onChange({ ...block, items: block.items.filter((_, j) => j !== i), beats: block.beats.filter((_, j) => j !== i) });
+  const setBeats = (i: number, beats: number) => onChange({ ...block, beats: block.beats.map((b, j) => (j === i ? beats : b)) });
+
+  // Playing on the piano: the keys held together become one chord when the last one is released.
+  const onPress = (midi: number) => {
+    held.current.add(midi);
+    played.current.add(midi);
+  };
+  const onRelease = (midi: number) => {
+    held.current.delete(midi);
+    if (held.current.size || !played.current.size) return;
+    const midis = [...played.current].sort((a, b) => a - b);
+    played.current = new Set();
+    add(chordNameOf(midis) ?? midis.map(midiToNote).join(" "));
+  };
 
   return (
-    <CardChrome id={block.id} label={t("Chords / notes")} onDelete={onDelete}>
-      <div className="grid gap-2">
+    <CardChrome id={block.id} label={t("Chords")} onDelete={onDelete}>
+      <div className="grid gap-3">
         <Input value={block.label} onChange={(ev) => onChange({ ...block, label: ev.target.value })} placeholder={t("Label, e.g. Chords used")} />
-        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border p-2">
-          {block.items.map((item, i) => (
-            <span key={i} className="inline-flex items-center gap-1 rounded-full bg-primary-soft px-2.5 py-1 text-xs font-semibold text-primary">
-              {item}
-              <button type="button" aria-label={t("Remove")} onClick={() => onChange({ ...block, items: block.items.filter((_, j) => j !== i) })}>
-                <X className="size-3" />
-              </button>
-            </span>
-          ))}
+
+        {/* Build a chord: root + type + length. */}
+        <div className="flex flex-wrap items-end gap-2 rounded-lg border p-2">
+          <label className="grid gap-1 text-xs font-semibold text-muted-foreground">
+            {t("Root")}
+            <Select className="h-9 w-auto" value={root} onChange={(ev) => setRoot(ev.target.value)}>
+              {NOTE_NAMES.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="grid gap-1 text-xs font-semibold text-muted-foreground">
+            {t("Type")}
+            <Select className="h-9 w-auto" value={quality} onChange={(ev) => setQuality(ev.target.value)}>
+              {CHORD_QUALITIES.map(([q, name]) => (
+                <option key={q} value={q}>
+                  {root}
+                  {q} ({t(name)})
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="grid gap-1 text-xs font-semibold text-muted-foreground">
+            {t("Length")}
+            <Select className="h-9 w-auto" value={length} onChange={(ev) => setLength(Number(ev.target.value))}>
+              {CHORD_LENGTHS.map((b) => (
+                <option key={b} value={b}>
+                  {b === 4 ? t("4 beats (1 bar)") : t("{0} beats", b)}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <Button type="button" size="sm" variant="secondary" className="h-9" onClick={() => add(root + quality)}>
+            <Plus /> {t("Add chord")}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" className="h-9" onClick={() => playChordNow(root + quality)}>
+            <Volume2 /> {t("Listen")}
+          </Button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" size="sm" variant={fromPiano ? "secondary" : "outline"} aria-pressed={fromPiano} onClick={() => setFromPiano((x) => !x)}>
+            <PianoIcon /> {fromPiano ? t("Hide piano") : t("Record from the piano")}
+          </Button>
           <input
             value={draft}
             onChange={(ev) => setDraft(ev.target.value)}
             onKeyDown={(ev) => {
               if (ev.key === "Enter" || ev.key === ",") {
                 ev.preventDefault();
-                addItem();
+                add(draft);
+                setDraft("");
               }
             }}
-            onBlur={addItem}
-            placeholder={t("Type a chord or note, Enter to add")}
-            className="min-w-32 flex-1 bg-transparent px-1 py-1 text-sm outline-none"
+            placeholder={t("…or type a chord or notes (C4 E4 G4), Enter to add")}
+            className="h-9 min-w-48 flex-1 rounded-md border bg-transparent px-2 text-sm outline-none focus:border-primary"
           />
         </div>
+        {fromPiano && (
+          <div className="grid gap-1">
+            <p className="text-xs text-muted-foreground">{t("Press the chord's keys together; when you let go it is added with the chosen length.")}</p>
+            <Piano onNotePress={onPress} onNoteRelease={onRelease} />
+          </div>
+        )}
+
+        {/* The progression: click a name to hear it, change its length, or remove it. */}
+        {block.items.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 rounded-lg border p-2">
+            {block.items.map((item, i) => (
+              <span key={i} className={cn("inline-flex items-center gap-1 rounded-full bg-primary-soft py-0.5 pr-1 pl-2.5 text-xs font-semibold", activeEvent(events, tr.beat) === i && "bg-primary text-primary-foreground")}>
+                <button type="button" onClick={() => playChordNow(item)} title={t("Click to hear it")}>
+                  {item}
+                </button>
+                <select
+                  value={block.beats[i] ?? 4}
+                  onChange={(ev) => setBeats(i, Number(ev.target.value))}
+                  aria-label={t("Length")}
+                  className="rounded bg-transparent text-[0.7rem] outline-none"
+                >
+                  {CHORD_LENGTHS.map((b) => (
+                    <option key={b} value={b}>
+                      {b}♩
+                    </option>
+                  ))}
+                </select>
+                <button type="button" aria-label={t("Remove")} onClick={() => remove(i)}>
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {block.items.length > 0 && (
+          <>
+            <ScoreView events={events} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                onClick={() =>
+                  tr.playing ? tr.stop() : void tr.start({ bpm: block.bpm, countIn: metronome ? 4 : 0, total: totalBeats(events), metronome, sounds: chordSounds(events) })
+                }
+              >
+                {tr.playing ? <Square /> : <Play />} {tr.playing ? t("Stop") : t("Play")}
+              </Button>
+              <TempoControl bpm={block.bpm} onChange={(bpm) => onChange({ ...block, bpm })} disabled={tr.playing} />
+              <MetronomeButton on={metronome} onChange={setMetronome} disabled={tr.playing} />
+              <CountIn beat={tr.beat} />
+            </div>
+          </>
+        )}
       </div>
     </CardChrome>
   );
+}
+
+function playChordNow(item: string) {
+  const midis = chordMidis(item);
+  if (midis) playChord(midis);
 }
 
 /**
@@ -367,6 +624,7 @@ export function BlockEditor({ value, onChange }: { value: string; onChange: (mar
   const t = useT();
   const lastEmitted = useRef<string | null>(null);
   const [blocks, setBlocks] = useState<EditorBlock[]>(() => parseToBlocks(value));
+  const [pianoMenu, setPianoMenu] = useState(false);
 
   useEffect(() => {
     if (value !== lastEmitted.current) setBlocks(parseToBlocks(value));
@@ -413,13 +671,39 @@ export function BlockEditor({ value, onChange }: { value: string; onChange: (mar
 
       {blocks.length === 0 && <p className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">{t("No content yet. Add a block below.")}</p>}
 
-      <div className="flex flex-wrap gap-1.5 border-t pt-3">
-        {ADD_BUTTONS.map(({ kind, label, icon: Icon }) => (
-          <Button key={kind} type="button" size="sm" variant="outline" onClick={() => addBlock(kind)}>
-            <Icon className="size-4" />
-            {t(label)}
+      <div className="grid gap-2 border-t pt-3">
+        <div className="flex flex-wrap gap-1.5">
+          {ADD_BUTTONS.map(({ kind, label, icon: Icon }) => (
+            <Button key={kind} type="button" size="sm" variant="outline" onClick={() => addBlock(kind)}>
+              <Icon className="size-4" />
+              {t(label)}
+            </Button>
+          ))}
+          <Button type="button" size="sm" variant={pianoMenu ? "secondary" : "outline"} aria-expanded={pianoMenu} onClick={() => setPianoMenu((x) => !x)}>
+            <PianoIcon className="size-4" />
+            {t("Piano")}
           </Button>
-        ))}
+        </div>
+        {pianoMenu && (
+          <div className="grid gap-2 rounded-lg border bg-muted/40 p-2 sm:grid-cols-3">
+            {PIANO_CHOICES.map(({ kind, label, hint, icon: Icon }) => (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => {
+                  addBlock(kind);
+                  setPianoMenu(false);
+                }}
+                className="grid gap-1 rounded-lg border bg-card p-3 text-left transition-colors hover:border-primary hover:bg-primary-soft/40"
+              >
+                <span className="inline-flex items-center gap-2 font-semibold">
+                  <Icon className="size-4 text-primary" /> {t(label)}
+                </span>
+                <span className="text-xs text-muted-foreground">{t(hint)}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

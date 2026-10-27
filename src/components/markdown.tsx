@@ -1,6 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChordChips, RhythmBlockPlayer, SongBlockPlayer } from "@/components/lessons/music-block-players";
+import { ChordBlockPlayer, RhythmBlockPlayer, SongBlockPlayer } from "@/components/lessons/music-block-players";
 import { MediaPlayer } from "@/components/media-player";
 import { noteToMidi } from "@/lib/music";
 import { decodeFence, isMusicFenceLang, MELODY_BLOCK_BPM, melodyToSongNotes, type DecodedMusicBlock } from "@/lib/music-blocks";
@@ -28,7 +28,7 @@ function MusicBlock({ block }: { block: DecodedMusicBlock }) {
     case "music:rhythm":
       return (
         <div className="not-prose my-3 rounded-lg border bg-card p-3">
-          <RhythmBlockPlayer pattern={block.pattern} />
+          <RhythmBlockPlayer pattern={block.pattern} bpm={block.bpm} />
         </div>
       );
     case "music:melody":
@@ -54,8 +54,8 @@ function MusicBlock({ block }: { block: DecodedMusicBlock }) {
     }
     case "music:chords":
       return (
-        <div className="not-prose my-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3">
-          <ChordChips label={block.label} items={block.items} />
+        <div className="not-prose my-3 rounded-lg border bg-card p-3">
+          <ChordBlockPlayer label={block.label} items={block.items} beats={block.beats} bpm={block.bpm} />
         </div>
       );
   }

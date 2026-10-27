@@ -160,3 +160,46 @@ export function rhythmFromTaps(onsets: number[]): NoteGlyphKind[] | null {
   });
   return out;
 }
+
+const NOTE_FITS: [number, NoteGlyphKind][] = [
+  [4, "whole"],
+  [2, "half"],
+  [1, "quarter"],
+  [0.5, "eighth"],
+];
+
+/** Fills `beats` (a multiple of 0.5) with rests, a quarter rest only where it starts on a beat. */
+function rests(from: number, beats: number): NoteGlyphKind[] {
+  const out: NoteGlyphKind[] = [];
+  let pos = from;
+  let left = beats;
+  while (left > 1e-6) {
+    const quarter = left >= 1 - 1e-6 && Math.abs(pos - Math.round(pos)) < 1e-6;
+    out.push(quarter ? "rest-quarter" : "rest-eighth");
+    pos += quarter ? 1 : 0.5;
+    left -= quarter ? 1 : 0.5;
+  }
+  return out;
+}
+
+/**
+ * Tapped onsets (in beats from the first beat) -> a rhythm pattern. Taps snap to eighth notes; each note lasts until
+ *  the next tap (the longest note value that fits, then rests), and the pattern is filled to whole bars of 4/4.
+ */
+export function onsetsToPattern(onsets: number[]): NoteGlyphKind[] {
+  const snapped = [...new Set(onsets.map((o) => Math.round(o * 2) / 2).filter((o) => o >= 0))].sort((a, b) => a - b);
+  if (!snapped.length) return [];
+  const end = Math.max(4, Math.ceil((snapped[snapped.length - 1] + 0.5) / 4) * 4);
+  const out: NoteGlyphKind[] = [];
+  let pos = 0;
+  snapped.forEach((o, i) => {
+    out.push(...rests(pos, o - pos));
+    const room = (snapped[i + 1] ?? end) - o;
+    // A note never crosses a beat it does not start on (keeps the pattern readable).
+    const fit = NOTE_FITS.find(([b, kind]) => b <= room + 1e-6 && (b < 1 || Math.abs(o - Math.round(o)) < 1e-6) && (kind !== "half" || o % 2 === 0) && (kind !== "whole" || o % 4 === 0)) ?? [0.5, "eighth" as const];
+    out.push(fit[1]);
+    out.push(...rests(o + fit[0], room - fit[0]));
+    pos = o + room;
+  });
+  return out;
+}
