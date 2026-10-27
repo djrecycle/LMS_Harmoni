@@ -239,7 +239,7 @@ export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM, meter = "
       countIn: 1,
       total,
       metronome,
-      sounds: sound ? onsets.map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, "kentongan") })) : [],
+      sounds: sound ? onsets.map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, "drum") })) : [],
       onEnd: (r) => setResult(taps.current.length ? scoreTaps(taps.current, onsets, r) : null),
     });
   }
@@ -247,6 +247,7 @@ export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM, meter = "
   function tap() {
     if (!tr.playing) return;
     taps.current.push(audioTime());
+    scheduleClick(audioTime() + 0.005, true, "drum"); // hear your own tap
     setTapFlash(true);
     setTimeout(() => setTapFlash(false), 120);
   }

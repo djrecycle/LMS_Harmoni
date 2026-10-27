@@ -253,7 +253,7 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
       countIn: 1,
       total: totalBeats(events),
       metronome,
-      sounds: rhythmOnsetBeats(block.pattern).map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, "kentongan") })),
+      sounds: rhythmOnsetBeats(block.pattern).map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, "drum") })),
     });
   }
 
@@ -284,7 +284,7 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
   function tap() {
     if (!recording) return;
     taps.current.push(audioTime());
-    scheduleClick(audioTime() + 0.005, true, "kentongan");
+    scheduleClick(audioTime() + 0.005, true, "drum");
     setTapFlash(true);
     setTimeout(() => setTapFlash(false), 120);
   }

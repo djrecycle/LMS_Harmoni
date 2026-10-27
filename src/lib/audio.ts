@@ -14,9 +14,23 @@ let klikSynth: ToneNS.Synth | null = null;
 let tepukSynth: ToneNS.NoiseSynth | null = null;
 let kentonganSynth: ToneNS.MembraneSynth | null = null;
 let tamborinSynth: ToneNS.MetalSynth | null = null;
+let snareNoise: ToneNS.NoiseSynth | null = null;
+let snareBody: ToneNS.MembraneSynth | null = null;
+let tomSynth: ToneNS.MembraneSynth | null = null;
+let kendangSynth: ToneNS.MembraneSynth | null = null;
 
 /** Percussive timbre used for metronome/rhythm clicks. */
-export type ClickVoice = "click" | "tepuk" | "kentongan" | "tamborin";
+export type ClickVoice = "click" | "tepuk" | "kentongan" | "tamborin" | "drum" | "tom" | "kendang";
+
+/** The percussion sounds a rhythm can be played with (labels are English source strings for t()). */
+export const RHYTHM_VOICES: { id: ClickVoice; label: string }[] = [
+  { id: "drum", label: "Drum (snare)" },
+  { id: "tom", label: "Tom drum" },
+  { id: "kendang", label: "Kendang" },
+  { id: "tepuk", label: "Hand clap" },
+  { id: "kentongan", label: "Kentongan" },
+  { id: "tamborin", label: "Tambourine" },
+];
 
 export function loadAudio(): Promise<void> {
   memuat ??= (async () => {
@@ -65,6 +79,35 @@ export function loadAudio(): Promise<void> {
       octaves: 1.2,
       volume: -20,
     }).toDestination();
+
+    // "Drum": a snare drum, a noise rattle over a short drum-head thump.
+    snareNoise = new T.NoiseSynth({
+      noise: { type: "white" },
+      envelope: { attack: 0.001, decay: 0.16, sustain: 0 },
+      volume: -10,
+    }).connect(new T.Filter(2600, "highpass").toDestination());
+    snareBody = new T.MembraneSynth({
+      pitchDecay: 0.02,
+      octaves: 2,
+      envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.05 },
+      volume: -8,
+    }).toDestination();
+
+    // "Tom": a deep tom-tom.
+    tomSynth = new T.MembraneSynth({
+      pitchDecay: 0.06,
+      octaves: 4,
+      envelope: { attack: 0.001, decay: 0.35, sustain: 0, release: 0.1 },
+      volume: -4,
+    }).toDestination();
+
+    // "Kendang": the Javanese hand drum, a round "dhung" with the pitch sliding down.
+    kendangSynth = new T.MembraneSynth({
+      pitchDecay: 0.12,
+      octaves: 1.6,
+      envelope: { attack: 0.002, decay: 0.28, sustain: 0, release: 0.08 },
+      volume: -5,
+    }).toDestination();
   })();
   return memuat;
 }
@@ -104,7 +147,7 @@ export function scheduleNote(midi: number, time: number, duration = 0.35, veloci
   piano?.triggerAttackRelease(midiToFrequency(midi), duration, time, velocity);
 }
 
-const lastClickTime: Record<ClickVoice, number> = { click: 0, tepuk: 0, kentongan: 0, tamborin: 0 };
+const lastClickTime: Record<ClickVoice, number> = { click: 0, tepuk: 0, kentongan: 0, tamborin: 0, drum: 0, tom: 0, kendang: 0 };
 
 export function scheduleClick(time: number, accent = false, voice: ClickVoice = "click") {
   // Each voice is a mono synth, which throws when a start time is not after its previous one (e.g. a restarted metronome).
@@ -114,6 +157,14 @@ export function scheduleClick(time: number, accent = false, voice: ClickVoice = 
     tepukSynth?.triggerAttackRelease(0.09, time, accent ? 1 : 0.7);
   } else if (voice === "kentongan") {
     kentonganSynth?.triggerAttackRelease(accent ? "G4" : "D4", 0.09, time, accent ? 1 : 0.75);
+  } else if (voice === "drum") {
+    const v = accent ? 1 : 0.7;
+    snareNoise?.triggerAttackRelease(0.14, time, v);
+    snareBody?.triggerAttackRelease(accent ? "E3" : "D3", 0.1, time, v);
+  } else if (voice === "tom") {
+    tomSynth?.triggerAttackRelease(accent ? "C2" : "G1", 0.3, time, accent ? 1 : 0.75);
+  } else if (voice === "kendang") {
+    kendangSynth?.triggerAttackRelease(accent ? "A2" : "D3", 0.25, time, accent ? 1 : 0.8);
   } else if (voice === "tamborin") {
     tamborinSynth?.triggerAttackRelease(accent ? "C6" : "A5", 0.12, time, accent ? 1 : 0.7);
   } else {

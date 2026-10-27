@@ -9,7 +9,7 @@ import { PRACTICE_NOT_LINKED } from "@/lib/practice";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/misc";
 import { Select } from "@/components/ui/input";
-import { unlockAudio, scheduleClick, audioLatency, scheduleNote, audioTime } from "@/lib/audio";
+import { unlockAudio, scheduleClick, audioLatency, audioTime, RHYTHM_VOICES, type ClickVoice } from "@/lib/audio";
 import { gradeRhythm, RHYTHM_PATTERNS, type BeatResult, type RhythmPattern } from "@/lib/practice";
 import { ScoreView } from "@/components/score-view";
 import { glyphNotation, isRestGlyph, METERS, NOTE_GLYPH_BEATS } from "@/lib/music-blocks";
@@ -22,6 +22,7 @@ type View = "dots" | "staff";
 
 const LEVEL_LABEL: Record<1 | 2 | 3, string> = { 1: "Easy (1 bar)", 2: "Medium (2 bars)", 3: "Hard (4 bars)" };
 const VIEW_KEY = "rhythm-practice-view";
+const VOICE_KEY = "rhythm-practice-voice";
 
 /**
  * `saveResult: false` keeps the score local — saving needs a student session (a teacher previewing a lesson would be redirected).
@@ -49,12 +50,26 @@ export function RhythmPractice({
   const [cursor, setCursor] = useState<number | null>(null);
   const viewRef = useRef<View>("dots");
   viewRef.current = view;
+  // The percussion sound of the pattern and of the student's taps (the metronome keeps its click).
+  const [voice, setVoice] = useState<ClickVoice>("drum");
+  const voiceRef = useRef<ClickVoice>("drum");
+  voiceRef.current = voice;
   useEffect(() => {
     try {
       const v = localStorage.getItem(VIEW_KEY);
       if (v === "dots" || v === "staff") setView(v);
+      const s = localStorage.getItem(VOICE_KEY);
+      if (RHYTHM_VOICES.some((x) => x.id === s)) setVoice(s as ClickVoice);
     } catch {}
   }, []);
+  const chooseVoice = (v: ClickVoice) => {
+    setVoice(v);
+    try {
+      localStorage.setItem(VOICE_KEY, v);
+    } catch {}
+    // Let the student hear the sound they picked.
+    void unlockAudio().then(() => scheduleClick(audioTime() + 0.02, true, v));
+  };
   const chooseView = (v: View) => {
     setView(v);
     try {
@@ -142,7 +157,8 @@ export function RhythmPractice({
     const tS = tC + bar * d; // start of the student's pattern
 
     for (let b = 0; b < bar - 1e-6; b += click) scheduleClick(t0 + b * d, b === 0);
-    for (const o of pattern.onset) scheduleNote(84, tD + o * d, 0.12, 0.9);
+    // The example, on the chosen percussion sound; the first note of each bar is accented.
+    for (const o of pattern.onset) scheduleClick(tD + o * d, Math.abs(o % bar) < 1e-6, voice);
     for (let b = 0; b < bar - 1e-6; b += click) scheduleClick(tC + b * d, b === 0);
     for (let b = 0; b < L - 1e-6; b += click) scheduleClick(tS + b * d, Math.abs(b % bar) < 1e-6);
     schedule.current = { tS, d };
@@ -184,7 +200,7 @@ export function RhythmPractice({
     if (phaseRef.current !== "turn") return;
     const now = audioTime();
     const { tS, d } = schedule.current;
-    scheduleNote(84, now, 0.1, 0.8); // tap sound feedback
+    scheduleClick(now + 0.005, true, voiceRef.current); // tap sound feedback
     const t = now - audioLatency(); // compensate for output delay to be fair
     if (t >= tS - 0.45 * d) {
       taps.current.push(t);
@@ -207,7 +223,7 @@ export function RhythmPractice({
 
   return (
     <div className="grid gap-5">
-      <div className="grid gap-3 rounded-xl border bg-card p-4 shadow-xs sm:grid-cols-[1fr_12rem_auto] sm:items-end">
+      <div className="grid gap-3 rounded-xl border bg-card p-4 shadow-xs sm:grid-cols-[1fr_11rem_12rem_auto] sm:items-end">
         <label className="text-sm font-semibold">
           {t("Rhythm pattern")}
           <Select
@@ -239,6 +255,16 @@ export function RhythmPractice({
                   </option>
                 ))}
               </optgroup>
+            ))}
+          </Select>
+        </label>
+        <label className="text-sm font-semibold">
+          {t("Sound")}
+          <Select value={voice} onChange={(e) => chooseVoice(e.target.value as ClickVoice)} disabled={activeInProgress} className="mt-1.5">
+            {RHYTHM_VOICES.map((v) => (
+              <option key={v.id} value={v.id}>
+                {t(v.label)}
+              </option>
             ))}
           </Select>
         </label>

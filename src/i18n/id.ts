@@ -2033,4 +2033,7 @@ export const id: Record<string, string> = {
   "Note values": "Nilai not",
   "A triplet group needs three notes or rests of the same value.": "Satu kelompok triol butuh tiga not atau tanda diam dengan nilai yang sama.",
   "A triplet group crosses a bar line; move it so it fits inside one bar.": "Kelompok triol melewati garis birama; pindahkan agar muat dalam satu birama.",
+  "Drum (snare)": "Drum (snare)",
+  "Tom drum": "Drum tom",
+  "Kendang": "Kendang",
 };
