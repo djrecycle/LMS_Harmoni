@@ -2,7 +2,7 @@
 import { AlignmentType, BorderStyle, Document, ExternalHyperlink, Packer, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
 import type { Block, Run } from "./markdown-ir";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
-import { describeMelody, describeSong } from "@/lib/music-blocks";
+import { describeMelody, describeSong, parseGlyph, type GlyphValue } from "@/lib/music-blocks";
 
 const FONT = "Calibri";
 const BASE = 11;
@@ -10,14 +10,14 @@ const PAGE_WIDTH = 11906; // A4, twips
 const MARGIN = 1134; // 2cm, twips
 const TEXT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 
-const RHYTHM_LABEL: Record<NoteGlyphKind, string> = {
-  whole: "Not Penuh",
-  half: "Not Setengah",
-  quarter: "Not Seperempat",
-  eighth: "Not Seperdelapan",
-  "rest-quarter": "Istirahat 1/4",
-  "rest-eighth": "Istirahat 1/8",
-};
+const VALUE_ID: Record<GlyphValue, string> = { whole: "Penuh", half: "1/2", quarter: "1/4", eighth: "1/8", sixteenth: "1/16", "thirty-second": "1/32" };
+
+/** "Not 1/4 bertitik", "Triol 1/8", "Istirahat 1/16". */
+function rhythmLabel(kind: NoteGlyphKind): string {
+  const { rest, value, dotted, triplet } = parseGlyph(kind);
+  const v = VALUE_ID[value];
+  return `${rest ? "Istirahat" : triplet ? "Triol" : "Not"} ${triplet && rest ? `triol ${v}` : v}${dotted ? " bertitik" : ""}`;
+}
 
 const CALLOUT_BORDER = {
   top: { style: BorderStyle.SINGLE, size: 4, color: "CCCCCC" },
@@ -101,7 +101,7 @@ export async function markdownToDocx(title: string, blocks: Block[]): Promise<Bu
         }),
       );
     } else if (b.type === "rhythm") {
-      const text = b.pattern.length ? b.pattern.map((k) => RHYTHM_LABEL[k]).join(" · ") : "—";
+      const text = b.pattern.length ? b.pattern.map(rhythmLabel).join(" · ") : "—";
       children.push(
         new Paragraph({
           spacing: { after: 160 },

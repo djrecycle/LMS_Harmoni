@@ -104,12 +104,111 @@ export function isMusicFenceLang(lang: string | null | undefined): lang is Music
   return Boolean(lang) && (MUSIC_FENCE_LANGS as readonly string[]).includes(lang as string);
 }
 
+/** The basic note values (what the AI and the question types use). */
 export const NOTE_GLYPH_KINDS = ["whole", "half", "quarter", "eighth", "rest-quarter", "rest-eighth"] as const satisfies readonly NoteGlyphKind[];
+/** Every note value and rest a rhythm block can hold, including dotted notes and triplets. */
+export const ALL_GLYPH_KINDS = [
+  "whole",
+  "dotted-half",
+  "half",
+  "dotted-quarter",
+  "quarter",
+  "dotted-eighth",
+  "eighth",
+  "sixteenth",
+  "thirty-second",
+  "triplet-quarter",
+  "triplet-eighth",
+  "triplet-sixteenth",
+  "rest-whole",
+  "rest-half",
+  "rest-quarter",
+  "rest-eighth",
+  "rest-sixteenth",
+  "rest-thirty-second",
+  "rest-triplet-quarter",
+  "rest-triplet-eighth",
+  "rest-triplet-sixteenth",
+] as const satisfies readonly NoteGlyphKind[];
 
 /** Length of each note value / rest in beats (quarter note = 1). */
-export const NOTE_GLYPH_BEATS: Record<NoteGlyphKind, number> = { whole: 4, half: 2, quarter: 1, eighth: 0.5, "rest-quarter": 1, "rest-eighth": 0.5 };
+export const NOTE_GLYPH_BEATS: Record<NoteGlyphKind, number> = {
+  whole: 4,
+  "dotted-half": 3,
+  half: 2,
+  "dotted-quarter": 1.5,
+  quarter: 1,
+  "dotted-eighth": 0.75,
+  eighth: 0.5,
+  sixteenth: 0.25,
+  "thirty-second": 0.125,
+  // Triplets: three in the time of two.
+  "triplet-quarter": 2 / 3,
+  "triplet-eighth": 1 / 3,
+  "triplet-sixteenth": 1 / 6,
+  "rest-whole": 4,
+  "rest-half": 2,
+  "rest-quarter": 1,
+  "rest-eighth": 0.5,
+  "rest-sixteenth": 0.25,
+  "rest-thirty-second": 0.125,
+  "rest-triplet-quarter": 2 / 3,
+  "rest-triplet-eighth": 1 / 3,
+  "rest-triplet-sixteenth": 1 / 6,
+};
 
-export const isRestGlyph = (kind: NoteGlyphKind) => kind === "rest-quarter" || kind === "rest-eighth";
+export type GlyphValue = "whole" | "half" | "quarter" | "eighth" | "sixteenth" | "thirty-second";
+
+/** The parts of a note value: a rest or not, the plain value, dotted, part of a triplet. */
+export function parseGlyph(kind: NoteGlyphKind): { rest: boolean; value: GlyphValue; dotted: boolean; triplet: boolean } {
+  const rest = kind.startsWith("rest-");
+  const k = kind.replace(/^rest-/, "");
+  return { rest, value: k.replace(/^(triplet|dotted)-/, "") as GlyphValue, dotted: k.startsWith("dotted-"), triplet: k.startsWith("triplet-") };
+}
+
+const VALUE_NAME: Record<GlyphValue, string> = { whole: "whole", half: "half", quarter: "quarter", eighth: "eighth", sixteenth: "sixteenth", "thirty-second": "32nd" };
+
+/** English name for a note value ("Dotted quarter note", "Eighth-note triplet", "Sixteenth rest"); translate with t(). */
+export function glyphLabel(kind: NoteGlyphKind): string {
+  const { rest, value, dotted, triplet } = parseGlyph(kind);
+  const name = VALUE_NAME[value];
+  const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+  if (triplet) return rest ? `${cap(name)}-note triplet rest` : `${cap(name)}-note triplet`;
+  return `${dotted ? "Dotted " : ""}${dotted ? name : cap(name)} ${rest ? "rest" : "note"}`;
+}
+
+/**
+ * Checks the triplets of a rhythm: each run of triplets of one value must come in whole groups of three, and a group
+ *  must not cross a bar line (`bar` quarter notes). Returns what is wrong, or null.
+ */
+export function tripletProblem(pattern: NoteGlyphKind[], bar: number): "incomplete" | "crosses" | null {
+  let pos = 0;
+  for (let i = 0; i < pattern.length; ) {
+    const { triplet, value } = parseGlyph(pattern[i]);
+    if (!triplet) {
+      pos += NOTE_GLYPH_BEATS[pattern[i]];
+      i++;
+      continue;
+    }
+    const group = pattern.slice(i, i + 3);
+    if (group.length < 3 || group.some((g) => !parseGlyph(g).triplet || parseGlyph(g).value !== value)) return "incomplete";
+    const len = group.reduce((s, g) => s + NOTE_GLYPH_BEATS[g], 0);
+    const start = Math.round((pos % bar) * 96) / 96;
+    if (start + len > bar + 1e-6) return "crosses";
+    pos += len;
+    i += 3;
+  }
+  return null;
+}
+
+/** How a note value is drawn on the staff: VexFlow duration code, dotted, part of a 3:2 triplet. */
+export function glyphNotation(kind: NoteGlyphKind): { code: string; dotted: boolean; triplet: boolean } {
+  const { value, dotted, triplet } = parseGlyph(kind);
+  const code = { whole: "w", half: "h", quarter: "q", eighth: "8", sixteenth: "16", "thirty-second": "32" }[value];
+  return { code, dotted, triplet };
+}
+
+export const isRestGlyph = (kind: NoteGlyphKind) => kind.startsWith("rest-");
 
 function fence(lang: MusicFenceLang, data: unknown): string {
   return "```" + lang + "\n" + JSON.stringify(data) + "\n```";
@@ -148,7 +247,7 @@ export function decodeFence(lang: string | null | undefined, raw: string): Decod
   }
   if (lang === "music:rhythm") {
     if (!Array.isArray(d.pattern)) return null;
-    const pattern = d.pattern.filter((p): p is NoteGlyphKind => NOTE_GLYPH_KINDS.includes(p));
+    const pattern = d.pattern.filter((p): p is NoteGlyphKind => (ALL_GLYPH_KINDS as readonly string[]).includes(p));
     return { lang, pattern, bpm: tempo(d.bpm), meter: isMeter(d.meter) ? d.meter : undefined };
   }
   if (lang === "music:chords") {

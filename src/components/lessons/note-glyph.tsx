@@ -1,14 +1,25 @@
+import { NOTE_GLYPH_BEATS, parseGlyph } from "@/lib/music-blocks";
 import { cn } from "@/lib/utils";
 
-export type NoteGlyphKind = "whole" | "half" | "quarter" | "eighth" | "rest-quarter" | "rest-eighth";
+type NoteValue = "whole" | "half" | "quarter" | "eighth" | "sixteenth" | "thirty-second";
+type Note = NoteValue | "dotted-half" | "dotted-quarter" | "dotted-eighth" | "triplet-quarter" | "triplet-eighth" | "triplet-sixteenth";
+type Rest = "rest-whole" | "rest-half" | "rest-quarter" | "rest-eighth" | "rest-sixteenth" | "rest-thirty-second" | "rest-triplet-quarter" | "rest-triplet-eighth" | "rest-triplet-sixteenth";
+/** A note value or rest of a rhythm (see NOTE_GLYPH_BEATS in src/lib/music-blocks.ts for their lengths). */
+export type NoteGlyphKind = Note | Rest;
 
-/** Small inline SVG glyph for a note value or rest sign, used in notation tables and pattern cards. */
+const FLAGS: Record<string, number> = { eighth: 1, sixteenth: 2, "thirty-second": 3 };
+
+/**
+ * Small inline SVG glyph for a note value or rest sign, used in notation tables and pattern cards.
+ *  Dotted values get a dot, triplets a small "3".
+ */
 export function NoteGlyph({ kind, className }: { kind: NoteGlyphKind; className?: string }) {
-  const isRest = kind === "rest-quarter" || kind === "rest-eighth";
+  const { rest, value, dotted, triplet } = parseGlyph(kind);
+  const flags = FLAGS[value] ?? 0;
   return (
     <svg
       viewBox="0 0 24 32"
-      className={cn("size-6", isRest ? "text-danger" : "text-foreground", className)}
+      className={cn("size-6", rest ? "text-danger" : "text-foreground", className)}
       fill="none"
       stroke="currentColor"
       strokeWidth={1.8}
@@ -16,32 +27,49 @@ export function NoteGlyph({ kind, className }: { kind: NoteGlyphKind; className?
       strokeLinejoin="round"
       aria-hidden
     >
-      {kind === "whole" && <ellipse cx="12" cy="20" rx="6.5" ry="4.4" transform="rotate(-18 12 20)" strokeWidth={2.2} />}
-      {kind === "half" && (
+      {!rest && value === "whole" && <ellipse cx="12" cy="20" rx="6.5" ry="4.4" transform="rotate(-18 12 20)" strokeWidth={2.2} />}
+      {!rest && value !== "whole" && (
         <>
-          <ellipse cx="9" cy="24" rx="6" ry="4.2" transform="rotate(-18 9 24)" strokeWidth={2.2} />
+          {value === "half" ? (
+            <ellipse cx="9" cy="24" rx="6" ry="4.2" transform="rotate(-18 9 24)" strokeWidth={2.2} />
+          ) : (
+            <ellipse cx="9" cy="24" rx="6" ry="4.2" transform="rotate(-18 9 24)" fill="currentColor" />
+          )}
           <line x1="14.5" y1="22" x2="14.5" y2="4" />
+          {Array.from({ length: flags }, (_, i) => (
+            <path key={i} d={`M14.5 ${4 + i * 4}c3 1 5 3 5 6.5`} fill="none" />
+          ))}
         </>
       )}
-      {kind === "quarter" && (
+      {rest && value === "whole" && (
         <>
-          <ellipse cx="9" cy="24" rx="6" ry="4.2" transform="rotate(-18 9 24)" fill="currentColor" />
-          <line x1="14.5" y1="22" x2="14.5" y2="4" />
+          <line x1="5" y1="12" x2="19" y2="12" />
+          <rect x="8" y="12" width="8" height="4" fill="currentColor" stroke="none" />
         </>
       )}
-      {kind === "eighth" && (
+      {rest && value === "half" && (
         <>
-          <ellipse cx="9" cy="24" rx="6" ry="4.2" transform="rotate(-18 9 24)" fill="currentColor" />
-          <line x1="14.5" y1="22" x2="14.5" y2="4" />
-          <path d="M14.5 4c3 1 5 3 5 6.5" fill="none" />
+          <line x1="5" y1="18" x2="19" y2="18" />
+          <rect x="8" y="14" width="8" height="4" fill="currentColor" stroke="none" />
         </>
       )}
-      {kind === "rest-quarter" && <path d="M15 3c-3 3 3 6 0 9-3 3-4 4-1 6-3 0-5 2-3 5 1.5 2 3 3 2 6l-2 3" />}
-      {kind === "rest-eighth" && (
+      {rest && value === "quarter" && <path d="M15 3c-3 3 3 6 0 9-3 3-4 4-1 6-3 0-5 2-3 5 1.5 2 3 3 2 6l-2 3" />}
+      {rest && flags > 0 && (
         <>
-          <circle cx="8" cy="24" r="1.6" fill="currentColor" stroke="none" />
-          <path d="M8 24c2-6 8-8 8-15" />
+          <path d="M9 28L15.5 7" />
+          {Array.from({ length: flags }, (_, i) => (
+            <g key={i}>
+              <circle cx={8 - i * 1.4} cy={9 + i * 6} r="1.6" fill="currentColor" stroke="none" />
+              <path d={`M${8 - i * 1.4} ${9 + i * 6}c2 1.5 5 1 ${7.5 - i * 0.6} -2`} />
+            </g>
+          ))}
         </>
+      )}
+      {dotted && <circle cx={value === "whole" ? 21 : 19} cy="24" r="1.7" fill="currentColor" stroke="none" />}
+      {triplet && (
+        <text x="3" y="9" fontSize="9" fontWeight="bold" fill="currentColor" stroke="none">
+          3
+        </text>
       )}
     </svg>
   );
@@ -59,8 +87,6 @@ export function BeamedEighths({ className }: { className?: string }) {
     </svg>
   );
 }
-
-const GLYPH_BEATS: Record<NoteGlyphKind, number> = { whole: 4, half: 2, quarter: 1, eighth: 0.5, "rest-quarter": 1, "rest-eighth": 0.5 };
 
 /**
  * A rhythm in a row, drawn like a score: two eighth notes that share one beat are beamed together.
@@ -80,7 +106,7 @@ export function RhythmNotation({ pattern, size = "md", className }: { pattern: N
       continue;
     }
     items.push(<NoteGlyph key={i} kind={g} className={single} />);
-    beat += GLYPH_BEATS[g];
+    beat += NOTE_GLYPH_BEATS[g];
   }
   return <span className={cn("inline-flex flex-wrap items-end gap-0.5", className)}>{items}</span>;
 }

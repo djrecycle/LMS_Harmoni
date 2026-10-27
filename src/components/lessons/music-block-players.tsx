@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { audioTime, loadAudio, playChord, scheduleClick, scheduleNote, unlockAudio } from "@/lib/audio";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
 import { chordMidis } from "@/lib/music";
-import { CHORDS_DEFAULT_BPM, isRestGlyph, METERS, NOTE_GLYPH_BEATS, RHYTHM_DEFAULT_BPM, type Meter } from "@/lib/music-blocks";
+import { CHORDS_DEFAULT_BPM, glyphNotation, isRestGlyph, METERS, NOTE_GLYPH_BEATS, RHYTHM_DEFAULT_BPM, type Meter } from "@/lib/music-blocks";
 import type { Song, SongNote } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
@@ -181,7 +181,7 @@ export function MeterSelect({ value, onChange, disabled }: { value: Meter; onCha
 const RHYTHM_PITCH = 71; // any pitch: drawn on a one-line percussion staff
 
 export function rhythmEvents(pattern: NoteGlyphKind[]): ScoreEvent[] {
-  return pattern.map((g) => ({ midis: isRestGlyph(g) ? null : [RHYTHM_PITCH], beats: NOTE_GLYPH_BEATS[g] }));
+  return pattern.map((g) => ({ midis: isRestGlyph(g) ? null : [RHYTHM_PITCH], beats: NOTE_GLYPH_BEATS[g], glyph: glyphNotation(g) }));
 }
 
 export function rhythmOnsetBeats(pattern: NoteGlyphKind[]): number[] {

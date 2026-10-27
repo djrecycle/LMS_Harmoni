@@ -2,7 +2,7 @@
 import PDFDocument from "pdfkit";
 import type { Block, Run } from "./markdown-ir";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
-import { describeMelody, describeSong } from "@/lib/music-blocks";
+import { describeMelody, describeSong, parseGlyph } from "@/lib/music-blocks";
 
 const TEXT_COLOR = "#111111";
 const LINK_COLOR = "#2563eb";
@@ -70,8 +70,9 @@ function drawTable(doc: PDFKit.PDFDocument, header: string[], rows: string[][]) 
 
 /** Mirrors the note/rest glyph drawn in src/components/lessons/note-glyph.tsx, as pdfkit vector shapes. */
 function drawNoteGlyph(doc: PDFKit.PDFDocument, kind: NoteGlyphKind, x: number, y: number, scale: number) {
-  const isRest = kind === "rest-quarter" || kind === "rest-eighth";
-  const color = isRest ? REST_COLOR : TEXT_COLOR;
+  const { rest, value, dotted, triplet } = parseGlyph(kind);
+  const flags = value === "eighth" ? 1 : value === "sixteenth" ? 2 : value === "thirty-second" ? 3 : 0;
+  const color = rest ? REST_COLOR : TEXT_COLOR;
 
   doc.save();
   doc.translate(x, y).scale(scale);
@@ -86,26 +87,36 @@ function drawNoteGlyph(doc: PDFKit.PDFDocument, kind: NoteGlyphKind, x: number, 
     doc.restore();
   };
 
-  if (kind === "whole") {
+  if (!rest && value === "whole") {
     doc.lineWidth(2.2);
     ellipseGlyph(12, 20, 6.5, 4.4, -18, "stroke");
-  } else if (kind === "half") {
-    doc.lineWidth(2.2);
-    ellipseGlyph(9, 24, 6, 4.2, -18, "stroke");
-    doc.lineWidth(1.8).moveTo(14.5, 22).lineTo(14.5, 4).stroke();
-  } else if (kind === "quarter") {
-    ellipseGlyph(9, 24, 6, 4.2, -18, "fill");
+  } else if (!rest) {
+    if (value === "half") {
+      doc.lineWidth(2.2);
+      ellipseGlyph(9, 24, 6, 4.2, -18, "stroke");
+      doc.lineWidth(1.8);
+    } else ellipseGlyph(9, 24, 6, 4.2, -18, "fill");
     doc.moveTo(14.5, 22).lineTo(14.5, 4).stroke();
-  } else if (kind === "eighth") {
-    ellipseGlyph(9, 24, 6, 4.2, -18, "fill");
-    doc.moveTo(14.5, 22).lineTo(14.5, 4).stroke();
-    doc.path("M14.5 4c3 1 5 3 5 6.5").stroke();
-  } else if (kind === "rest-quarter") {
+    for (let i = 0; i < flags; i++) doc.path(`M14.5 ${4 + i * 4}c3 1 5 3 5 6.5`).stroke();
+  } else if (value === "whole") {
+    doc.moveTo(5, 12).lineTo(19, 12).stroke();
+    doc.rect(8, 12, 8, 4).fill();
+  } else if (value === "half") {
+    doc.moveTo(5, 18).lineTo(19, 18).stroke();
+    doc.rect(8, 14, 8, 4).fill();
+  } else if (value === "quarter") {
     doc.path("M15 3c-3 3 3 6 0 9-3 3-4 4-1 6-3 0-5 2-3 5 1.5 2 3 3 2 6l-2 3").stroke();
-  } else if (kind === "rest-eighth") {
-    doc.circle(8, 24, 1.6).fill();
-    doc.path("M8 24c2-6 8-8 8-15").stroke();
+  } else {
+    doc.moveTo(9, 28).lineTo(15.5, 7).stroke();
+    for (let i = 0; i < flags; i++) {
+      const cx = 8 - i * 1.4;
+      const cy = 9 + i * 6;
+      doc.circle(cx, cy, 1.6).fill();
+      doc.path(`M${cx} ${cy}c2 1.5 5 1 ${7.5 - i * 0.6} -2`).stroke();
+    }
   }
+  if (dotted) doc.circle(value === "whole" ? 21 : 19, 24, 1.7).fill();
+  if (triplet) doc.fontSize(9).text("3", 2, 1, { lineBreak: false });
   doc.restore();
   doc.fillColor(TEXT_COLOR).strokeColor(TEXT_COLOR);
 }

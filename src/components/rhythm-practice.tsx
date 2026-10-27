@@ -12,7 +12,7 @@ import { Select } from "@/components/ui/input";
 import { unlockAudio, scheduleClick, audioLatency, scheduleNote, audioTime } from "@/lib/audio";
 import { gradeRhythm, RHYTHM_PATTERNS, type BeatResult, type RhythmPattern } from "@/lib/practice";
 import { ScoreView } from "@/components/score-view";
-import { isRestGlyph, METERS, NOTE_GLYPH_BEATS } from "@/lib/music-blocks";
+import { glyphNotation, isRestGlyph, METERS, NOTE_GLYPH_BEATS } from "@/lib/music-blocks";
 import { onsetsToPattern } from "@/lib/rhythm";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
@@ -82,7 +82,7 @@ export function RhythmPractice({
     }
     return out;
   }, [pattern, bar]);
-  const staffEvents = useMemo(() => glyphs.map((g) => ({ midis: isRestGlyph(g) ? null : [71], beats: NOTE_GLYPH_BEATS[g] })), [glyphs]);
+  const staffEvents = useMemo(() => glyphs.map((g) => ({ midis: isRestGlyph(g) ? null : [71], beats: NOTE_GLYPH_BEATS[g], glyph: glyphNotation(g) })), [glyphs]);
   const phaseRef = useRef<Phase>("ready");
   const taps = useRef<number[]>([]);
   const schedule = useRef({ tS: 0, d: 0 });

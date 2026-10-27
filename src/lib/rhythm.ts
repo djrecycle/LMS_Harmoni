@@ -32,6 +32,24 @@ export function parseRhythm(text: string): NoteGlyphKind[] | null {
   return out;
 }
 
+/** Counting syllables of each value; the basic ones are also what listening questions accept (see TOKENS). */
+const SYLLABLES: Partial<Record<NoteGlyphKind, string>> = {
+  whole: "ta-a-a-a",
+  "dotted-half": "ta-a-a",
+  half: "ta-a",
+  "dotted-quarter": "ta-i",
+  quarter: "ta",
+  "dotted-eighth": "ti-i",
+  eighth: "ti",
+  sixteenth: "ri",
+  "thirty-second": "ri",
+  "triplet-quarter": "tri",
+  "triplet-eighth": "tri",
+  "triplet-sixteenth": "tri",
+  "rest-quarter": "z",
+  "rest-eighth": "zi",
+};
+
 /** Glyph list -> canonical syllables. Two eighths that share one beat are written "ti-ti". */
 export function rhythmToText(pattern: NoteGlyphKind[]): string {
   const words: string[] = [];
@@ -44,7 +62,7 @@ export function rhythmToText(pattern: NoteGlyphKind[]): string {
       beat += 1;
       continue;
     }
-    words.push(g === "quarter" ? "ta" : g === "eighth" ? "ti" : g === "half" ? "ta-a" : g === "whole" ? "ta-a-a-a" : g === "rest-quarter" ? "z" : "zi");
+    words.push(SYLLABLES[g] ?? (isRestGlyph(g) ? "z" : "ta"));
     beat += NOTE_GLYPH_BEATS[g];
   }
   return words.join(" ");
@@ -163,50 +181,59 @@ export function rhythmFromTaps(onsets: number[]): NoteGlyphKind[] | null {
 
 const NOTE_FITS: [number, NoteGlyphKind][] = [
   [4, "whole"],
+  [3, "dotted-half"],
   [2, "half"],
+  [1.5, "dotted-quarter"],
   [1, "quarter"],
+  [0.75, "dotted-eighth"],
   [0.5, "eighth"],
+  [0.25, "sixteenth"],
 ];
 
-/** Fills `beats` (a multiple of 0.5) with rests, a quarter rest only where it starts on a beat. */
+const onGrid = (x: number, step: number) => Math.abs(x / step - Math.round(x / step)) < 1e-6;
+
+/** Fills `beats` with rests: a quarter rest only on a beat, an eighth rest only on a half beat, else sixteenth rests. */
 function rests(from: number, beats: number): NoteGlyphKind[] {
   const out: NoteGlyphKind[] = [];
   let pos = from;
   let left = beats;
   while (left > 1e-6) {
-    const quarter = left >= 1 - 1e-6 && Math.abs(pos - Math.round(pos)) < 1e-6;
-    out.push(quarter ? "rest-quarter" : "rest-eighth");
-    pos += quarter ? 1 : 0.5;
-    left -= quarter ? 1 : 0.5;
+    const [len, kind]: [number, NoteGlyphKind] =
+      left >= 1 - 1e-6 && onGrid(pos, 1) ? [1, "rest-quarter"] : left >= 0.5 - 1e-6 && onGrid(pos, 0.5) ? [0.5, "rest-eighth"] : [0.25, "rest-sixteenth"];
+    out.push(kind);
+    pos += len;
+    left -= len;
   }
   return out;
 }
 
 /**
- * Tapped onsets (in beats from the first beat) -> a rhythm pattern. Taps snap to eighth notes; each note lasts until
- *  the next tap (the longest note value that fits in its bar, then rests), and the pattern is filled to whole bars of
- *  `bar` quarter notes (4 = 4/4, 3 = 3/4 or 6/8, 2 = 2/4).
+ * Tapped onsets (in beats from the first beat) -> a rhythm pattern. Taps snap to `grid` (0.5 = eighth notes,
+ *  0.25 = sixteenths); each note lasts until the next tap (the longest note value that fits in its bar, then rests),
+ *  and the pattern is filled to whole bars of `bar` quarter notes (4 = 4/4, 3 = 3/4 or 6/8, 2 = 2/4).
  */
-export function onsetsToPattern(onsets: number[], bar = 4): NoteGlyphKind[] {
-  const snapped = [...new Set(onsets.map((o) => Math.round(o * 2) / 2).filter((o) => o >= 0))].sort((a, b) => a - b);
+export function onsetsToPattern(onsets: number[], bar = 4, grid: 0.5 | 0.25 = 0.5): NoteGlyphKind[] {
+  const snapped = [...new Set(onsets.map((o) => Math.round(o / grid) * grid).filter((o) => o >= 0))].sort((a, b) => a - b);
   if (!snapped.length) return [];
-  const end = Math.max(bar, Math.ceil((snapped[snapped.length - 1] + 0.5) / bar) * bar);
+  const end = Math.max(bar, Math.ceil((snapped[snapped.length - 1] + grid) / bar) * bar);
   const out: NoteGlyphKind[] = [];
   let pos = 0;
   snapped.forEach((o, i) => {
     out.push(...rests(pos, o - pos));
     const room = (snapped[i + 1] ?? end) - o;
-    // A note never crosses a beat it does not start on (keeps the pattern readable).
     const inBar = o % bar;
     const fit =
       NOTE_FITS.find(
         ([b, kind]) =>
+          onGrid(b, grid) && // only values the grid can hold (no dotted eighth when snapping to eighths)
           b <= room + 1e-6 &&
           inBar + b <= bar + 1e-6 && // stays inside its bar
-          (b < 1 || Math.abs(o - Math.round(o)) < 1e-6) &&
+          (b < 1 || onGrid(o, 1)) && // values of a beat or longer start on a beat
+          (b !== 0.5 || onGrid(o, 0.5)) && // an eighth starts on a half beat
           (kind !== "half" || bar !== 4 || o % 2 === 0) && // in 4/4 a half note starts on beat 1 or 3
+          (kind !== "dotted-half" || inBar === 0) &&
           (kind !== "whole" || (bar === 4 && o % 4 === 0)),
-      ) ?? [0.5, "eighth" as const];
+      ) ?? ([grid, grid === 0.5 ? "eighth" : "sixteenth"] as [number, NoteGlyphKind]);
     out.push(fit[1]);
     out.push(...rests(o + fit[0], room - fit[0]));
     pos = o + room;

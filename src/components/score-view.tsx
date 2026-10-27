@@ -12,9 +12,23 @@ import { midiToNote, midiToVexKey } from "@/lib/music";
 import { barBeats, type Meter } from "@/lib/music-blocks";
 import { cn } from "@/lib/utils";
 
-export type ScoreEvent = { midis: number[] | null; beats: number; label?: string };
+/**
+ * One note/chord (or a rest when `midis` is null) lasting `beats` quarter notes. `glyph` draws it as exactly that
+ *  value (dotted notes, triplets); without it the length is split into plain values.
+ */
+export type ScoreEvent = { midis: number[] | null; beats: number; label?: string; glyph?: { code: string; dotted: boolean; triplet: boolean } };
 
 const EPS = 1e-6;
+/**
+ * Rounds away floating-point drift (three triplet eighths add up to 0.9999999999999999, not 1). Every note value is a
+ *  multiple of 1/24 beat (32nd notes, sixteenth triplets), so positions snap to 1/96 beat.
+ */
+const tidy = (x: number) => Math.round(x * 96) / 96;
+/** Quarter notes left in the bar at `pos` (a whole bar when `pos` is on a bar line). */
+const roomIn = (pos: number, bar: number) => {
+  const room = bar - (((pos % bar) + bar) % bar);
+  return room < EPS || room > bar - EPS ? bar : room;
+};
 /** Note values VexFlow can draw: [beats, duration code, dotted]. */
 const VALUES: [number, string, boolean][] = [
   [4, "w", false],
@@ -30,15 +44,14 @@ const VALUES: [number, string, boolean][] = [
 /** Splits an event at bar lines (`bar` quarter notes apart), then into drawable note values. */
 function split(start: number, beats: number, bar: number): { start: number; value: (typeof VALUES)[number] }[] {
   const parts: { start: number; value: (typeof VALUES)[number] }[] = [];
-  let pos = start;
+  let pos = tidy(start);
   let left = beats;
   while (left > EPS) {
-    const room = bar - (((pos % bar) + bar) % bar);
-    let take = Math.min(left, room);
+    let take = Math.min(left, roomIn(pos, bar));
     while (take > EPS) {
       const v = VALUES.find(([b]) => b <= take + EPS) ?? VALUES[VALUES.length - 1];
       parts.push({ start: pos, value: v });
-      pos += v[0];
+      pos = tidy(pos + v[0]);
       take -= v[0];
       left -= v[0];
     }
@@ -80,16 +93,19 @@ export function ScoreView({
       if (!box || cancelled) return;
       box.innerHTML = "";
       const drum = clef !== "treble";
-      const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, ChordSymbol, Dot, Beam, StaveTie, Fraction } = VF;
+      const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, ChordSymbol, Dot, Beam, StaveTie, Fraction, Tuplet } = VF;
       const BAR = barBeats(meter);
       const [num, den] = meter.split("/").map(Number);
 
       // Lay the events out in bars.
-      type Part = { note: InstanceType<typeof StaveNote>; start: number; event: number; first: boolean; rest: boolean };
+      type Part = { note: InstanceType<typeof StaveNote>; start: number; event: number; first: boolean; rest: boolean; triplet?: string };
       const bars: Part[][] = [];
       let pos = 0;
       events.forEach((e, ei) => {
-        split(pos, e.beats, BAR).forEach((p, pi) => {
+        // A value given by the event (dotted, triplet) is kept as it is when it fits in its bar.
+        const room = roomIn(pos, BAR);
+        const parts = e.glyph && e.beats <= room + EPS ? [{ start: pos, value: [e.beats, e.glyph.code, e.glyph.dotted] as (typeof VALUES)[number], triplet: e.glyph.triplet }] : split(pos, e.beats, BAR);
+        parts.forEach((p, pi) => {
           const rest = !e.midis || e.midis.length === 0;
           const sorted = rest ? [] : [...e.midis!].sort((a, b) => a - b);
           const keys = rest || drum ? ["b/4"] : sorted.map(midiToVexKey);
@@ -100,9 +116,9 @@ export function ScoreView({
           // Chord symbols line up above the staff, whatever the notes' height.
           if (pi === 0 && e.label) note.addModifier(new ChordSymbol().addText(e.label).setFont("Arial", 15, "bold").setVertical("top"));
           const bar = Math.floor(p.start / BAR + EPS);
-          (bars[bar] ??= []).push({ note, start: p.start, event: ei, first: pi === 0, rest });
+          (bars[bar] ??= []).push({ note, start: p.start, event: ei, first: pi === 0, rest, triplet: "triplet" in p && p.triplet ? p.value[1] : undefined });
         });
-        pos += e.beats;
+        pos = tidy(pos + e.beats);
       });
       // Close the last bar with rests, and always show at least one bar.
       const end = Math.max(BAR, Math.ceil(pos / BAR - EPS) * BAR);
@@ -129,6 +145,15 @@ export function ScoreView({
         if (bi === bars.length - 1) stave.setEndBarType(3); // final double bar
         stave.setContext(ctx).draw();
         const notes = parts.map((p) => p.note);
+        // Triplets: three in the time of two, bracketed with a "3" (made before formatting: they change the notes' length).
+        const tuplets: InstanceType<typeof Tuplet>[] = [];
+        for (let i = 0; i < parts.length; ) {
+          const code = parts[i].triplet;
+          if (code && parts[i + 1]?.triplet === code && parts[i + 2]?.triplet === code) {
+            tuplets.push(new Tuplet([parts[i].note, parts[i + 1].note, parts[i + 2].note], { numNotes: 3, notesOccupied: 2 }));
+            i += 3;
+          } else i++;
+        }
         const voice = new Voice({ numBeats: num, beatValue: den }).setStrict(false);
         voice.addTickables(notes);
         new Formatter().joinVoices([voice]).format([voice], Math.max(20, stave.getNoteEndX() - stave.getNoteStartX() - 10));
@@ -136,6 +161,7 @@ export function ScoreView({
         const beams = Beam.generateBeams(notes.filter((n) => !n.isRest()), { ...(drum ? { stemDirection: 1 } : {}), ...(meter === "6/8" ? { groups: [new Fraction(3, 8)] } : {}) });
         voice.draw(ctx, stave);
         beams.forEach((b) => b.setContext(ctx).draw());
+        tuplets.forEach((tp) => tp.setContext(ctx).draw());
         // A one-line staff has no height for VexFlow's bar lines, so draw them across the line (doubled at the end).
         if (clef === "percussion") {
           const y = stave.getYForLine(0);

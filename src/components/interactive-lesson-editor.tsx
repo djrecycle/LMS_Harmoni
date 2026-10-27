@@ -428,7 +428,7 @@ function ExampleEditor({ example, onChange }: { example: InteractiveExample; onC
   );
 }
 
-const GLYPH_LABEL: Record<NoteGlyphKind, string> = {
+const GLYPH_LABEL: Partial<Record<NoteGlyphKind, string>> = {
   whole: "Whole note",
   half: "Half note",
   quarter: "Quarter note",
@@ -438,7 +438,10 @@ const GLYPH_LABEL: Record<NoteGlyphKind, string> = {
 };
 
 /** Build a rhythm by appending note values / rests; click a cell to remove it. At most 16 beats. */
-function RhythmPatternEditor({ pattern, onChange }: { pattern: NoteGlyphKind[]; onChange: (pattern: NoteGlyphKind[]) => void }) {
+/** Interactive lessons keep to the basic note values (the AI writes them too). */
+type BasicGlyph = (typeof NOTE_GLYPH_KINDS)[number];
+
+function RhythmPatternEditor({ pattern, onChange }: { pattern: BasicGlyph[]; onChange: (pattern: BasicGlyph[]) => void }) {
   const t = useT();
   const beats = pattern.reduce((sum, k) => sum + NOTE_GLYPH_BEATS[k], 0);
   return (
@@ -463,7 +466,7 @@ function RhythmPatternEditor({ pattern, onChange }: { pattern: NoteGlyphKind[]; 
             type="button"
             variant="outline"
             size="sm"
-            title={t(GLYPH_LABEL[k])}
+            title={t(GLYPH_LABEL[k] ?? k)}
             disabled={pattern.length >= 32 || beats + NOTE_GLYPH_BEATS[k] > 16}
             onClick={() => onChange([...pattern, k])}
           >

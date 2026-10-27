@@ -348,7 +348,7 @@ const VOICES: { id: ClickVoice; label: string }[] = [
   { id: "tamborin", label: "Tambourine" },
 ];
 
-const SYLLABLE: Record<NoteGlyphKind, string> = { whole: "ta-a-a-a", half: "ta-a", quarter: "ta", eighth: "ti", "rest-quarter": "—", "rest-eighth": "—" };
+const SYLLABLE: Partial<Record<NoteGlyphKind, string>> = { whole: "ta-a-a-a", half: "ta-a", quarter: "ta", eighth: "ti", "rest-quarter": "—", "rest-eighth": "—" };
 
 /** A rhythm the student can see (note values, ta/ti syllables, sound vs rest) and hear, with the playing cell lit up. */
 function RhythmExample({ pattern }: { pattern: NoteGlyphKind[] }) {
@@ -403,7 +403,7 @@ function RhythmExample({ pattern }: { pattern: NoteGlyphKind[] }) {
         {cells.map((c, i) => (
           <div key={i} className={cn("grid justify-items-center gap-1 rounded-md bg-card py-2 transition-colors", current === i && "bg-primary-soft ring-2 ring-primary")}>
             <NoteGlyph kind={c.kind} />
-            <span className={cn("text-xs font-bold", c.sound ? "text-foreground" : "text-danger")}>{SYLLABLE[c.kind]}</span>
+            <span className={cn("text-xs font-bold", c.sound ? "text-foreground" : "text-danger")}>{SYLLABLE[c.kind] ?? "•"}</span>
             <span className="text-[0.65rem] font-semibold text-muted-foreground uppercase">{c.sound ? t("sound") : t("rest")}</span>
           </div>
         ))}

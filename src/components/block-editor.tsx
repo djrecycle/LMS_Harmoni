@@ -29,9 +29,10 @@ import { SongPianoRoll } from "@/components/song-piano-roll";
 import { SongPlayer } from "@/components/song-player";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { Alert } from "@/components/ui/misc";
 import { audioTime, playChord, scheduleClick } from "@/lib/audio";
 import { chordNameOf, chordMidis, midiToNote, NOTE_NAMES, noteToMidi } from "@/lib/music";
-import { barBeats, CHORD_LENGTHS } from "@/lib/music-blocks";
+import { barBeats, CHORD_LENGTHS, glyphLabel, tripletProblem } from "@/lib/music-blocks";
 import { onsetsToPattern } from "@/lib/rhythm";
 import { parseSongNotation, SONGS, type Song } from "@/lib/songs";
 import { cn } from "@/lib/utils";
@@ -49,7 +50,18 @@ const RAW_KIND_LABEL: Record<RawKind, string> = {
 
 const SWITCHABLE_KINDS: RawKind[] = ["heading", "paragraph", "bullet-list", "numbered-list"];
 
-const NOTE_PALETTE: NoteGlyphKind[] = ["whole", "half", "quarter", "eighth", "rest-quarter", "rest-eighth"];
+/** The rhythm palette: every note value, rest and triplet a rhythm block can hold. */
+const RHYTHM_PALETTE: { label: string; kinds: NoteGlyphKind[] }[] = [
+  { label: "Note values", kinds: ["whole", "dotted-half", "half", "dotted-quarter", "quarter", "dotted-eighth", "eighth", "sixteenth", "thirty-second"] },
+  { label: "Rests", kinds: ["rest-whole", "rest-half", "rest-quarter", "rest-eighth", "rest-sixteenth", "rest-thirty-second"] },
+  { label: "Triplets", kinds: ["triplet-quarter", "triplet-eighth", "triplet-sixteenth", "rest-triplet-quarter", "rest-triplet-eighth", "rest-triplet-sixteenth"] },
+];
+/** One click adds a whole triplet group (three notes in the time of two). */
+const TRIPLET_GROUPS: { kind: NoteGlyphKind; label: string }[] = [
+  { kind: "triplet-quarter", label: "1/4" },
+  { kind: "triplet-eighth", label: "1/8" },
+  { kind: "triplet-sixteenth", label: "1/16" },
+];
 
 const ADD_BUTTONS: { kind: AddKind; label: string; icon: typeof Heading2 }[] = [
   { kind: "heading", label: "Heading", icon: Heading2 },
@@ -228,6 +240,8 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
   const [metronome, setMetronome] = useState(true);
   const [recording, setRecording] = useState(false);
   const [undoPattern, setUndoPattern] = useState<NoteGlyphKind[] | null>(null);
+  // How finely taps snap when recording: eighths (forgiving) or sixteenths (detailed rhythms).
+  const [grid, setGrid] = useState<0.5 | 0.25>(0.5);
   const [tapFlash, setTapFlash] = useState(false);
   const taps = useRef<number[]>([]);
   const events = useMemo(() => rhythmEvents(block.pattern), [block.pattern]);
@@ -256,6 +270,7 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
     const pattern = onsetsToPattern(
       taps.current.map((tap) => (tap - r.t0) / r.spb).filter((b) => b > -0.25 && b < RECORD_BARS * bar),
       bar,
+      grid,
     );
     if (!pattern.length) return;
     setUndoPattern(block.pattern);
@@ -304,6 +319,13 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
           <TempoControl bpm={block.bpm} onChange={(bpm) => onChange({ ...block, bpm })} disabled={tr.playing} />
           <MetronomeButton on={metronome} onChange={setMetronome} disabled={tr.playing} />
           <MeterSelect value={block.meter} onChange={(meter) => onChange({ ...block, meter })} disabled={tr.playing} />
+          <label className="inline-flex items-center gap-1.5 text-sm font-semibold" title={t("How finely the taps are written when recording")}>
+            {t("Recording detail")}
+            <select value={grid} disabled={tr.playing} onChange={(e) => setGrid(Number(e.target.value) as 0.5 | 0.25)} className="h-9 rounded-lg border bg-card px-2 text-sm">
+              <option value={0.5}>1/8</option>
+              <option value={0.25}>1/16</option>
+            </select>
+          </label>
           <CountIn beat={tr.beat} meter={block.meter} />
           {undoPattern && !recording && (
             <Button
@@ -332,12 +354,47 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
             <Hand /> {t("Tap here (or Space) — up to 4 bars")}
           </Button>
         )}
+        {tripletProblem(block.pattern, barBeats(block.meter)) && (
+          <Alert kind="warning">
+            {tripletProblem(block.pattern, barBeats(block.meter)) === "incomplete"
+              ? t("A triplet group needs three notes or rests of the same value.")
+              : t("A triplet group crosses a bar line; move it so it fits inside one bar.")}
+          </Alert>
+        )}
         <ScoreView events={events} clef="percussion" meter={block.meter} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
-        <div className="flex flex-wrap gap-1.5">
-          {NOTE_PALETTE.map((kind) => (
-            <Button key={kind} type="button" size="sm" variant="outline" className="h-9 px-2.5" onClick={() => onChange({ ...block, pattern: [...block.pattern, kind] })}>
-              <NoteGlyph kind={kind} className="size-5" />
-            </Button>
+        <div className="grid gap-1.5">
+          {RHYTHM_PALETTE.map((row) => (
+            <div key={row.label} className="flex flex-wrap items-center gap-1.5">
+              <span className="w-24 shrink-0 text-xs font-semibold text-muted-foreground">{t(row.label)}</span>
+              {row.kinds.map((kind) => (
+                <Button
+                  key={kind}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-9 px-2.5"
+                  title={t(glyphLabel(kind))}
+                  aria-label={t(glyphLabel(kind))}
+                  onClick={() => onChange({ ...block, pattern: [...block.pattern, kind] })}
+                >
+                  <NoteGlyph kind={kind} className="size-5" />
+                </Button>
+              ))}
+              {row.label === "Triplets" &&
+                TRIPLET_GROUPS.map((g) => (
+                  <Button
+                    key={g.kind}
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="h-9"
+                    title={t("Adds a whole triplet group: three notes in the time of two")}
+                    onClick={() => onChange({ ...block, pattern: [...block.pattern, g.kind, g.kind, g.kind] })}
+                  >
+                    <NoteGlyph kind={g.kind} className="size-5" /> {t("{0} triplet ×3", g.label)}
+                  </Button>
+                ))}
+            </div>
           ))}
         </div>
         <div className="flex min-h-14 flex-wrap items-end gap-2 rounded-lg border border-dashed p-2">
