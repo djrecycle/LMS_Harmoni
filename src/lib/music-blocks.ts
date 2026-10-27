@@ -27,6 +27,19 @@ export const MELODY_NOTE_UNITS: Record<MelodyNoteValue, number> = { whole: 8, ha
 export const MELODY_UNITS_PER_BAR = 8;
 export type MelodyNote = { start: number; midi: number; units: number };
 export type MelodyBlockData = { length: number; notes: MelodyNote[] };
+/**
+ * A piano song written in the piano roll (the "Lagu Piano" block). `roll` uses the piano roll text format of
+ *  src/lib/songs.ts ("C4@0:1 E4@1:0.5", beats); `doNote` is the key's "do" for notasi angka labels.
+ *  It replaces the older Melody block: those are shown and edited as song blocks.
+ */
+export type SongBlockData = { title?: string; bpm: number; doNote?: string; roll: string };
+
+/** The tempo the old Melody block played at. */
+export const MELODY_BLOCK_BPM = 96;
+/** An old Melody block as song notes (its unit is an eighth note = half a beat). */
+export function melodyToSongNotes(data: MelodyBlockData) {
+  return data.notes.map((n) => ({ midi: n.midi, start: n.start / 2, beats: n.units / 2 }));
+}
 
 export function melodyNoteValue(units: number): MelodyNoteValue {
   return units >= 8 ? "whole" : units >= 4 ? "half" : units >= 2 ? "quarter" : "eighth";
@@ -53,7 +66,17 @@ export function describeMelody(data: MelodyBlockData): string {
     .join(" · ");
 }
 
-export const MUSIC_FENCE_LANGS = ["media:audio", "media:video", "music:rhythm", "music:chords", "music:melody"] as const;
+/** Plain-text summary of a song block for document exports, e.g. "90 BPM · 12 not: C4 E4 G4+C5 …". Chords are joined with "+". */
+export function describeSong(bpm: number, notes: { midi: number; start: number }[]): string {
+  if (notes.length === 0) return "—";
+  const byStart = new Map<number, number[]>();
+  for (const n of [...notes].sort((a, b) => a.start - b.start || a.midi - b.midi)) byStart.set(n.start, [...(byStart.get(n.start) ?? []), n.midi]);
+  const steps = [...byStart.values()].map((m) => m.map(midiToNote).join("+"));
+  const shown = steps.slice(0, 48).join(" ");
+  return `${bpm} BPM · ${notes.length} not: ${shown}${steps.length > 48 ? " …" : ""}`;
+}
+
+export const MUSIC_FENCE_LANGS = ["media:audio", "media:video", "music:rhythm", "music:chords", "music:melody", "music:song"] as const;
 export type MusicFenceLang = (typeof MUSIC_FENCE_LANGS)[number];
 
 export function isMusicFenceLang(lang: string | null | undefined): lang is MusicFenceLang {
@@ -75,12 +98,14 @@ export const fenceMedia = (data: MediaBlockData) => fence(data.kind === "audio" 
 export const fenceRhythm = (data: RhythmBlockData) => fence("music:rhythm", data);
 export const fenceChords = (data: ChordsBlockData) => fence("music:chords", data);
 export const fenceMelody = (data: MelodyBlockData) => fence("music:melody", data);
+export const fenceSong = (data: SongBlockData) => fence("music:song", data);
 
 export type DecodedMusicBlock =
   | ({ lang: "media:audio" | "media:video" } & MediaBlockData)
   | ({ lang: "music:rhythm" } & RhythmBlockData)
   | ({ lang: "music:chords" } & ChordsBlockData)
-  | ({ lang: "music:melody" } & MelodyBlockData);
+  | ({ lang: "music:melody" } & MelodyBlockData)
+  | ({ lang: "music:song" } & SongBlockData);
 
 /** Decodes a fenced block's language + raw body. Returns null for an unrecognized lang or malformed JSON — never throws. */
 export function decodeFence(lang: string | null | undefined, raw: string): DecodedMusicBlock | null {
@@ -107,6 +132,17 @@ export function decodeFence(lang: string | null | undefined, raw: string): Decod
     if (!Array.isArray(d.items)) return null;
     const items = d.items.filter((i): i is string => typeof i === "string" && i.trim().length > 0);
     return { lang, label: typeof d.label === "string" ? d.label : undefined, items };
+  }
+  if (lang === "music:song") {
+    if (typeof d.roll !== "string") return null;
+    const bpm = typeof d.bpm === "number" && d.bpm >= 30 && d.bpm <= 240 ? Math.round(d.bpm) : 90;
+    return {
+      lang,
+      title: typeof d.title === "string" && d.title.trim() ? d.title : undefined,
+      bpm,
+      doNote: typeof d.doNote === "string" ? d.doNote : undefined,
+      roll: d.roll,
+    };
   }
   // music:melody — current format is { length, notes }; the older { steps, stepDuration } grid is still read.
   if (Array.isArray(d.notes)) {

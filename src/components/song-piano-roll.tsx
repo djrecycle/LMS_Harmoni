@@ -84,12 +84,15 @@ export function SongPianoRoll({
   onBpmChange,
   title,
   onChange,
+  pianoInitiallyOn = true,
 }: {
   initial: SongNote[];
   bpm: number;
   onBpmChange: (bpm: number) => void;
   title: string;
   onChange: (notes: SongNote[]) => void;
+  /** Show the touch piano at first (off where several rolls share a page, as in the lesson block editor). */
+  pianoInitiallyOn?: boolean;
 }) {
   const t = useT();
   const nextId = useRef(1);
@@ -112,7 +115,7 @@ export function SongPianoRoll({
   const [playFrom, setPlayFrom] = useState(0);
   // Touch piano: it only sounds, unless a recording is running. Recording starts at `writeAt` (the green line),
   // after a one-bar count-in, and writes what is played in real time: holding a key makes a longer note.
-  const [pianoOn, setPianoOn] = useState(true);
+  const [pianoOn, setPianoOn] = useState(pianoInitiallyOn);
   const [recording, setRecording] = useState(false);
   const [metronome, setMetronome] = useState(true);
   const metronomeRef = useRef(metronome);
@@ -714,6 +717,7 @@ export function SongPianoRoll({
             value={bpmText}
             onChange={(x) => changeBpm(x.target.value)}
             onBlur={() => setBpmText(String(bpm))}
+            onKeyDown={(e) => e.key === "Enter" && e.preventDefault()} // don't submit the surrounding form
             disabled={busy}
             className="h-8 w-[4.5rem] px-2 text-xs"
             aria-label={t("Tempo (BPM)")}

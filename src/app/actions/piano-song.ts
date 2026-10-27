@@ -1,6 +1,6 @@
 "use server";
 
-import { eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -9,7 +9,7 @@ import { getOwnedPianoSong } from "@/lib/access";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
 import { AiError, aiErrorMessage, generateJson, isPerangkatAiAvailable, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, remainingAllowance, takeAllowance } from "@/lib/ai";
-import { parseSongNotation, SONG_FORMATS, songParseMessage, type SongFormat } from "@/lib/songs";
+import { notesToRoll, parseSongNotation, SONG_FORMATS, songFromRow, songParseMessage, type SongFormat } from "@/lib/songs";
 import { requireTeacher } from "@/lib/session";
 import { getT } from "@/i18n/server";
 
@@ -66,6 +66,19 @@ export async function savePianoSong(_: ActionResult, fd: FormData): Promise<Acti
 
   refresh();
   redirect("/teacher/songs?saved=1");
+}
+
+export type BlockSongOption = { id: string; title: string; bpm: number; doNote: string; roll: string };
+
+/** The teacher's piano songs as piano roll text, to copy into a "Lagu Piano" block of a lesson or practice material. */
+export async function listSongsForBlocks(): Promise<BlockSongOption[]> {
+  const teacher = await requireTeacher();
+  const rows = await db.select().from(S.pianoSong).where(eq(S.pianoSong.teacherId, teacher.id)).orderBy(desc(S.pianoSong.updatedAt));
+  return rows.flatMap((r) => {
+    const song = songFromRow(r);
+    if (!song) return [];
+    return [{ id: r.id, title: r.title, bpm: r.bpm, doNote: r.format === "angka" ? r.doNote : "C4", roll: notesToRoll(song.notes) }];
+  });
 }
 
 export async function deletePianoSong(id: string): Promise<ActionResult> {

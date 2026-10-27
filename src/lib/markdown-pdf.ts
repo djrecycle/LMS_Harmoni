@@ -2,7 +2,7 @@
 import PDFDocument from "pdfkit";
 import type { Block, Run } from "./markdown-ir";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
-import { describeMelody } from "@/lib/music-blocks";
+import { describeMelody, describeSong } from "@/lib/music-blocks";
 
 const TEXT_COLOR = "#111111";
 const LINK_COLOR = "#2563eb";
@@ -209,6 +209,9 @@ export function markdownToPdf(title: string, blocks: Block[]): Promise<Buffer> {
       } else if (b.type === "melody") {
         const text = describeMelody(b);
         drawCallout(doc, [{ text: "Melodi", bold: true }, { text }]);
+        doc.moveDown(0.6);
+      } else if (b.type === "song") {
+        drawCallout(doc, [{ text: b.title ? `Lagu: ${b.title}` : "Lagu piano", bold: true }, { text: describeSong(b.bpm, b.notes) }]);
         doc.moveDown(0.6);
       }
     }

@@ -11,6 +11,7 @@ import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import type { Code, List, PhrasingContent, Root, RootContent, Table } from "mdast";
 import { decodeFence, type MelodyNote } from "./music-blocks";
+import { parseSongNotation, type SongNote } from "./songs";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
 
 export type Run = { text: string; bold?: boolean; italic?: boolean; code?: boolean; link?: string };
@@ -24,7 +25,8 @@ export type Block =
   | { type: "media"; kind: "audio" | "video"; key: string; title?: string }
   | { type: "rhythm"; pattern: NoteGlyphKind[] }
   | { type: "chords"; label?: string; items: string[] }
-  | { type: "melody"; length: number; notes: MelodyNote[] };
+  | { type: "melody"; length: number; notes: MelodyNote[] }
+  | { type: "song"; title?: string; bpm: number; notes: SongNote[] };
 
 function musicBlock(node: Code): Block | null {
   const decoded = decodeFence(node.lang, node.value);
@@ -39,6 +41,10 @@ function musicBlock(node: Code): Block | null {
       return { type: "chords", label: decoded.label, items: decoded.items };
     case "music:melody":
       return { type: "melody", length: decoded.length, notes: decoded.notes };
+    case "music:song": {
+      const r = parseSongNotation("roll", decoded.roll);
+      return { type: "song", title: decoded.title, bpm: decoded.bpm, notes: r.ok ? r.notes : [] };
+    }
   }
 }
 

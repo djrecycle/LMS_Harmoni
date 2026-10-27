@@ -17,6 +17,9 @@ import { useT } from "@/i18n/client";
 
 type View = "falling" | "staff";
 
+/** With several players on one page (lesson blocks), the laptop keyboard drives the one touched last. */
+let activePlayer: object | null = null;
+
 /** The song starts this many beats early so the first note falls in from the top. */
 const LEAD_IN = VISIBLE_BEATS;
 /** How early (in beats) a key press still counts for the next note. */
@@ -133,7 +136,17 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
     if (view === "staff") loadMusicFont(() => setFontReady(true));
   }, [view]);
 
+  const me = useRef({});
+  useEffect(() => {
+    activePlayer ??= me.current;
+    const self = me.current;
+    return () => {
+      if (activePlayer === self) activePlayer = null;
+    };
+  }, []);
+
   const togglePlay = async () => {
+    activePlayer = me.current;
     await unlockAudio();
     if (finished) reset();
     const next = !g.current.playing;
@@ -208,6 +221,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       return null;
     };
     const down = (e: KeyboardEvent) => {
+      if (activePlayer !== me.current) return;
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !notTyping(e.target)) return;
       const k = e.key.toLowerCase();
       if (k === " ") {
@@ -221,7 +235,9 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       void unlockAudio();
       press(`kb:${k}`, m);
     };
-    const up = (e: KeyboardEvent) => release(`kb:${e.key.toLowerCase()}`);
+    const up = (e: KeyboardEvent) => {
+      if (activePlayer === me.current) release(`kb:${e.key.toLowerCase()}`);
+    };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     return () => {
@@ -367,6 +383,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   const handlers = (m: number) => ({
     onPointerDown: (e: React.PointerEvent) => {
       e.preventDefault();
+      activePlayer = me.current;
       void unlockAudio();
       press(`p:${e.pointerId}`, m);
     },
@@ -388,27 +405,31 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   return (
     <div className="grid gap-3">
       <div className="grid gap-2">
-        <label className="grid gap-1 text-sm font-semibold">
-          {t("Song")}
-          <Select value={song.id} onChange={(e) => setSongId(e.target.value)}>
-            {[
-              { label: t("Songs from your teacher"), list: songs.filter((s) => s.custom) },
-              { label: t("Practice songs"), list: songs.filter((s) => !s.custom && !s.origin) },
-              { label: t("Indonesian folk songs"), list: songs.filter((s) => !s.custom && s.origin) },
-            ]
-              .filter((g) => g.list.length)
-              .map((g) => (
-                <optgroup key={g.label} label={g.label}>
-                  {g.list.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {"★".repeat(s.level)} {t(s.title)}
-                      {s.origin ? ` (${s.origin})` : ""}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-          </Select>
-        </label>
+        {songs.length === 1 ? (
+          song.title && <p className="text-sm font-semibold break-words">{song.title}</p>
+        ) : (
+          <label className="grid gap-1 text-sm font-semibold">
+            {t("Song")}
+            <Select value={song.id} onChange={(e) => setSongId(e.target.value)}>
+              {[
+                { label: t("Songs from your teacher"), list: songs.filter((s) => s.custom) },
+                { label: t("Practice songs"), list: songs.filter((s) => !s.custom && !s.origin) },
+                { label: t("Indonesian folk songs"), list: songs.filter((s) => !s.custom && s.origin) },
+              ]
+                .filter((g) => g.list.length)
+                .map((g) => (
+                  <optgroup key={g.label} label={g.label}>
+                    {g.list.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {"★".repeat(s.level)} {t(s.title)}
+                        {s.origin ? ` (${s.origin})` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+            </Select>
+          </label>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border bg-card p-0.5" role="radiogroup" aria-label={t("Mode")}>
             {(

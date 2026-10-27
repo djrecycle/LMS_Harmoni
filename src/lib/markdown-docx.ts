@@ -2,7 +2,7 @@
 import { AlignmentType, BorderStyle, Document, ExternalHyperlink, Packer, Paragraph, ShadingType, Table, TableCell, TableRow, TextRun, WidthType } from "docx";
 import type { Block, Run } from "./markdown-ir";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
-import { describeMelody } from "@/lib/music-blocks";
+import { describeMelody, describeSong } from "@/lib/music-blocks";
 
 const FONT = "Calibri";
 const BASE = 11;
@@ -114,6 +114,16 @@ export async function markdownToDocx(title: string, blocks: Block[]): Promise<Bu
         new Paragraph({
           spacing: { after: 160 },
           children: [new TextRun({ text: "Melodi: ", bold: true, font: FONT, size: BASE * 2 }), new TextRun({ text, font: FONT, size: BASE * 2 })],
+        }),
+      );
+    } else if (b.type === "song") {
+      children.push(
+        new Paragraph({
+          spacing: { after: 160 },
+          children: [
+            new TextRun({ text: `${b.title ? `Lagu: ${b.title}` : "Lagu piano"} — `, bold: true, font: FONT, size: BASE * 2 }),
+            new TextRun({ text: describeSong(b.bpm, b.notes), font: FONT, size: BASE * 2 }),
+          ],
         }),
       );
     } else if (b.type === "chords") {

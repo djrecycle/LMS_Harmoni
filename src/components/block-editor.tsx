@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Bold, GripVertical, Guitar, Heading2, Italic, Link2, List, ListOrdered, Minus, Music2, Piano as PianoIcon, Pilcrow, Table2, Trash2, Video as VideoIcon, Volume2, X } from "lucide-react";
+import { Bold, Eye, EyeOff, GripVertical, Guitar, Heading2, Italic, Link2, List, ListOrdered, Minus, Music2, Piano as PianoIcon, Pilcrow, Table2, Trash2, Video as VideoIcon, Volume2, X } from "lucide-react";
 import { emptyBlock, parseToBlocks, retemplateRaw, serializeBlocks, type AddKind, type EditorBlock, type RawKind } from "@/lib/block-editor";
 import { NoteGlyph, type NoteGlyphKind } from "@/components/lessons/note-glyph";
 import { MediaPlayer } from "@/components/media-player";
 import { MediaUploader } from "@/components/media-uploader";
-import { PianoRoll } from "@/components/piano-roll";
-import { StaffNotation } from "@/components/staff-notation";
+import { listSongsForBlocks, type BlockSongOption } from "@/app/actions/piano-song";
+import { SongPianoRoll } from "@/components/song-piano-roll";
+import { SongPlayer } from "@/components/song-player";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
-import { MELODY_UNITS_PER_BAR } from "@/lib/music-blocks";
+import { midiToNote, noteToMidi } from "@/lib/music";
+import { parseSongNotation, SONGS, type Song } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 
@@ -42,10 +44,11 @@ const ADD_BUTTONS: { kind: AddKind; label: string; icon: typeof Heading2 }[] = [
   { kind: "video", label: "Video", icon: VideoIcon },
   { kind: "rhythm", label: "Rhythm pattern", icon: Music2 },
   { kind: "chords", label: "Chords / notes", icon: Guitar },
-  { kind: "melody", label: "Melody (piano roll)", icon: PianoIcon },
+  { kind: "song", label: "Piano song (piano roll)", icon: PianoIcon },
 ];
 
-const BAR_COUNTS = [1, 2, 4] as const;
+/** The key's "do" choices, as in the piano song form. */
+const DO_NOTES = ["C4", "C#4", "D4", "D#4", "E4", "F4", "F#4", "G4", "G#4", "A3", "A#3", "B3"];
 
 function headingText(markdown: string): string {
   return markdown.replace(/^#{1,6}\s*/, "");
@@ -258,30 +261,99 @@ function ChordsCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
   );
 }
 
-function MelodyCard({ block, onChange, onDelete }: { block: Extract<EditorBlock, { type: "melody" }>; onChange: (b: EditorBlock) => void; onDelete: () => void }) {
+/**
+ * "Lagu Piano" block: the teacher writes (or records) a song in the FL Studio-style piano roll, or copies one
+ *  from the Piano Songs menu. Students get the full song player (falling notes, notasi angka, staff, tempo, metronome).
+ */
+function SongCard({ block, onChange, onDelete }: { block: Extract<EditorBlock, { type: "song" }>; onChange: (b: EditorBlock) => void; onDelete: () => void }) {
   const t = useT();
+  const [rollKey, setRollKey] = useState(0);
+  const [mine, setMine] = useState<BlockSongOption[] | null>(null);
+  const [loading, startLoading] = useTransition();
+  const [preview, setPreview] = useState(false);
 
-  function resize(bars: number) {
-    const length = bars * MELODY_UNITS_PER_BAR;
-    onChange({ ...block, length, notes: block.notes.filter((n) => n.start + n.units <= length) });
+  const loadMine = () => {
+    if (mine || loading) return;
+    startLoading(async () => setMine(await listSongsForBlocks().catch(() => [])));
+  };
+
+  /** Copies a song into this block (it can then be changed here without touching the original). */
+  function copy(value: string) {
+    const [src, id] = value.split(":");
+    let picked: { title: string; bpm: number; doNote: string; notes: Song["notes"] } | null = null;
+    if (src === "mine") {
+      const o = mine?.find((x) => x.id === id);
+      const r = o ? parseSongNotation("roll", o.roll) : null;
+      if (o && r?.ok) picked = { title: o.title, bpm: o.bpm, doNote: o.doNote, notes: r.notes };
+    } else {
+      const o = SONGS.find((x) => x.id === id);
+      if (o) picked = { title: t(o.title), bpm: o.bpm, doNote: midiToNote(o.doMidi ?? 60), notes: o.notes };
+    }
+    if (!picked) return;
+    onChange({ ...block, title: block.title.trim() || picked.title, bpm: picked.bpm, doNote: DO_NOTES.includes(picked.doNote) ? picked.doNote : "C4", notes: picked.notes });
+    setRollKey((k) => k + 1);
   }
 
+  const song = useMemo<Song>(
+    () => ({ id: `block-${block.id}`, title: "", level: 1, bpm: block.bpm, notes: block.notes, doMidi: noteToMidi(block.doNote) ?? 60 }),
+    [block.id, block.bpm, block.notes, block.doNote],
+  );
+
   return (
-    <CardChrome id={block.id} label={t("Melody (piano roll)")} onDelete={onDelete}>
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <label className="text-xs font-semibold text-muted-foreground">
-          {t("Bars")}
-          <Select className="mt-1 h-8 w-auto text-xs" value={String(block.length / MELODY_UNITS_PER_BAR)} onChange={(ev) => resize(Number(ev.target.value))}>
-            {BAR_COUNTS.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
+    <CardChrome id={block.id} label={t("Piano song")} onDelete={onDelete}>
+      <div className="grid gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Input value={block.title} onChange={(ev) => onChange({ ...block, title: ev.target.value })} placeholder={t("Song title (optional)")} className="min-w-48 flex-1" />
+          <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+            {t("Key: do =")}
+            <Select className="h-10 w-auto" value={block.doNote} onChange={(ev) => onChange({ ...block, doNote: ev.target.value })}>
+              {DO_NOTES.map((n) => (
+                <option key={n} value={n}>
+                  {n.replace(/\d/, "")}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <Select className="h-10 w-auto" value="" onFocus={loadMine} onPointerDown={loadMine} onChange={(ev) => copy(ev.target.value)} aria-label={t("Copy from Piano Songs")}>
+            <option value="">{loading ? t("Loading…") : t("Copy from Piano Songs…")}</option>
+            {mine && mine.length > 0 && (
+              <optgroup label={t("My piano songs")}>
+                {mine.map((o) => (
+                  <option key={o.id} value={`mine:${o.id}`}>
+                    {o.title}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label={t("Practice songs")}>
+              {SONGS.map((o) => (
+                <option key={o.id} value={`builtin:${o.id}`}>
+                  {t(o.title)}
+                </option>
+              ))}
+            </optgroup>
           </Select>
-        </label>
+        </div>
+        <SongPianoRoll
+          key={rollKey}
+          initial={block.notes}
+          bpm={block.bpm}
+          onBpmChange={(bpm) => onChange({ ...block, bpm })}
+          title={block.title}
+          onChange={(notes) => onChange({ ...block, notes })}
+          pianoInitiallyOn={false}
+        />
+        {block.notes.length > 0 && (
+          <div className="grid gap-2">
+            <div>
+              <Button type="button" size="sm" variant="outline" onClick={() => setPreview((x) => !x)}>
+                {preview ? <EyeOff /> : <Eye />} {preview ? t("Close student view") : t("Try it as a student")}
+              </Button>
+            </div>
+            {preview && <SongPlayer songs={[song]} saveScores={false} computerKeys={false} />}
+          </div>
+        )}
       </div>
-      <PianoRoll length={block.length} notes={block.notes} onChange={(notes) => onChange({ ...block, notes })} className="mb-3" />
-      <StaffNotation length={block.length} notes={block.notes} className="rounded-lg border bg-card p-2" />
     </CardChrome>
   );
 }
@@ -333,7 +405,7 @@ export function BlockEditor({ value, onChange }: { value: string; onChange: (mar
               if (b.type === "media") return <MediaCard key={b.id} block={b} onChange={(next) => updateBlock(b.id, next)} onDelete={() => removeBlock(b.id)} />;
               if (b.type === "rhythm") return <RhythmCard key={b.id} block={b} onChange={(next) => updateBlock(b.id, next)} onDelete={() => removeBlock(b.id)} />;
               if (b.type === "chords") return <ChordsCard key={b.id} block={b} onChange={(next) => updateBlock(b.id, next)} onDelete={() => removeBlock(b.id)} />;
-              return <MelodyCard key={b.id} block={b} onChange={(next) => updateBlock(b.id, next)} onDelete={() => removeBlock(b.id)} />;
+              return <SongCard key={b.id} block={b} onChange={(next) => updateBlock(b.id, next)} onDelete={() => removeBlock(b.id)} />;
             })}
           </div>
         </SortableContext>

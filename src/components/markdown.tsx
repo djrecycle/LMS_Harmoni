@@ -1,11 +1,18 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { RhythmNotation } from "@/components/lessons/note-glyph";
+import { ChordChips, RhythmBlockPlayer, SongBlockPlayer } from "@/components/lessons/music-block-players";
 import { MediaPlayer } from "@/components/media-player";
-import { PianoRoll } from "@/components/piano-roll";
-import { StaffNotation } from "@/components/staff-notation";
-import { decodeFence, isMusicFenceLang, type DecodedMusicBlock } from "@/lib/music-blocks";
+import { noteToMidi } from "@/lib/music";
+import { decodeFence, isMusicFenceLang, MELODY_BLOCK_BPM, melodyToSongNotes, type DecodedMusicBlock } from "@/lib/music-blocks";
+import { parseSongNotation } from "@/lib/songs";
 import { cn } from "@/lib/utils";
+
+/** A short, stable id for a block's content (the song player keys its state on it). */
+function hash(text: string) {
+  let h = 0;
+  for (let i = 0; i < text.length; i++) h = (Math.imul(31, h) + text.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
 
 /** Renders a decoded music fence block (see src/lib/music-blocks.ts) as a real widget instead of a code block. */
 function MusicBlock({ block }: { block: DecodedMusicBlock }) {
@@ -20,34 +27,35 @@ function MusicBlock({ block }: { block: DecodedMusicBlock }) {
       );
     case "music:rhythm":
       return (
-        <div className="not-prose my-3 flex flex-wrap items-end gap-3 rounded-lg border bg-card p-3">
-          {block.pattern.length === 0 ? (
-            <span className="text-sm text-muted-foreground">—</span>
-          ) : (
-            <RhythmNotation pattern={block.pattern} size="lg" />
-          )}
+        <div className="not-prose my-3 rounded-lg border bg-card p-3">
+          <RhythmBlockPlayer pattern={block.pattern} />
         </div>
       );
     case "music:melody":
+      // Old Melody blocks play in the song player, like the "Lagu Piano" block that replaced them.
       return (
-        <div className="not-prose my-3 grid gap-3 rounded-lg border bg-card p-3">
-          <PianoRoll length={block.length} notes={block.notes} />
-          <StaffNotation length={block.length} notes={block.notes} />
+        <div className="not-prose my-3 rounded-lg border bg-card p-3">
+          <SongBlockPlayer id={`melody-${hash(JSON.stringify(block.notes))}`} bpm={MELODY_BLOCK_BPM} notes={melodyToSongNotes(block)} />
         </div>
       );
+    case "music:song": {
+      const r = parseSongNotation("roll", block.roll);
+      return (
+        <div className="not-prose my-3 rounded-lg border bg-card p-3">
+          <SongBlockPlayer
+            id={`song-${hash(block.roll)}`}
+            title={block.title}
+            bpm={block.bpm}
+            doMidi={block.doNote ? (noteToMidi(block.doNote) ?? undefined) : undefined}
+            notes={r.ok ? r.notes : []}
+          />
+        </div>
+      );
+    }
     case "music:chords":
       return (
         <div className="not-prose my-3 flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3">
-          <span className="text-sm font-semibold">{block.label ?? "Chord / Not"}:</span>
-          {block.items.length === 0 ? (
-            <span className="text-sm text-muted-foreground">—</span>
-          ) : (
-            block.items.map((item, i) => (
-              <span key={i} className="rounded-full bg-primary-soft px-3 py-1 text-xs font-semibold">
-                {item}
-              </span>
-            ))
-          )}
+          <ChordChips label={block.label} items={block.items} />
         </div>
       );
   }

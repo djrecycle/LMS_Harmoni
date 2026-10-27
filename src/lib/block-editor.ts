@@ -10,7 +10,9 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import type { Root, RootContent } from "mdast";
-import { decodeFence, fenceChords, fenceMedia, fenceMelody, fenceRhythm, MELODY_UNITS_PER_BAR, type MelodyNote } from "./music-blocks";
+import { decodeFence, fenceChords, fenceMedia, fenceRhythm, fenceSong, MELODY_BLOCK_BPM, melodyToSongNotes } from "./music-blocks";
+import { noteToMidi } from "./music";
+import { notesToRoll, parseSongNotation, type SongNote } from "./songs";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
 
 export type RawKind = "heading" | "paragraph" | "bullet-list" | "numbered-list" | "table" | "hr" | "other";
@@ -20,9 +22,9 @@ export type EditorBlock =
   | { id: string; type: "media"; kind: "audio" | "video"; key: string; title: string }
   | { id: string; type: "rhythm"; pattern: NoteGlyphKind[] }
   | { id: string; type: "chords"; label: string; items: string[] }
-  | { id: string; type: "melody"; length: number; notes: MelodyNote[] };
+  | { id: string; type: "song"; title: string; bpm: number; doNote: string; notes: SongNote[] };
 
-export type AddKind = "heading" | "paragraph" | "bullet-list" | "numbered-list" | "table" | "hr" | "audio" | "video" | "rhythm" | "chords" | "melody";
+export type AddKind = "heading" | "paragraph" | "bullet-list" | "numbered-list" | "table" | "hr" | "audio" | "video" | "rhythm" | "chords" | "song";
 
 let seq = 0;
 function nextId(): string {
@@ -58,8 +60,15 @@ export function parseToBlocks(markdown: string): EditorBlock[] {
           case "music:chords":
             blocks.push({ id: nextId(), type: "chords", label: decoded.label ?? "", items: decoded.items });
             break;
+          case "music:song": {
+            const r = parseSongNotation("roll", decoded.roll);
+            const doNote = decoded.doNote && noteToMidi(decoded.doNote) !== null ? decoded.doNote : "C4";
+            blocks.push({ id: nextId(), type: "song", title: decoded.title ?? "", bpm: decoded.bpm, doNote, notes: r.ok ? r.notes : [] });
+            break;
+          }
           case "music:melody":
-            blocks.push({ id: nextId(), type: "melody", length: decoded.length, notes: decoded.notes });
+            // The old Melody block is now a song block; it is saved in the new format on the next save.
+            blocks.push({ id: nextId(), type: "song", title: "", bpm: MELODY_BLOCK_BPM, doNote: "C4", notes: melodyToSongNotes(decoded) });
             break;
         }
         continue;
@@ -80,7 +89,7 @@ export function serializeBlocks(blocks: EditorBlock[]): string {
       if (b.type === "media") return fenceMedia({ kind: b.kind, key: b.key, title: b.title.trim() || undefined });
       if (b.type === "rhythm") return fenceRhythm({ pattern: b.pattern });
       if (b.type === "chords") return fenceChords({ label: b.label.trim() || undefined, items: b.items });
-      return fenceMelody({ length: b.length, notes: b.notes });
+      return fenceSong({ title: b.title.trim() || undefined, bpm: b.bpm, doNote: b.doNote === "C4" ? undefined : b.doNote, roll: notesToRoll(b.notes) });
     })
     .join("\n\n");
 }
@@ -107,8 +116,8 @@ export function emptyBlock(kind: AddKind): EditorBlock {
       return { id: nextId(), type: "rhythm", pattern: [] };
     case "chords":
       return { id: nextId(), type: "chords", label: "", items: [] };
-    case "melody":
-      return { id: nextId(), type: "melody", length: 2 * MELODY_UNITS_PER_BAR, notes: [] };
+    case "song":
+      return { id: nextId(), type: "song", title: "", bpm: 90, doNote: "C4", notes: [] };
   }
 }
 

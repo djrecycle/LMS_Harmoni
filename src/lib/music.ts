@@ -94,3 +94,32 @@ export function solfegeVariants(text: string): string[] {
   ].map(([so, ti]) => words.map((w) => swap(w, so, ti)).join(" "));
   return [...new Set(all)];
 }
+
+const CHORD_INTERVALS: Record<string, number[]> = {
+  "": [0, 4, 7],
+  maj: [0, 4, 7],
+  m: [0, 3, 7],
+  min: [0, 3, 7],
+  "7": [0, 4, 7, 10],
+  maj7: [0, 4, 7, 11],
+  m7: [0, 3, 7, 10],
+  dim: [0, 3, 6],
+  aug: [0, 4, 8],
+  sus2: [0, 2, 7],
+  sus4: [0, 5, 7],
+  "6": [0, 4, 7, 9],
+};
+
+/** The notes of a chord symbol ("C", "Am", "G7", "F#m", "Bb") or a note list ("C4", "C4 E4 G4"). Null when not recognised. */
+export function chordMidis(item: string): number[] | null {
+  // Chord symbols first: "G7" is the chord, not the note G in octave 7 (single notes are written C4, E4…).
+  const m = /^([A-G])([#b♯♭]?)(maj7|maj|min|m7|m|7|dim|aug|sus2|sus4|6)?$/.exec(item.trim().replace(/\s+/g, ""));
+  if (!m) {
+    const list = parseNoteList(item);
+    return list && list.length ? list.map((n) => noteToMidi(n)!) : null;
+  }
+  let root = noteToMidi(`${m[1]}${m[2]}4`);
+  if (root === null) return null;
+  if (root >= 67) root -= 12; // G and above start an octave lower, to stay around middle C
+  return CHORD_INTERVALS[m[3] ?? ""].map((i) => root + i);
+}
