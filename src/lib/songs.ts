@@ -13,7 +13,16 @@ import { midiToNote, noteToMidi } from "./music";
 
 export type SongNote = { midi: number; start: number; beats: number };
 /** `origin`: the region of an Indonesian folk song (lagu daerah). */
-export type Song = { id: string; title: string; level: 1 | 2 | 3; bpm: number; origin?: string; notes: SongNote[]; /** Added by a teacher (not built in). */ custom?: boolean };
+export type Song = {
+  id: string;
+  title: string;
+  level: 1 | 2 | 3;
+  bpm: number;
+  origin?: string;
+  notes: SongNote[];
+  /** Added by a teacher (not built in). */ custom?: boolean;
+  /** The key's "do" (for notasi angka and solfège labels); C4 when unknown. */ doMidi?: number;
+};
 
 type SongSource = { id: string; title: string; level: 1 | 2 | 3; bpm: number; origin?: string } & ({ melody: string } | { angka: string; doNote: string });
 
@@ -200,7 +209,8 @@ function parseOrThrow(format: SongFormat, notation: string, doNote?: string) {
 export const SONGS: Song[] = SOURCES.map((src) => {
   const { id, title, level, bpm, origin } = src;
   const notes = "melody" in src ? parseOrThrow("letters", src.melody) : parseOrThrow("angka", src.angka, src.doNote);
-  return { id, title, level, bpm, origin, notes };
+  const doMidi = "angka" in src ? (noteToMidi(src.doNote) ?? undefined) : undefined;
+  return { id, title, level, bpm, origin, notes, doMidi };
 });
 
 /** A teacher's saved song (from the database) as a playable Song. Null when its melody cannot be read. */
@@ -208,7 +218,8 @@ export function songFromRow(row: { id: string; title: string; origin: string; le
   const r = parseSongNotation(row.format, row.notation, row.doNote);
   if (!r.ok) return null;
   const level = Math.min(3, Math.max(1, row.level)) as 1 | 2 | 3;
-  return { id: row.id, title: row.title, level, bpm: row.bpm, origin: row.origin || undefined, notes: r.notes, custom: true };
+  const doMidi = row.format === "angka" ? (noteToMidi(row.doNote) ?? undefined) : undefined;
+  return { id: row.id, title: row.title, level, bpm: row.bpm, origin: row.origin || undefined, notes: r.notes, custom: true, doMidi };
 }
 
 export const songLength = (song: Song) => Math.max(...song.notes.map((n) => n.start + n.beats));

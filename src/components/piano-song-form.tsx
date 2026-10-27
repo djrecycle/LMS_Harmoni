@@ -49,8 +49,11 @@ export function PianoSongForm({
 
   const parsed = useMemo(() => parseSongNotation(v.format, v.notation, v.doNote), [v.format, v.notation, v.doNote]);
   const preview = useMemo<Song | null>(
-    () => (parsed.ok ? { id: "preview", title: v.title || t("Preview"), level: 1, bpm: v.bpm, notes: parsed.notes } : null),
-    [parsed, v.bpm, v.title, t],
+    () =>
+      parsed.ok
+        ? { id: "preview", title: v.title || t("Preview"), level: 1, bpm: v.bpm, notes: parsed.notes, doMidi: v.format === "angka" ? (noteToMidi(v.doNote) ?? undefined) : undefined }
+        : null,
+    [parsed, v.bpm, v.title, v.format, v.doNote, t],
   );
   const parseError = !parsed.ok && v.notation.trim() ? t(...songParseMessage(parsed)) : null;
 

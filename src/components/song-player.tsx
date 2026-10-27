@@ -1,29 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check, Headphones, Pause, Play, RotateCcw, Usb } from "lucide-react";
+import { Check, Headphones, Minus, Pause, Play, Plus, RotateCcw, Timer, Usb } from "lucide-react";
 import { toast } from "sonner";
 import { savePracticeResult } from "@/app/actions/practice";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/input";
-import { loadAudio, noteOff, noteOn, scheduleNote, stopAllNotes, unlockAudio, audioTime } from "@/lib/audio";
-import { isBlackKey, midiToNote, solfegeOf } from "@/lib/music";
+import { Input, Select } from "@/components/ui/input";
+import { drawFalling, drawStaff, labelOf, loadMusicFont, VISIBLE_BEATS, type Labels, type Mode, type NoteState } from "@/components/song-views";
+import { loadAudio, noteOff, noteOn, scheduleClick, scheduleNote, stopAllNotes, unlockAudio, audioTime } from "@/lib/audio";
+import { isBlackKey, midiToNote, NOTE_NAMES } from "@/lib/music";
 import type { SongDetail } from "@/lib/practice";
 import { SONGS, songLength, type Song } from "@/lib/songs";
 import { useMidi } from "@/lib/use-midi";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 
-type Mode = "play" | "listen";
-type Labels = "letter" | "solfege" | "none";
+type View = "falling" | "staff";
 
-/** Beats visible above the hit line. */
-const VISIBLE_BEATS = 4;
 /** The song starts this many beats early so the first note falls in from the top. */
 const LEAD_IN = VISIBLE_BEATS;
 /** How early (in beats) a key press still counts for the next note. */
 const EARLY_WINDOW = 0.5;
-const SPEEDS = [0.5, 0.75, 1] as const;
+const MIN_BPM = 30;
+const MAX_BPM = 240;
+/** In "don't wait" play mode a note counts as missed this long (beats) after it should have been played. */
+const MISS_AFTER = 0.75;
 
 const WHITE_KEYS = ["a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'"];
 const WHITE_OFFSETS = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17];
@@ -44,9 +45,11 @@ type KeyState = { target: number[]; sounding: number[]; good: number[]; bad: num
 const EMPTY_KEYS: KeyState = { target: [], sounding: [], good: [], bad: [] };
 
 /**
- * "Play a song" mode: notes fall toward the keyboard (like Synthesia).
- *  - play: the song waits at each note until the student presses the right key.
+ * "Play a song" mode: notes fall toward the keyboard (like Synthesia), or scroll left on a staff.
+ *  - play: by default the song waits at each note until the student presses the right key; with "wait" off it
+ *    keeps the tempo and notes that pass unplayed count as missed.
  *  - listen: the song plays by itself and the keys light up.
+ *  The tempo (BPM) sets how fast the song runs; the metronome ticks every beat, with a one-bar count-in.
  */
 /** `computerKeys`: play with the laptop keyboard (off when another piano on the page uses it). */
 export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = true }: { songs?: Song[]; saveScores?: boolean; computerKeys?: boolean }) {
@@ -54,11 +57,16 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   const [songId, setSongId] = useState(songs[0].id);
   const song = songs.find((s) => s.id === songId) ?? songs[0];
   const [mode, setMode] = useState<Mode>("play");
-  const [speed, setSpeed] = useState<number>(0.75);
+  const [tempo, setTempo] = useState(song.bpm);
+  const [tempoText, setTempoText] = useState(String(song.bpm));
+  const [metronome, setMetronome] = useState(true);
+  const [wait, setWait] = useState(true);
+  const [view, setView] = useState<View>("falling");
   const [labels, setLabels] = useState<Labels>("letter");
+  const [doMidi, setDoMidi] = useState(song.doMidi ?? 60);
   const [playing, setPlaying] = useState(false);
   const [finished, setFinished] = useState(false);
-  const [score, setScore] = useState({ hit: 0, wrong: 0 });
+  const [score, setScore] = useState({ hit: 0, wrong: 0, missed: 0 });
   const [keys, setKeys] = useState<KeyState>(EMPTY_KEYS);
   const [pressed, setPressed] = useState<Set<number>>(new Set());
   const [saved, setSaved] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -76,11 +84,12 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
     hit: new Set<number>(),
     nextSound: 0,
     wrong: 0,
+    missed: new Set<number>(),
     flash: new Map<number, { ok: boolean; until: number }>(),
     keySig: "",
   });
-  const settings = useRef({ song, mode, speed, labels, range, saveScores });
-  settings.current = { song, mode, speed, labels, range, saveScores };
+  const settings = useRef({ song, mode, tempo, metronome, wait, view, labels, doMidi, range, saveScores });
+  settings.current = { song, mode, tempo, metronome, wait, view, labels, doMidi, range, saveScores };
 
   useEffect(() => {
     void loadAudio();
@@ -94,16 +103,35 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
     s.hit = new Set();
     s.nextSound = 0;
     s.wrong = 0;
+    s.missed = new Set();
     s.flash.clear();
     setPlaying(false);
     setFinished(false);
     setSaved("idle");
-    setScore({ hit: 0, wrong: 0 });
+    setScore({ hit: 0, wrong: 0, missed: 0 });
     stopAllNotes();
   }, []);
 
-  // A new song (or a changed melody in the teacher's preview) or mode starts over.
-  useEffect(() => reset(), [song, mode, reset]);
+  // A new song (or a changed melody in the teacher's preview), mode or waiting rule starts over.
+  useEffect(() => reset(), [song, mode, wait, reset]);
+  // A new song brings its own tempo and key.
+  useEffect(() => {
+    setTempo(song.bpm);
+    setTempoText(String(song.bpm));
+    setDoMidi(song.doMidi ?? 60);
+  }, [song]);
+
+  const changeTempo = (bpm: number) => {
+    const b = Math.max(MIN_BPM, Math.min(MAX_BPM, Math.round(bpm)));
+    setTempo(b);
+    setTempoText(String(b));
+  };
+
+  // The staff view uses the Bravura music font (bundled with VexFlow): load it when that view is first chosen.
+  const [, setFontReady] = useState(false);
+  useEffect(() => {
+    if (view === "staff") loadMusicFont(() => setFontReady(true));
+  }, [view]);
 
   const togglePlay = async () => {
     await unlockAudio();
@@ -117,12 +145,13 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   /** Called once when a song ends: in "play" mode the score goes to the student's practice history. */
   const onFinish = async () => {
     const s = g.current;
-    const { song, mode, speed, saveScores } = settings.current;
-    if (!saveScores || mode !== "play" || s.hit.size < song.notes.length) return;
-    const score = Math.round((s.hit.size / (s.hit.size + s.wrong)) * 100);
-    const detail: SongDetail = { songId: song.id, speed, notesTotal: song.notes.length, wrong: s.wrong };
+    const { song, mode, tempo, saveScores } = settings.current;
+    if (!saveScores || mode !== "play" || s.hit.size + s.missed.size < song.notes.length) return;
+    const score = Math.round((s.hit.size / Math.max(1, s.hit.size + s.wrong + s.missed.size)) * 100);
+    // `speed` = tempo played / the song's own tempo (the practice analysis reads it as a percentage).
+    const detail: SongDetail = { songId: song.id, speed: Math.round((tempo / song.bpm) * 100) / 100, notesTotal: song.notes.length, wrong: s.wrong + s.missed.size };
     setSaved("saving");
-    const r = await savePracticeResult({ kind: "song", title: t("Song: {0} (speed {1}%)", t(song.title), Math.round(speed * 100)), score, detail });
+    const r = await savePracticeResult({ kind: "song", title: t("Song: {0} ({1} BPM)", t(song.title), tempo), score, detail });
     setSaved(r.ok ? "saved" : "error");
     if (!r.ok) toast.error(r.error);
   };
@@ -135,7 +164,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
     const s = g.current;
     const { song, mode } = settings.current;
     if (!s.playing || mode !== "play") return;
-    const idx = song.notes.findIndex((n, i) => !s.hit.has(i) && n.midi === midi && n.start - s.time <= EARLY_WINDOW && n.start + n.beats > s.time - 0.25);
+    const idx = song.notes.findIndex((n, i) => !s.hit.has(i) && !s.missed.has(i) && n.midi === midi && n.start - s.time <= EARLY_WINDOW && n.start + n.beats > s.time - 0.25);
     const now = performance.now();
     if (idx >= 0) {
       s.hit.add(idx);
@@ -144,7 +173,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       s.wrong++;
       s.flash.set(midi, { ok: false, until: now + 300 });
     }
-    setScore({ hit: s.hit.size, wrong: s.wrong });
+    setScore({ hit: s.hit.size, wrong: s.wrong, missed: s.missed.size });
   }, []);
 
   const sources = useRef(new Map<string, number>());
@@ -235,22 +264,38 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       const s = g.current;
-      const { song, mode, speed, labels, range } = settings.current;
-      const beatsPerSec = (song.bpm / 60) * speed;
+      const { song, mode, tempo, metronome, wait, view, labels, doMidi, range } = settings.current;
+      const beatsPerSec = tempo / 60;
       const end = songLength(song);
 
       if (s.playing) {
         let next = s.time + dt * beatsPerSec;
         if (mode === "play") {
-          // Wait at the first note that has not been played yet.
-          const waiting = song.notes.find((n, i) => !s.hit.has(i) && n.start <= next);
-          if (waiting) next = Math.max(s.time, waiting.start);
+          if (wait) {
+            // Wait at the first note that has not been played yet.
+            const waiting = song.notes.find((n, i) => !s.hit.has(i) && n.start <= next);
+            if (waiting) next = Math.max(s.time, waiting.start);
+          } else {
+            // Keep the tempo: notes that pass unplayed are missed.
+            let changed = false;
+            song.notes.forEach((n, i) => {
+              if (!s.hit.has(i) && !s.missed.has(i) && next > n.start + Math.min(n.beats, MISS_AFTER)) {
+                s.missed.add(i);
+                changed = true;
+              }
+            });
+            if (changed) setScore({ hit: s.hit.size, wrong: s.wrong, missed: s.missed.size });
+          }
         } else {
           while (s.nextSound < song.notes.length && song.notes[s.nextSound].start <= next) {
             const n = song.notes[s.nextSound];
             if (n.start >= s.time) scheduleNote(n.midi, audioTime() + 0.01, (n.beats / beatsPerSec) * 0.92, 0.75);
             s.nextSound++;
           }
+        }
+        // Metronome: a click on every beat the song passes (the lead-in gives a one-bar count-in).
+        if (metronome) {
+          for (let b = Math.floor(s.time) + 1; b <= next; b++) scheduleClick(audioTime() + 0.005, ((b % 4) + 4) % 4 === 0);
         }
         s.time = next;
         if (s.time > end + 1) {
@@ -264,8 +309,12 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       // Keys to light up on the keyboard.
       const target: number[] = [];
       const sounding: number[] = [];
+      const isTarget = (i: number) => {
+        const n = song.notes[i];
+        return mode === "play" && !s.hit.has(i) && !s.missed.has(i) && n.start <= s.time + 0.001 && s.time >= 0 && (wait || s.time < n.start + n.beats);
+      };
       song.notes.forEach((n, i) => {
-        if (mode === "play" && !s.hit.has(i) && n.start <= s.time + 0.001 && s.time >= 0) target.push(n.midi);
+        if (isTarget(i)) target.push(n.midi);
         if (mode === "listen" && n.start <= s.time && s.time < n.start + n.beats) sounding.push(n.midi);
       });
       const good: number[] = [];
@@ -281,7 +330,13 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       }
       if (progressRef.current) progressRef.current.style.width = `${Math.max(0, Math.min(100, (s.time / end) * 100))}%`;
 
-      draw(canvasRef.current, song, range.white, s.time, s.hit, mode, labels);
+      const state: NoteState = {
+        done: (i) => (mode === "play" ? s.hit.has(i) : song.notes[i].start + song.notes[i].beats <= s.time),
+        target: isTarget,
+        missed: (i) => s.missed.has(i),
+      };
+      if (view === "staff") drawStaff(canvasRef.current, song, s.time, state, mode, labels, doMidi);
+      else drawFalling(canvasRef.current, song, range.white, s.time, state, mode, labels, doMidi);
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
@@ -327,11 +382,12 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   });
 
   const total = song.notes.length;
-  const accuracy = score.hit + score.wrong > 0 ? Math.round((score.hit / (score.hit + score.wrong)) * 100) : 0;
+  const tries = score.hit + score.wrong + score.missed;
+  const accuracy = tries > 0 ? Math.round((score.hit / tries) * 100) : 0;
 
   return (
     <div className="grid gap-3">
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+      <div className="grid gap-2">
         <label className="grid gap-1 text-sm font-semibold">
           {t("Song")}
           <Select value={song.id} onChange={(e) => setSongId(e.target.value)}>
@@ -373,18 +429,65 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
               </button>
             ))}
           </div>
-          <Select aria-label={t("Speed")} className="h-10 w-auto" value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
-            {SPEEDS.map((v) => (
-              <option key={v} value={v}>
-                {t("Speed")} {Math.round(v * 100)}%
-              </option>
-            ))}
+          <div className="inline-flex items-center gap-1 rounded-lg border bg-card p-0.5" role="group" aria-label={t("Tempo")}>
+            <Button type="button" variant="ghost" size="icon" className="size-9" aria-label={t("Slower")} disabled={tempo <= MIN_BPM} onClick={() => changeTempo(tempo - 5)}>
+              <Minus />
+            </Button>
+            <label className="inline-flex items-center gap-1 text-sm font-semibold">
+              <span className="sr-only sm:not-sr-only">{t("Tempo")}</span>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={MIN_BPM}
+                max={MAX_BPM}
+                value={tempoText}
+                onChange={(e) => {
+                  setTempoText(e.target.value);
+                  const n = Number(e.target.value);
+                  if (n >= MIN_BPM && n <= MAX_BPM) setTempo(Math.round(n));
+                }}
+                onBlur={() => setTempoText(String(tempo))}
+                className="h-8 w-16 px-2 text-center"
+                aria-label={t("Tempo (BPM)")}
+              />
+              <span className="text-xs text-muted-foreground">BPM</span>
+            </label>
+            <Button type="button" variant="ghost" size="icon" className="size-9" aria-label={t("Faster")} disabled={tempo >= MAX_BPM} onClick={() => changeTempo(tempo + 5)}>
+              <Plus />
+            </Button>
+          </div>
+          <Button type="button" variant={metronome ? "secondary" : "outline"} aria-pressed={metronome} onClick={() => setMetronome((x) => !x)}>
+            <Timer /> {t("Metronome")}
+          </Button>
+          {mode === "play" && (
+            <label className="inline-flex items-center gap-2 text-sm font-semibold">
+              <input type="checkbox" checked={wait} onChange={(e) => setWait(e.target.checked)} className="size-4 accent-[var(--primary)]" />
+              {t("Wait for the right note")}
+            </label>
+          )}
+          <Select aria-label={t("Display")} className="h-10 w-auto" value={view} onChange={(e) => setView(e.target.value as View)}>
+            <option value="falling">{t("Falling notes")}</option>
+            <option value="staff">{t("Staff notation")}</option>
           </Select>
           <Select aria-label={t("Note names")} className="h-10 w-auto" value={labels} onChange={(e) => setLabels(e.target.value as Labels)}>
             <option value="letter">C D E</option>
             <option value="solfege">do re mi</option>
+            <option value="angka">{t("1 2 3 (notasi angka)")}</option>
             <option value="none">{t("No names")}</option>
           </Select>
+          {(labels === "angka" || labels === "solfege") && (
+            <label className="inline-flex items-center gap-1.5 text-sm font-semibold">
+              {t("do =")}
+              <Select className="h-10 w-auto" value={doMidi} onChange={(e) => setDoMidi(Number(e.target.value))}>
+                {NOTE_NAMES.map((name, pc) => (
+                  // A, A# and B are taken from octave 3 (like the song form), the rest from octave 4.
+                  <option key={name} value={pc >= 9 ? 48 + pc : 60 + pc}>
+                    {name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          )}
         </div>
       </div>
 
@@ -399,6 +502,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
                   {mode === "play" && (
                     <p className="text-sm">
                       {t("{0} of {1} notes correct · {2} wrong keys · accuracy {3}%", score.hit, total, score.wrong, accuracy)}
+                      {score.missed > 0 && ` · ${t("{0} missed", score.missed)}`}
                     </p>
                   )}
                   {saved === "saving" && <p className="text-xs text-white/80">{t("Saving score…")}</p>}
@@ -417,7 +521,15 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
                     {mode === "listen" ? <Headphones /> : <Play />} {g.current.time > -LEAD_IN ? t("Continue") : mode === "listen" ? t("Listen to the song") : t("Start")}
                   </Button>
                   <p className="max-w-sm text-xs text-white/80">
-                    {mode === "play" ? t("The notes fall to the keyboard. Press the yellow key: the song waits until you press the right note.") : t("The song plays by itself. Watch which keys light up.")}
+                    {mode === "listen"
+                      ? t("The song plays by itself. Watch which keys light up.")
+                      : view === "staff"
+                        ? wait
+                          ? t("The notes move to the orange line. Press the yellow key: the song waits until you press the right note.")
+                          : t("The notes move to the orange line at the tempo. Press each key when its note reaches the line.")
+                        : wait
+                          ? t("The notes fall to the keyboard. Press the yellow key: the song waits until you press the right note.")
+                          : t("The notes fall at the tempo. Press each key when its note reaches the keyboard.")}
                   </p>
                 </div>
               )}
@@ -441,7 +553,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
                   tone(m, false),
                 )}
               >
-                {labels !== "none" && <span>{labels === "solfege" ? solfegeOf(m, 60) : m % 12 === 0 ? midiToNote(m) : midiToNote(m).replace(/\d/, "")}</span>}
+                <KeyLabel midi={m} labels={labels} doMidi={doMidi} />
               </button>
             ))}
             {black.map(({ midi: m, position }) => (
@@ -470,6 +582,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
           {mode === "play" && (
             <span className="text-sm font-semibold text-muted-foreground">
               {t("Correct")}: {score.hit}/{total} · {t("Wrong")}: {score.wrong}
+              {!wait && ` · ${t("Missed")}: ${score.missed}`}
             </span>
           )}
         </div>
@@ -491,78 +604,18 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   );
 }
 
-/* ---------------- Drawing ---------------- */
-
-function laneOf(midi: number, white: number[], w: number) {
-  if (!isBlackKey(midi)) {
-    const i = white.indexOf(midi);
-    return { x: i * w, width: w };
-  }
-  const i = white.indexOf(midi - 1);
-  return { x: (i + 1) * w - w * 0.3, width: w * 0.6 };
-}
-
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.roundRect(x, y, w, h, rr);
-}
-
-function draw(canvas: HTMLCanvasElement | null, song: Song, white: number[], time: number, hit: Set<number>, mode: Mode, labels: Labels) {
-  const ctx = canvas?.getContext("2d");
-  if (!canvas || !ctx) return;
-  const dpr = window.devicePixelRatio || 1;
-  const W = canvas.width / dpr;
-  const H = canvas.height / dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, W, H);
-
-  const keyW = (W - 8) / white.length; // matches the keyboard's p-1 padding
-  const ox = 4;
-  const pxPerBeat = H / VISIBLE_BEATS;
-
-  // Shaded lanes on every other white key, plus beat lines.
-  ctx.fillStyle = "rgba(255,255,255,0.04)";
-  white.forEach((_, i) => {
-    if (i % 2 === 0) ctx.fillRect(ox + i * keyW, 0, keyW, H);
-  });
-  ctx.strokeStyle = "rgba(255,255,255,0.12)";
-  ctx.lineWidth = 1;
-  for (let b = Math.ceil(time); b <= time + VISIBLE_BEATS; b++) {
-    const y = H - (b - time) * pxPerBeat;
-    ctx.globalAlpha = b % 4 === 0 ? 1 : 0.4;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(W, y);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-
-  ctx.font = "bold 11px system-ui, sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "bottom";
-  song.notes.forEach((n, i) => {
-    const bottom = H - (n.start - time) * pxPerBeat;
-    const top = bottom - n.beats * pxPerBeat;
-    if (top > H || bottom < 0) return;
-    const { x, width } = laneOf(n.midi, white, keyW);
-    const done = mode === "play" ? hit.has(i) : n.start + n.beats <= time;
-    const black = isBlackKey(n.midi);
-    ctx.fillStyle = done ? (mode === "play" ? "rgba(34,197,94,0.55)" : "rgba(139,92,246,0.35)") : black ? "#4f46e5" : "#8b5cf6";
-    roundRect(ctx, ox + x + 1.5, top + 1, width - 3, Math.max(4, bottom - top - 2), 5);
-    ctx.fill();
-    if (!done) {
-      ctx.strokeStyle = "rgba(255,255,255,0.35)";
-      ctx.stroke();
-    }
-    if (labels !== "none" && width >= 16 && bottom - top >= 16) {
-      const name = labels === "solfege" ? solfegeOf(n.midi, 60) ?? midiToNote(n.midi).replace(/\d/, "") : midiToNote(n.midi).replace(/\d/, "");
-      ctx.fillStyle = "rgba(255,255,255,0.95)";
-      ctx.fillText(name, ox + x + width / 2, Math.min(bottom, H) - 4);
-    }
-  });
-
-  // Hit line.
-  ctx.fillStyle = "rgba(250,204,21,0.8)";
-  ctx.fillRect(0, H - 2, W, 2);
+/** A key's name under the keyboard; notasi angka gets its octave dots (a dot above = one octave higher). */
+function KeyLabel({ midi, labels, doMidi }: { midi: number; labels: Labels; doMidi: number }) {
+  const label = labelOf(midi, labels, doMidi);
+  if (!label) return null;
+  // Letters also show the octave number on each C, as before.
+  const text = labels === "letter" && midi % 12 === 0 ? midiToNote(midi) : label.text;
+  const dots = (n: number) => (n > 0 ? <span className="flex justify-center gap-px">{Array.from({ length: n }, (_, i) => <span key={i} className="size-[3px] rounded-full bg-current" />)}</span> : null);
+  return (
+    <span className="flex flex-col items-center leading-none">
+      {dots(label.dots)}
+      <span className={cn(label.dots !== 0 && "my-px")}>{text}</span>
+      {dots(-label.dots)}
+    </span>
+  );
 }

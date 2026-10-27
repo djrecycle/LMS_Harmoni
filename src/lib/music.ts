@@ -49,6 +49,21 @@ export function midiToVexKey(midi: number): string {
   return `${name[0].toLowerCase()}${name.slice(1)}/${octave}`;
 }
 
+const ANGKA_STEPS = [0, 2, 4, 5, 7, 9, 11];
+
+/**
+ * Notasi angka of a note in the major key whose "do" is `doMidi`: the digit (1-7, "4#" for a raised note) and the
+ *  octave relative to that do (1 = one dot above, -1 = one dot below).
+ */
+export function angkaOf(midi: number, doMidi: number): { digit: string; octave: number } {
+  const d = midi - doMidi;
+  const octave = Math.floor(d / 12);
+  const step = d - octave * 12;
+  const i = ANGKA_STEPS.indexOf(step);
+  if (i >= 0) return { digit: String(i + 1), octave };
+  return { digit: `${ANGKA_STEPS.indexOf(step - 1) + 1}#`, octave };
+}
+
 const SOLFEGE: Record<number, string> = { 0: "do", 2: "re", 4: "mi", 5: "fa", 7: "sol", 9: "la", 11: "si" };
 
 /** Solfège syllable of a note in the major key whose "do" is `doMidi` (movable do). Null for notes outside the scale. */
