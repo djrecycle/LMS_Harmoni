@@ -28,7 +28,7 @@ function MusicBlock({ block }: { block: DecodedMusicBlock }) {
     case "music:rhythm":
       return (
         <div className="not-prose my-3 rounded-lg border bg-card p-3">
-          <RhythmBlockPlayer pattern={block.pattern} bpm={block.bpm} />
+          <RhythmBlockPlayer pattern={block.pattern} bpm={block.bpm} meter={block.meter} />
         </div>
       );
     case "music:melody":
@@ -55,7 +55,7 @@ function MusicBlock({ block }: { block: DecodedMusicBlock }) {
     case "music:chords":
       return (
         <div className="not-prose my-3 rounded-lg border bg-card p-3">
-          <ChordBlockPlayer label={block.label} items={block.items} beats={block.beats} bpm={block.bpm} />
+          <ChordBlockPlayer label={block.label} items={block.items} beats={block.beats} bpm={block.bpm} meter={block.meter} />
         </div>
       );
   }

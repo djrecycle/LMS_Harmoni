@@ -16,6 +16,7 @@ import {
   chordEvents,
   chordSounds,
   CountIn,
+  MeterSelect,
   MetronomeButton,
   rhythmEvents,
   rhythmOnsetBeats,
@@ -30,7 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { audioTime, playChord, scheduleClick } from "@/lib/audio";
 import { chordNameOf, chordMidis, midiToNote, NOTE_NAMES, noteToMidi } from "@/lib/music";
-import { CHORD_LENGTHS } from "@/lib/music-blocks";
+import { barBeats, CHORD_LENGTHS } from "@/lib/music-blocks";
 import { onsetsToPattern } from "@/lib/rhythm";
 import { parseSongNotation, SONGS, type Song } from "@/lib/songs";
 import { cn } from "@/lib/utils";
@@ -80,8 +81,8 @@ const CHORD_QUALITIES: [string, string][] = [
   ["sus4", "sus4"],
   ["6", "6"],
 ];
-/** How long a recording by tapping lasts at most (4 bars). */
-const RECORD_BEATS = 16;
+/** How many bars a recording by tapping lasts at most. */
+const RECORD_BARS = 4;
 
 /** The key's "do" choices, as in the piano song form. */
 const DO_NOTES = ["C4", "C#4", "D4", "D#4", "E4", "F4", "F#4", "G4", "G#4", "A3", "A#3", "B3"];
@@ -234,7 +235,8 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
   function play() {
     void tr.start({
       bpm: block.bpm,
-      countIn: 4,
+      meter: block.meter,
+      countIn: 1,
       total: totalBeats(events),
       metronome,
       sounds: rhythmOnsetBeats(block.pattern).map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, "kentongan") })),
@@ -245,12 +247,16 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
   function record() {
     taps.current = [];
     setRecording(true);
-    void tr.start({ bpm: block.bpm, countIn: 4, total: RECORD_BEATS, metronome: true, sounds: [], onEnd: (r) => finishRecording(r) });
+    void tr.start({ bpm: block.bpm, meter: block.meter, countIn: 1, total: RECORD_BARS * barBeats(block.meter), metronome: true, sounds: [], onEnd: (r) => finishRecording(r) });
   }
   function finishRecording(r: { t0: number; spb: number } | null) {
     setRecording(false);
     if (!r || !taps.current.length) return;
-    const pattern = onsetsToPattern(taps.current.map((tap) => (tap - r.t0) / r.spb).filter((b) => b > -0.25 && b < RECORD_BEATS));
+    const bar = barBeats(block.meter);
+    const pattern = onsetsToPattern(
+      taps.current.map((tap) => (tap - r.t0) / r.spb).filter((b) => b > -0.25 && b < RECORD_BARS * bar),
+      bar,
+    );
     if (!pattern.length) return;
     setUndoPattern(block.pattern);
     onChange({ ...block, pattern });
@@ -297,7 +303,8 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
           </Button>
           <TempoControl bpm={block.bpm} onChange={(bpm) => onChange({ ...block, bpm })} disabled={tr.playing} />
           <MetronomeButton on={metronome} onChange={setMetronome} disabled={tr.playing} />
-          <CountIn beat={tr.beat} />
+          <MeterSelect value={block.meter} onChange={(meter) => onChange({ ...block, meter })} disabled={tr.playing} />
+          <CountIn beat={tr.beat} meter={block.meter} />
           {undoPattern && !recording && (
             <Button
               type="button"
@@ -325,7 +332,7 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
             <Hand /> {t("Tap here (or Space) — up to 4 bars")}
           </Button>
         )}
-        <ScoreView events={events} clef="percussion" cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
+        <ScoreView events={events} clef="percussion" meter={block.meter} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
         <div className="flex flex-wrap gap-1.5">
           {NOTE_PALETTE.map((kind) => (
             <Button key={kind} type="button" size="sm" variant="outline" className="h-9 px-2.5" onClick={() => onChange({ ...block, pattern: [...block.pattern, kind] })}>
@@ -362,7 +369,7 @@ function ChordsCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
   const [draft, setDraft] = useState("");
   const [root, setRoot] = useState("C");
   const [quality, setQuality] = useState("");
-  const [length, setLength] = useState<number>(4);
+  const [length, setLength] = useState<number>(barBeats(block.meter));
   const [metronome, setMetronome] = useState(true);
   const [fromPiano, setFromPiano] = useState(false);
   const held = useRef(new Set<number>());
@@ -423,11 +430,19 @@ function ChordsCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
             <Select className="h-9 w-auto" value={length} onChange={(ev) => setLength(Number(ev.target.value))}>
               {CHORD_LENGTHS.map((b) => (
                 <option key={b} value={b}>
-                  {b === 4 ? t("4 beats (1 bar)") : t("{0} beats", b)}
+                  {b === barBeats(block.meter) ? t("{0} beats (1 bar)", b) : t("{0} beats", b)}
                 </option>
               ))}
             </Select>
           </label>
+          <MeterSelect
+            value={block.meter}
+            onChange={(meter) => {
+              onChange({ ...block, meter });
+              setLength(barBeats(meter));
+            }}
+            disabled={tr.playing}
+          />
           <Button type="button" size="sm" variant="secondary" className="h-9" onClick={() => add(root + quality)}>
             <Plus /> {t("Add chord")}
           </Button>
@@ -491,20 +506,22 @@ function ChordsCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
 
         {block.items.length > 0 && (
           <>
-            <ScoreView events={events} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
+            <ScoreView events={events} meter={block.meter} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 size="sm"
                 onClick={() =>
-                  tr.playing ? tr.stop() : void tr.start({ bpm: block.bpm, countIn: metronome ? 4 : 0, total: totalBeats(events), metronome, sounds: chordSounds(events) })
+                  tr.playing
+                    ? tr.stop()
+                    : void tr.start({ bpm: block.bpm, meter: block.meter, countIn: metronome ? 1 : 0, total: totalBeats(events), metronome, sounds: chordSounds(events) })
                 }
               >
                 {tr.playing ? <Square /> : <Play />} {tr.playing ? t("Stop") : t("Play")}
               </Button>
               <TempoControl bpm={block.bpm} onChange={(bpm) => onChange({ ...block, bpm })} disabled={tr.playing} />
               <MetronomeButton on={metronome} onChange={setMetronome} disabled={tr.playing} />
-              <CountIn beat={tr.beat} />
+              <CountIn beat={tr.beat} meter={block.meter} />
             </div>
           </>
         )}

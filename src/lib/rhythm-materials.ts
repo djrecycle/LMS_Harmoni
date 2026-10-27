@@ -3,7 +3,7 @@
  *  (src/components/rhythm-practice.tsx). A material that holds nothing but rhythm (text allowed, no other music
  *  or media) is not listed as a separate card on the Practice page: it lives in Rhythm Practice instead.
  */
-import { decodeFence, RHYTHM_DEFAULT_BPM } from "./music-blocks";
+import { barBeats, decodeFence, RHYTHM_DEFAULT_BPM, type Meter } from "./music-blocks";
 import type { RhythmPattern } from "./practice";
 import { rhythmBeats, rhythmOnsets, rhythmToText } from "./rhythm";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
@@ -12,11 +12,11 @@ import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
 const FENCE = /```([a-z]+:[a-z]+)\r?\n([\s\S]*?)\r?\n```/g;
 
 /** The rhythm blocks of a material's Markdown, in order. */
-export function rhythmBlocksOf(content: string): { pattern: NoteGlyphKind[]; bpm: number }[] {
-  const out: { pattern: NoteGlyphKind[]; bpm: number }[] = [];
+export function rhythmBlocksOf(content: string): { pattern: NoteGlyphKind[]; bpm: number; meter: Meter }[] {
+  const out: { pattern: NoteGlyphKind[]; bpm: number; meter: Meter }[] = [];
   for (const m of content.matchAll(FENCE)) {
     const d = decodeFence(m[1], m[2]);
-    if (d?.lang === "music:rhythm" && d.pattern.length && rhythmOnsets(d.pattern).length) out.push({ pattern: d.pattern, bpm: d.bpm ?? RHYTHM_DEFAULT_BPM });
+    if (d?.lang === "music:rhythm" && d.pattern.length && rhythmOnsets(d.pattern).length) out.push({ pattern: d.pattern, bpm: d.bpm ?? RHYTHM_DEFAULT_BPM, meter: d.meter ?? "4/4" });
   }
   return out;
 }
@@ -33,8 +33,9 @@ export function rhythmPatternsFromMaterials(materials: { id: string; title: stri
   return materials.flatMap((m) => {
     const blocks = rhythmBlocksOf(m.content);
     return blocks.map((b, i) => {
-      const length = Math.max(4, Math.ceil(rhythmBeats(b.pattern) / 4 - 1e-6) * 4);
-      const bars = length / 4;
+      const bar = barBeats(b.meter);
+      const length = Math.max(bar, Math.ceil(rhythmBeats(b.pattern) / bar - 1e-6) * bar);
+      const bars = length / bar;
       return {
         id: `teacher-${m.id}-${i}`,
         name: blocks.length > 1 ? `${m.title} (${i + 1})` : m.title,
@@ -44,6 +45,7 @@ export function rhythmPatternsFromMaterials(materials: { id: string; title: stri
         level: bars <= 1 ? 1 : bars <= 2 ? 2 : 3,
         glyphs: b.pattern,
         bpm: b.bpm,
+        meter: b.meter,
         materialId: m.id,
       } satisfies RhythmPattern;
     });

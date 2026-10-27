@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button";
 import { audioTime, loadAudio, playChord, scheduleClick, scheduleNote, unlockAudio } from "@/lib/audio";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
 import { chordMidis } from "@/lib/music";
-import { CHORDS_DEFAULT_BPM, isRestGlyph, NOTE_GLYPH_BEATS, RHYTHM_DEFAULT_BPM } from "@/lib/music-blocks";
+import { CHORDS_DEFAULT_BPM, isRestGlyph, METERS, NOTE_GLYPH_BEATS, RHYTHM_DEFAULT_BPM, type Meter } from "@/lib/music-blocks";
 import type { Song, SongNote } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
@@ -65,14 +65,31 @@ export function useTransport() {
     };
   }, []);
 
-  async function start(o: { bpm: number; countIn: number; total: number; metronome: boolean; sounds: { beat: number; play: (time: number, spb: number) => void }[]; onEnd?: (r: TransportRun) => void }) {
+  /**
+   * `meter` sets the bar for accents (and the click step: 6/8 ticks in eighths); `countIn` is in bars (0 or 1).
+   */
+  async function start(o: {
+    bpm: number;
+    meter?: Meter;
+    countIn: number;
+    total: number;
+    metronome: boolean;
+    sounds: { beat: number; play: (time: number, spb: number) => void }[];
+    onEnd?: (r: TransportRun) => void;
+  }) {
     stop();
     await unlockAudio();
+    const { bar, click } = METERS[o.meter ?? "4/4"];
+    const lead = o.countIn * bar;
     const spb = 60 / o.bpm;
-    const t0 = audioTime() + 0.15 + o.countIn * spb;
+    const t0 = audioTime() + 0.15 + lead * spb;
     const events: { at: number; fn: (time: number) => void }[] = [];
-    for (let i = 0; i < o.countIn; i++) events.push({ at: t0 - (o.countIn - i) * spb, fn: (time) => scheduleClick(time, i === 0, "click") });
-    if (o.metronome) for (let b = 0; b < Math.ceil(o.total - 1e-6); b++) events.push({ at: t0 + b * spb, fn: (time) => scheduleClick(time, b % 4 === 0, "click") });
+    // Count-in clicks always; metronome clicks during the music when on. Accent on each bar's first beat.
+    for (let b = -lead; b < o.total - 1e-6; b += click) {
+      if (b >= 0 && !o.metronome) break;
+      const accent = Math.abs(((b % bar) + bar) % bar) < 1e-6;
+      events.push({ at: t0 + b * spb, fn: (time) => scheduleClick(time, accent, "click") });
+    }
     for (const s of o.sounds) events.push({ at: t0 + s.beat * spb, fn: (time) => s.play(time, spb) });
     events.sort((a, b) => a.at - b.at);
     let next = 0;
@@ -84,7 +101,7 @@ export function useTransport() {
     }, 25);
     const r = { t0, spb, raf: 0, timer };
     run.current = r;
-    setBeat(-o.countIn);
+    setBeat(-lead);
     const tick = () => {
       if (run.current !== r) return;
       const b = (audioTime() - t0) / spb;
@@ -128,11 +145,35 @@ export function MetronomeButton({ on, onChange, disabled }: { on: boolean; onCha
   );
 }
 
-/** "Count: 3" during the count-in. */
-export function CountIn({ beat }: { beat: number | null }) {
+/** "Count: 3" during the one-bar count-in. */
+export function CountIn({ beat, meter = "4/4" }: { beat: number | null; meter?: Meter }) {
   const t = useT();
   if (beat === null || beat >= 0) return null;
-  return <span className="text-sm font-bold text-primary">{t("Count: {0}", Math.min(4, Math.floor(beat) + 5))}</span>;
+  const bar = METERS[meter].bar;
+  return <span className="text-sm font-bold text-primary">{t("Count: {0}", Math.min(bar, Math.floor(beat) + bar + 1))}</span>;
+}
+
+/** Time signature picker (sukat). */
+export function MeterSelect({ value, onChange, disabled }: { value: Meter; onChange: (m: Meter) => void; disabled?: boolean }) {
+  const t = useT();
+  return (
+    <label className="inline-flex items-center gap-1.5 text-sm font-semibold">
+      {t("Time signature")}
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value as Meter)}
+        className="h-9 rounded-lg border bg-card px-2 text-sm"
+        aria-label={t("Time signature")}
+      >
+        {(Object.keys(METERS) as Meter[]).map((m) => (
+          <option key={m} value={m}>
+            {m}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
 
 /* --------------------------------- rhythm --------------------------------- */
@@ -176,7 +217,7 @@ function scoreTaps(taps: number[], onsets: number[], r: TransportRun) {
  * Plays a rhythm pattern after a one-bar count-in, with a cursor over the staff. The student can tap along
  *  (button, or Space / Enter while the player has focus); taps are matched to the notes and scored at the end.
  */
-export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM }: { pattern: NoteGlyphKind[]; bpm?: number }) {
+export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM, meter = "4/4" }: { pattern: NoteGlyphKind[]; bpm?: number; meter?: Meter }) {
   const t = useT();
   const [tempo, setTempo] = useState(bpm);
   const [metronome, setMetronome] = useState(true);
@@ -194,7 +235,8 @@ export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM }: { patte
     taps.current = [];
     void tr.start({
       bpm: tempo,
-      countIn: 4,
+      meter,
+      countIn: 1,
       total,
       metronome,
       sounds: sound ? onsets.map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, "kentongan") })) : [],
@@ -222,7 +264,7 @@ export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM }: { patte
         }
       }}
     >
-      <ScoreView events={events} clef="percussion" cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
+      <ScoreView events={events} clef="percussion" meter={meter} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" onClick={() => (tr.playing ? tr.stop() : play())}>
           {tr.playing ? <Square /> : <Play />} {tr.playing ? t("Stop") : t("Play")}
@@ -233,7 +275,7 @@ export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM }: { patte
           <input type="checkbox" checked={sound} disabled={tr.playing} onChange={(e) => setSound(e.target.checked)} className="size-4 accent-[var(--primary)]" />
           {t("Play the pattern")}
         </label>
-        <CountIn beat={tr.beat} />
+        <CountIn beat={tr.beat} meter={meter} />
       </div>
       {tr.playing && (
         <Button
@@ -326,7 +368,19 @@ export function ChordChipRow({ items, active }: { items: string[]; active?: numb
   );
 }
 
-export function ChordBlockPlayer({ label, items, beats, bpm = CHORDS_DEFAULT_BPM }: { label?: string; items: string[]; beats?: number[]; bpm?: number }) {
+export function ChordBlockPlayer({
+  label,
+  items,
+  beats,
+  bpm = CHORDS_DEFAULT_BPM,
+  meter = "4/4",
+}: {
+  label?: string;
+  items: string[];
+  beats?: number[];
+  bpm?: number;
+  meter?: Meter;
+}) {
   const t = useT();
   const [tempo, setTempo] = useState(bpm);
   const [metronome, setMetronome] = useState(true);
@@ -341,20 +395,22 @@ export function ChordBlockPlayer({ label, items, beats, bpm = CHORDS_DEFAULT_BPM
         <span className="text-sm text-muted-foreground">—</span>
       ) : (
         <>
-          {playable && <ScoreView events={events} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />}
+          {playable && <ScoreView events={events} meter={meter} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />}
           <ChordChipRow items={items} active={activeEvent(events, tr.beat)} />
           {playable && (
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 size="sm"
-                onClick={() => (tr.playing ? tr.stop() : void tr.start({ bpm: tempo, countIn: metronome ? 4 : 0, total: totalBeats(events), metronome, sounds: chordSounds(events) }))}
+                onClick={() =>
+                  tr.playing ? tr.stop() : void tr.start({ bpm: tempo, meter, countIn: metronome ? 1 : 0, total: totalBeats(events), metronome, sounds: chordSounds(events) })
+                }
               >
                 {tr.playing ? <Square /> : <Play />} {tr.playing ? t("Stop") : t("Play")}
               </Button>
               <TempoControl bpm={tempo} onChange={setTempo} disabled={tr.playing} />
               <MetronomeButton on={metronome} onChange={setMetronome} disabled={tr.playing} />
-              <CountIn beat={tr.beat} />
+              <CountIn beat={tr.beat} meter={meter} />
             </div>
           )}
         </>

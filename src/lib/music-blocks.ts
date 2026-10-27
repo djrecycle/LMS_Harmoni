@@ -15,14 +15,29 @@ import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
 import { midiToNote } from "@/lib/music";
 
 export type MediaBlockData = { kind: "audio" | "video"; key: string; title?: string };
-/** `bpm`: the tempo the pattern is played at (80 when missing, as in older blocks). */
-export type RhythmBlockData = { pattern: NoteGlyphKind[]; bpm?: number };
-/** `beats[i]`: how long chord i lasts (4 = one bar when missing). `bpm`: playback tempo (90 when missing). */
-export type ChordsBlockData = { label?: string; items: string[]; beats?: number[]; bpm?: number };
+/**
+ * Time signatures (sukat) of the rhythm and chord blocks. Beats are always counted in quarter notes:
+ *  `bar` = quarter notes per bar; `click` = the metronome step (6/8 ticks every eighth note).
+ */
+export const METERS = {
+  "2/4": { bar: 2, click: 1 },
+  "3/4": { bar: 3, click: 1 },
+  "4/4": { bar: 4, click: 1 },
+  "6/8": { bar: 3, click: 0.5 },
+} as const;
+export type Meter = keyof typeof METERS;
+export const isMeter = (v: unknown): v is Meter => typeof v === "string" && v in METERS;
+/** Quarter notes per bar ("4/4" when missing). */
+export const barBeats = (meter?: Meter) => METERS[meter ?? "4/4"].bar;
+
+/** `bpm`: the tempo the pattern is played at (80 when missing, as in older blocks). `meter`: 4/4 when missing. */
+export type RhythmBlockData = { pattern: NoteGlyphKind[]; bpm?: number; meter?: Meter };
+/** `beats[i]`: how long chord i lasts (one 4/4 bar when missing). `bpm`: playback tempo (90 when missing). */
+export type ChordsBlockData = { label?: string; items: string[]; beats?: number[]; bpm?: number; meter?: Meter };
 
 export const RHYTHM_DEFAULT_BPM = 80;
 export const CHORDS_DEFAULT_BPM = 90;
-export const CHORD_LENGTHS = [1, 2, 4] as const;
+export const CHORD_LENGTHS = [1, 2, 3, 4] as const;
 /**
  * A monophonic melody on a grid of eighth-note units (one bar = 8 units). Each note has its own length and
  * starts on a multiple of its own length, so it never crosses a beat/bar boundary. Anything not covered by a
@@ -134,7 +149,7 @@ export function decodeFence(lang: string | null | undefined, raw: string): Decod
   if (lang === "music:rhythm") {
     if (!Array.isArray(d.pattern)) return null;
     const pattern = d.pattern.filter((p): p is NoteGlyphKind => NOTE_GLYPH_KINDS.includes(p));
-    return { lang, pattern, bpm: tempo(d.bpm) };
+    return { lang, pattern, bpm: tempo(d.bpm), meter: isMeter(d.meter) ? d.meter : undefined };
   }
   if (lang === "music:chords") {
     if (!Array.isArray(d.items)) return null;
@@ -142,7 +157,7 @@ export function decodeFence(lang: string | null | undefined, raw: string): Decod
     const rawBeats = Array.isArray(d.beats) ? d.beats : [];
     const pairs = d.items.flatMap((item, i) => (typeof item === "string" && item.trim() ? [{ item, beats: rawBeats[i] }] : []));
     const beats = pairs.map((p) => (typeof p.beats === "number" && p.beats > 0 && p.beats <= 16 ? p.beats : 4));
-    return { lang, label: typeof d.label === "string" ? d.label : undefined, items: pairs.map((p) => p.item), beats, bpm: tempo(d.bpm) };
+    return { lang, label: typeof d.label === "string" ? d.label : undefined, items: pairs.map((p) => p.item), beats, bpm: tempo(d.bpm), meter: isMeter(d.meter) ? d.meter : undefined };
   }
   if (lang === "music:song") {
     if (typeof d.roll !== "string") return null;

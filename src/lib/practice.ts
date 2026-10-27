@@ -1,4 +1,5 @@
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
+import type { Meter } from "@/lib/music-blocks";
 
 /**
  * Practice rhythm patterns. `onset` is in beats (1 = quarter note), counted from the start of the pattern;
@@ -14,6 +15,8 @@ export type RhythmPattern = {
   level?: 1 | 2 | 3;
   glyphs?: NoteGlyphKind[];
   bpm?: number;
+  /** Time signature (4/4 when missing). */
+  meter?: Meter;
   materialId?: string;
 };
 

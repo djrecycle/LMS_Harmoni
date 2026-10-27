@@ -12,7 +12,7 @@ import { Select } from "@/components/ui/input";
 import { unlockAudio, scheduleClick, audioLatency, scheduleNote, audioTime } from "@/lib/audio";
 import { gradeRhythm, RHYTHM_PATTERNS, type BeatResult, type RhythmPattern } from "@/lib/practice";
 import { ScoreView } from "@/components/score-view";
-import { isRestGlyph, NOTE_GLYPH_BEATS } from "@/lib/music-blocks";
+import { isRestGlyph, METERS, NOTE_GLYPH_BEATS } from "@/lib/music-blocks";
 import { onsetsToPattern } from "@/lib/rhythm";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
@@ -67,9 +67,12 @@ export function RhythmPractice({
   const [tapCount, setTapCount] = useState(0);
 
   const pattern = patterns.find((p) => p.id === patternId) ?? patterns[0];
+  const meter = pattern.meter ?? "4/4";
+  // Quarter notes per bar, and the metronome step (6/8 ticks in eighths).
+  const { bar, click } = METERS[meter];
   // Note values for the staff view: the teacher's own, or worked out from the onsets; padded with rests to the full length.
   const glyphs = useMemo(() => {
-    const g = pattern.glyphs ?? onsetsToPattern(pattern.onset);
+    const g = pattern.glyphs ?? onsetsToPattern(pattern.onset, bar);
     let beats = g.reduce((s, x) => s + NOTE_GLYPH_BEATS[x], 0);
     const out = [...g];
     while (beats < pattern.length - 1e-6) {
@@ -78,7 +81,7 @@ export function RhythmPractice({
       beats += quarter ? 1 : 0.5;
     }
     return out;
-  }, [pattern]);
+  }, [pattern, bar]);
   const staffEvents = useMemo(() => glyphs.map((g) => ({ midis: isRestGlyph(g) ? null : [71], beats: NOTE_GLYPH_BEATS[g] })), [glyphs]);
   const phaseRef = useRef<Phase>("ready");
   const taps = useRef<number[]>([]);
@@ -105,10 +108,10 @@ export function RhythmPractice({
       const now = audioTime();
       let text = "";
       let percent = -1;
-      if (now < tD) text = String(Math.min(4, Math.floor((now - t0) / d) + 1));
+      if (now < tD) text = String(Math.min(bar, Math.floor((now - t0) / d) + 1));
       else if (now < tD + L * d) percent = ((now - tD) / (L * d)) * 100;
       else if (now < tC) text = "…";
-      else if (now < tS) text = String(Math.min(4, Math.floor((now - tC) / d) + 1));
+      else if (now < tS) text = String(Math.min(bar, Math.floor((now - tC) / d) + 1));
       else if (now < tS + L * d) percent = ((now - tS) / (L * d)) * 100;
       setInfo((prev) => (prev === text ? prev : text));
       if (playhead.current) {
@@ -134,14 +137,14 @@ export function RhythmPractice({
     const d = 60 / bpm;
     const L = pattern.length;
     const t0 = audioTime() + 0.5;
-    const tD = t0 + 4 * d; // start of the example
+    const tD = t0 + bar * d; // start of the example (after a one-bar count-in)
     const tC = tD + L * d + d; // start of the count-in before the student's turn
-    const tS = tC + 4 * d; // start of the student's pattern
+    const tS = tC + bar * d; // start of the student's pattern
 
-    for (let i = 0; i < 4; i++) scheduleClick(t0 + i * d, i === 0);
+    for (let b = 0; b < bar - 1e-6; b += click) scheduleClick(t0 + b * d, b === 0);
     for (const o of pattern.onset) scheduleNote(84, tD + o * d, 0.12, 0.9);
-    for (let i = 0; i < 4; i++) scheduleClick(tC + i * d, i === 0);
-    for (let b = 0; b < L; b++) scheduleClick(tS + b * d, b % 4 === 0);
+    for (let b = 0; b < bar - 1e-6; b += click) scheduleClick(tC + b * d, b === 0);
+    for (let b = 0; b < L - 1e-6; b += click) scheduleClick(tS + b * d, Math.abs(b % bar) < 1e-6);
     schedule.current = { tS, d };
 
     const ms = (t: number) => Math.max(0, (t - audioTime()) * 1000);
@@ -251,7 +254,7 @@ export function RhythmPractice({
       <div className="rounded-2xl border bg-card p-5 shadow-sm sm:p-7">
         <div className="mb-1 flex flex-wrap items-center gap-2">
           <p className="min-w-0 flex-1 text-sm text-muted-foreground">
-            {"★".repeat(pattern.level ?? 1)} · {t("{0} bars", pattern.length / 4)} · {pattern.materialId ? pattern.description : t(pattern.description)}
+            {"★".repeat(pattern.level ?? 1)} · {t("{0} bars", Math.round(pattern.length / bar))} · {meter} · {pattern.materialId ? pattern.description : t(pattern.description)}
           </p>
           {pattern.materialId && (
             <Link href={`/student/practice/materials/${pattern.materialId}`} className="inline-flex items-center gap-1 text-sm font-semibold text-primary">
@@ -279,12 +282,12 @@ export function RhythmPractice({
           </div>
         </div>
 
-        {view === "staff" && <ScoreView events={staffEvents} clef="rhythm" cursorBeat={cursor} className="my-4" />}
+        {view === "staff" && <ScoreView events={staffEvents} clef="rhythm" meter={meter} cursorBeat={cursor} className="my-4" />}
 
         {/* Pattern timeline */}
         <div className={cn("relative my-6 h-20 rounded-xl bg-muted", view === "staff" && "hidden")} aria-hidden>
           {Array.from({ length: pattern.length + 1 }, (_, b) => (
-            <span key={b} className={cn("absolute top-0 h-full w-px", b % 4 === 0 ? "bg-foreground/30" : "bg-foreground/10")} style={{ left: `${(b / pattern.length) * 100}%` }} />
+            <span key={b} className={cn("absolute top-0 h-full w-px", b % bar === 0 ? "bg-foreground/30" : "bg-foreground/10")} style={{ left: `${(b / pattern.length) * 100}%` }} />
           ))}
           {pattern.onset.map((o, i) => (
             <span

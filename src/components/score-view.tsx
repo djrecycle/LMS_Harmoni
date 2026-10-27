@@ -9,11 +9,11 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { midiToNote, midiToVexKey } from "@/lib/music";
+import { barBeats, type Meter } from "@/lib/music-blocks";
 import { cn } from "@/lib/utils";
 
 export type ScoreEvent = { midis: number[] | null; beats: number; label?: string };
 
-const BAR = 4;
 const EPS = 1e-6;
 /** Note values VexFlow can draw: [beats, duration code, dotted]. */
 const VALUES: [number, string, boolean][] = [
@@ -27,13 +27,13 @@ const VALUES: [number, string, boolean][] = [
   [0.25, "16", false],
 ];
 
-/** Splits an event at bar lines, then into drawable note values. */
-function split(start: number, beats: number): { start: number; value: (typeof VALUES)[number] }[] {
+/** Splits an event at bar lines (`bar` quarter notes apart), then into drawable note values. */
+function split(start: number, beats: number, bar: number): { start: number; value: (typeof VALUES)[number] }[] {
   const parts: { start: number; value: (typeof VALUES)[number] }[] = [];
   let pos = start;
   let left = beats;
   while (left > EPS) {
-    const room = BAR - ((pos % BAR) + BAR) % BAR;
+    const room = bar - (((pos % bar) + bar) % bar);
     let take = Math.min(left, room);
     while (take > EPS) {
       const v = VALUES.find(([b]) => b <= take + EPS) ?? VALUES[VALUES.length - 1];
@@ -50,12 +50,24 @@ export function totalBeats(events: ScoreEvent[]) {
   return events.reduce((s, e) => s + e.beats, 0);
 }
 
-export function ScoreView({ events, clef = "treble", cursorBeat = null, className }: { events: ScoreEvent[]; clef?: "treble" | "percussion" | "rhythm"; cursorBeat?: number | null; className?: string }) {
+export function ScoreView({
+  events,
+  clef = "treble",
+  meter = "4/4",
+  cursorBeat = null,
+  className,
+}: {
+  events: ScoreEvent[];
+  clef?: "treble" | "percussion" | "rhythm";
+  meter?: Meter;
+  cursorBeat?: number | null;
+  className?: string;
+}) {
   const boxRef = useRef<HTMLDivElement>(null);
   const positions = useRef<{ beat: number; x: number }[]>([]);
   const [size, setSize] = useState({ top: 0, height: 0 });
   // Re-render only when the music changes.
-  const key = JSON.stringify([events, clef]);
+  const key = JSON.stringify([events, clef, meter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,14 +80,16 @@ export function ScoreView({ events, clef = "treble", cursorBeat = null, classNam
       if (!box || cancelled) return;
       box.innerHTML = "";
       const drum = clef !== "treble";
-      const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, ChordSymbol, Dot, Beam, StaveTie } = VF;
+      const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, ChordSymbol, Dot, Beam, StaveTie, Fraction } = VF;
+      const BAR = barBeats(meter);
+      const [num, den] = meter.split("/").map(Number);
 
       // Lay the events out in bars.
       type Part = { note: InstanceType<typeof StaveNote>; start: number; event: number; first: boolean; rest: boolean };
       const bars: Part[][] = [];
       let pos = 0;
       events.forEach((e, ei) => {
-        split(pos, e.beats).forEach((p, pi) => {
+        split(pos, e.beats, BAR).forEach((p, pi) => {
           const rest = !e.midis || e.midis.length === 0;
           const sorted = rest ? [] : [...e.midis!].sort((a, b) => a - b);
           const keys = rest || drum ? ["b/4"] : sorted.map(midiToVexKey);
@@ -93,7 +107,7 @@ export function ScoreView({ events, clef = "treble", cursorBeat = null, classNam
       // Close the last bar with rests, and always show at least one bar.
       const end = Math.max(BAR, Math.ceil(pos / BAR - EPS) * BAR);
       if (end > pos + EPS) {
-        split(pos, end - pos).forEach((p) => {
+        split(pos, end - pos, BAR).forEach((p) => {
           const note = new StaveNote({ keys: ["b/4"], duration: p.value[1] + "r", clef: drum ? "percussion" : "treble" });
           if (p.value[2]) Dot.buildAndAttach([note], { all: true });
           (bars[Math.floor(p.start / BAR + EPS)] ??= []).push({ note, start: p.start, event: -1, first: true, rest: true });
@@ -111,16 +125,24 @@ export function ScoreView({ events, clef = "treble", cursorBeat = null, classNam
       const all: Part[] = [];
       bars.forEach((parts, bi) => {
         const stave = new Stave(x, top, widths[bi], clef === "percussion" ? { numLines: 1 } : undefined);
-        if (bi === 0) stave.addClef(drum ? "percussion" : "treble").addTimeSignature("4/4");
+        if (bi === 0) stave.addClef(drum ? "percussion" : "treble").addTimeSignature(meter);
         if (bi === bars.length - 1) stave.setEndBarType(3); // final double bar
         stave.setContext(ctx).draw();
         const notes = parts.map((p) => p.note);
-        const voice = new Voice({ numBeats: 4, beatValue: 4 }).setStrict(false);
+        const voice = new Voice({ numBeats: num, beatValue: den }).setStrict(false);
         voice.addTickables(notes);
         new Formatter().joinVoices([voice]).format([voice], Math.max(20, stave.getNoteEndX() - stave.getNoteStartX() - 10));
-        const beams = Beam.generateBeams(notes.filter((n) => !n.isRest()), drum ? { stemDirection: 1 } : undefined);
+        // 6/8 beams eighths in threes; the other meters per quarter note.
+        const beams = Beam.generateBeams(notes.filter((n) => !n.isRest()), { ...(drum ? { stemDirection: 1 } : {}), ...(meter === "6/8" ? { groups: [new Fraction(3, 8)] } : {}) });
         voice.draw(ctx, stave);
         beams.forEach((b) => b.setContext(ctx).draw());
+        // A one-line staff has no height for VexFlow's bar lines, so draw them across the line (doubled at the end).
+        if (clef === "percussion") {
+          const y = stave.getYForLine(0);
+          const endX = x + widths[bi];
+          ctx.fillRect(endX - 1, y - 12, 1.2, 24);
+          if (bi === bars.length - 1) ctx.fillRect(endX - 5, y - 12, 1.2, 24);
+        }
         all.push(...parts);
         x += widths[bi];
       });

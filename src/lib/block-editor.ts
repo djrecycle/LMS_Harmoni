@@ -10,7 +10,7 @@ import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import type { Root, RootContent } from "mdast";
-import { CHORDS_DEFAULT_BPM, decodeFence, fenceChords, fenceMedia, fenceRhythm, fenceSong, MELODY_BLOCK_BPM, melodyToSongNotes, RHYTHM_DEFAULT_BPM } from "./music-blocks";
+import { CHORDS_DEFAULT_BPM, decodeFence, type Meter, fenceChords, fenceMedia, fenceRhythm, fenceSong, MELODY_BLOCK_BPM, melodyToSongNotes, RHYTHM_DEFAULT_BPM } from "./music-blocks";
 import { noteToMidi } from "./music";
 import { notesToRoll, parseSongNotation, type SongNote } from "./songs";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
@@ -20,8 +20,8 @@ export type RawKind = "heading" | "paragraph" | "bullet-list" | "numbered-list" 
 export type EditorBlock =
   | { id: string; type: "raw"; kind: RawKind; depth?: number; markdown: string }
   | { id: string; type: "media"; kind: "audio" | "video"; key: string; title: string }
-  | { id: string; type: "rhythm"; pattern: NoteGlyphKind[]; bpm: number }
-  | { id: string; type: "chords"; label: string; items: string[]; beats: number[]; bpm: number }
+  | { id: string; type: "rhythm"; pattern: NoteGlyphKind[]; bpm: number; meter: Meter }
+  | { id: string; type: "chords"; label: string; items: string[]; beats: number[]; bpm: number; meter: Meter }
   | { id: string; type: "song"; title: string; bpm: number; doNote: string; notes: SongNote[] };
 
 export type AddKind = "heading" | "paragraph" | "bullet-list" | "numbered-list" | "table" | "hr" | "audio" | "video" | "rhythm" | "chords" | "song";
@@ -55,7 +55,7 @@ export function parseToBlocks(markdown: string): EditorBlock[] {
             blocks.push({ id: nextId(), type: "media", kind: decoded.kind, key: decoded.key, title: decoded.title ?? "" });
             break;
           case "music:rhythm":
-            blocks.push({ id: nextId(), type: "rhythm", pattern: decoded.pattern, bpm: decoded.bpm ?? RHYTHM_DEFAULT_BPM });
+            blocks.push({ id: nextId(), type: "rhythm", pattern: decoded.pattern, bpm: decoded.bpm ?? RHYTHM_DEFAULT_BPM, meter: decoded.meter ?? "4/4" });
             break;
           case "music:chords":
             blocks.push({
@@ -65,6 +65,7 @@ export function parseToBlocks(markdown: string): EditorBlock[] {
               items: decoded.items,
               beats: decoded.beats ?? decoded.items.map(() => 4),
               bpm: decoded.bpm ?? CHORDS_DEFAULT_BPM,
+              meter: decoded.meter ?? "4/4",
             });
             break;
           case "music:song": {
@@ -94,8 +95,8 @@ export function serializeBlocks(blocks: EditorBlock[]): string {
     .map((b) => {
       if (b.type === "raw") return b.markdown;
       if (b.type === "media") return fenceMedia({ kind: b.kind, key: b.key, title: b.title.trim() || undefined });
-      if (b.type === "rhythm") return fenceRhythm({ pattern: b.pattern, bpm: b.bpm });
-      if (b.type === "chords") return fenceChords({ label: b.label.trim() || undefined, items: b.items, beats: b.beats, bpm: b.bpm });
+      if (b.type === "rhythm") return fenceRhythm({ pattern: b.pattern, bpm: b.bpm, meter: b.meter === "4/4" ? undefined : b.meter });
+      if (b.type === "chords") return fenceChords({ label: b.label.trim() || undefined, items: b.items, beats: b.beats, bpm: b.bpm, meter: b.meter === "4/4" ? undefined : b.meter });
       return fenceSong({ title: b.title.trim() || undefined, bpm: b.bpm, doNote: b.doNote === "C4" ? undefined : b.doNote, roll: notesToRoll(b.notes) });
     })
     .join("\n\n");
@@ -120,9 +121,9 @@ export function emptyBlock(kind: AddKind): EditorBlock {
     case "video":
       return { id: nextId(), type: "media", kind: "video", key: "", title: "" };
     case "rhythm":
-      return { id: nextId(), type: "rhythm", pattern: [], bpm: RHYTHM_DEFAULT_BPM };
+      return { id: nextId(), type: "rhythm", pattern: [], bpm: RHYTHM_DEFAULT_BPM, meter: "4/4" };
     case "chords":
-      return { id: nextId(), type: "chords", label: "", items: [], beats: [], bpm: CHORDS_DEFAULT_BPM };
+      return { id: nextId(), type: "chords", label: "", items: [], beats: [], bpm: CHORDS_DEFAULT_BPM, meter: "4/4" };
     case "song":
       return { id: nextId(), type: "song", title: "", bpm: 90, doNote: "C4", notes: [] };
   }

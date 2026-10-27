@@ -826,7 +826,7 @@ export const id: Record<string, string> = {
   "Time is up.": "Waktu pengerjaan sudah habis.",
   "Time is up. Your answers were submitted.": "Waktu habis. Jawabanmu dikumpulkan.",
   "Time remaining": "Sisa waktu",
-  "Time signature": "Birama",
+  "Time signature": "Sukat",
   "Title": "Judul",
   "Title (optional)": "Judul (opsional)",
   "Title must be at least 3 characters": "Judul minimal 3 huruf",
@@ -1985,7 +1985,6 @@ export const id: Record<string, string> = {
   "Tap here (or Space) — up to 4 bars": "Ketuk di sini (atau Spasi) — maksimal 4 birama",
   "Tap a note or rest above, or record by tapping.": "Klik not atau tanda diam di atas, atau rekam dengan ketukan.",
   "Root": "Nada dasar",
-  "4 beats (1 bar)": "4 ketukan (1 birama)",
   "Add chord": "Tambah chord",
   "Hide piano": "Sembunyikan piano",
   "Record from the piano": "Rekam dari piano",
@@ -2009,4 +2008,5 @@ export const id: Record<string, string> = {
   "A whole phrase: steady beats, ti-ti, then long notes": "Satu frase utuh: ketukan tetap, ti-ti, lalu not panjang",
   "Four bars with syncopation": "Empat birama dengan sinkopasi",
   "A long, lively phrase with notes between the beats": "Frase panjang yang lincah dengan bunyi di antara ketukan",
+  "{0} beats (1 bar)": "{0} ketukan (1 birama)",
 };
