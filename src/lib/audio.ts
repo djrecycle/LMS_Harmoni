@@ -104,7 +104,12 @@ export function scheduleNote(midi: number, time: number, duration = 0.35, veloci
   piano?.triggerAttackRelease(midiToFrequency(midi), duration, time, velocity);
 }
 
+let lastClickTime = 0;
+
 export function scheduleClick(time: number, accent = false, voice: ClickVoice = "click") {
+  // Tone's mono synths throw when a start time is not after the previous one (e.g. a restarted metronome).
+  time = Math.max(time, lastClickTime + 0.001);
+  lastClickTime = time;
   if (voice === "tepuk") {
     tepukSynth?.triggerAttackRelease(0.09, time, accent ? 1 : 0.7);
   } else if (voice === "kentongan") {

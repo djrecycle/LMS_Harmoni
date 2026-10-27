@@ -158,6 +158,7 @@ export function PianoSongForm({
             key={rollKey}
             initial={parsed.ok ? parsed.notes : []}
             bpm={v.bpm >= 30 && v.bpm <= 240 ? v.bpm : 90}
+            onBpmChange={(bpm) => set("bpm", bpm)}
             title={v.title}
             onChange={(notes) => set("notation", notesToRoll(notes))}
           />
@@ -194,7 +195,7 @@ export function PianoSongForm({
                 </p>
                 <p>
                   <b>{t("Touch piano")}:</b>{" "}
-                  {t("press the keys under the roll to write notes one after another at the green line, like typing. Rest = a silence, Step back = remove the last step.")}
+                  {t("press Record, wait for the one-bar count-in, then play: notes are written in time with the tempo, and holding a key makes a longer note. Click the bar numbers to move the green line where recording starts.")}
                 </p>
                 <p>{t("Click the bar numbers to play from that bar. Notes may overlap (chords, held bass notes). Download MIDI opens the song in FL Studio or another DAW.")}</p>
               </>

@@ -10,11 +10,11 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ArrowDown, ArrowUp, Circle, Copy, Delete, Download, Eraser, Maximize2, Minimize2, MousePointer2, Pause, Pencil, Piano as PianoIcon, Play, Redo2, Square, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowDown, ArrowUp, Circle, Copy, Download, Eraser, Maximize2, Minimize2, MousePointer2, Pencil, Piano as PianoIcon, Play, Redo2, Square, Timer, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { Piano } from "@/components/piano";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/input";
-import { audioTime, loadAudio, scheduleNote, stopAllNotes, unlockAudio } from "@/lib/audio";
+import { Input, Select } from "@/components/ui/input";
+import { audioTime, loadAudio, scheduleClick, scheduleNote, stopAllNotes, unlockAudio } from "@/lib/audio";
 import { writeMidiFile } from "@/lib/midi-file";
 import { isBlackKey, midiToNote } from "@/lib/music";
 import { MAX_ROLL_BEATS, MAX_SONG_NOTES, type SongNote } from "@/lib/songs";
@@ -78,7 +78,19 @@ function preview(midi: number) {
  * lengthen, right-click to delete. Touch: tap to add, drag a note to move it, drag the grid to scroll.
  *  `initial` is read once; remount (change `key`) to load other notes. `onChange` gets every finished edit.
  */
-export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: SongNote[]; bpm: number; title: string; onChange: (notes: SongNote[]) => void }) {
+export function SongPianoRoll({
+  initial,
+  bpm,
+  onBpmChange,
+  title,
+  onChange,
+}: {
+  initial: SongNote[];
+  bpm: number;
+  onBpmChange: (bpm: number) => void;
+  title: string;
+  onChange: (notes: SongNote[]) => void;
+}) {
   const t = useT();
   const nextId = useRef(1);
   const withIds = (list: SongNote[]) => list.map((n) => ({ ...n, id: nextId.current++ }));
@@ -98,18 +110,25 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
   } | null>(null);
   const [playing, setPlaying] = useState(false);
   const [playFrom, setPlayFrom] = useState(0);
-  // Touch piano: each key pressed is written at `writeAt`, which then moves on by the note length.
+  // Touch piano: it only sounds, unless a recording is running. Recording starts at `writeAt` (the green line),
+  // after a one-bar count-in, and writes what is played in real time: holding a key makes a longer note.
   const [pianoOn, setPianoOn] = useState(true);
-  const [record, setRecord] = useState(true);
-  const [writeAt, setWriteAtState] = useState(() => Math.ceil(initial.reduce((m, n) => Math.max(m, n.start + n.beats), 0)));
+  const [recording, setRecording] = useState(false);
+  const [metronome, setMetronome] = useState(true);
+  const metronomeRef = useRef(metronome);
+  metronomeRef.current = metronome;
+  const [bpmText, setBpmText] = useState(String(bpm));
+  const [writeAt, setWriteAtState] = useState(() => Math.ceil(initial.reduce((m, n) => Math.max(m, n.start + n.beats), 0) / BAR) * BAR);
   const writeAtRef = useRef(writeAt);
   // Full screen: the editor covers the whole window (and the browser's own full screen where supported).
   const rootRef = useRef<HTMLDivElement>(null);
   const [full, setFull] = useState(false);
   const viaApi = useRef(false);
   const [viewW, setViewW] = useState(0);
-  const held = useRef(0);
-  const chordStart = useRef(0);
+  /** The running playback or recording: beat `from` sounds at audio time `t0`. */
+  const transport = useRef<{ from: number; t0: number; spb: number } | null>(null);
+  /** The recording take: the notes before it (one undo step) and the keys still held, by pitch. */
+  const take = useRef<{ before: RollNote[]; held: Map<number, { id: number; start: number }> } | null>(null);
   const [, setHistoryVersion] = useState(0);
   const past = useRef<RollNote[][]>([]);
   const future = useRef<RollNote[][]>([]);
@@ -157,35 +176,34 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
     if (y < sc.scrollTop || y > sc.scrollTop + viewH - ROW_H) sc.scrollTop = y - viewH / 2;
   };
 
-  /** A key of the touch piano (or laptop keyboard / MIDI keyboard) was pressed: write it. Keys held together make a chord. */
+  const beatNow = () => {
+    const tr = transport.current;
+    return tr ? tr.from + (audioTime() - tr.t0) / tr.spb : 0;
+  };
+
+  /** A key of the touch piano (or laptop keyboard / MIDI keyboard) went down. Written only while recording. */
   const onPianoPress = (midi: number) => {
-    if (!record) return;
-    let start: number;
-    if (held.current > 0) start = chordStart.current;
-    else {
-      start = writeAtRef.current;
-      chordStart.current = start;
-      setWriteAt(start + length);
-    }
-    held.current++;
-    if (notesRef.current.length >= MAX_SONG_NOTES || start + length > MAX_ROLL_BEATS) return;
-    const note = { id: nextId.current++, midi, start, beats: length };
-    commit([...notesRef.current, note]);
-    setSelected(new Set([note.id]));
-    reveal(start + length, midi);
+    const rec = take.current;
+    if (!rec || !transport.current) return;
+    if (rec.held.has(midi)) endHeld(midi);
+    if (notesRef.current.length >= MAX_SONG_NOTES) return;
+    // Snap the start to the grid; a key pressed during the count-in starts on the first beat.
+    const start = round3(Math.max(transport.current.from, Math.round(beatNow() / snap) * snap));
+    const note = { id: nextId.current++, midi, start, beats: 0.05 };
+    rec.held.set(midi, { id: note.id, start });
+    apply([...notesRef.current, note]);
+    reveal(start, midi);
   };
-  const onPianoRelease = () => {
-    held.current = Math.max(0, held.current - 1);
+  /** The key came up: the note gets the length it was held, rounded to the grid. */
+  const endHeld = (midi: number) => {
+    const rec = take.current;
+    const h = rec?.held.get(midi);
+    if (!rec || !h) return;
+    rec.held.delete(midi);
+    const beats = round3(Math.max(snap, Math.round((beatNow() - h.start) / snap) * snap));
+    apply(notesRef.current.map((n) => (n.id === h.id ? { ...n, beats } : n)));
   };
-  /** Moves the write position back one step and removes what was written there. */
-  const stepBack = () => {
-    const from = writeAtRef.current;
-    const to = Math.max(0, from - length);
-    const rest = notesRef.current.filter((n) => !(n.start >= to - 1e-6 && n.start < from - 1e-6));
-    if (rest.length !== notesRef.current.length) commit(rest);
-    setWriteAt(to);
-    reveal(to);
-  };
+  const onPianoRelease = (midi: number) => endHeld(midi);
 
   const undo = () => {
     const prev = past.current.pop();
@@ -549,41 +567,88 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
     [zoom],
   );
 
-  const stop = useCallback(() => {
+  /** Stops playback or recording. A recording keeps what was played as one undo step. */
+  const stop = () => {
     cancelAnimationFrame(raf.current);
     raf.current = 0;
+    const rec = take.current;
+    if (rec) {
+      for (const midi of [...rec.held.keys()]) endHeld(midi);
+      take.current = null;
+      setRecording(false);
+      if (notesRef.current !== rec.before) finish(rec.before);
+    }
+    transport.current = null;
     stopAllNotes();
     setPlaying(false);
-  }, []);
-  useEffect(() => stop, [stop]);
+  };
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(raf.current);
+      stopAllNotes();
+    },
+    [],
+  );
   useEffect(() => {
-    if (!playing) placePlayhead(playFrom, false);
-  }, [playing, playFrom, placePlayhead]);
+    if (!playing && !recording) placePlayhead(playFrom, false);
+  }, [playing, recording, playFrom, placePlayhead]);
 
-  async function play() {
+  /** Plays the song (with the metronome if on). `record`: start at the green line after a one-bar count-in and write what is played. */
+  async function start(record: boolean) {
     stop();
     await unlockAudio();
     const spb = 60 / bpm;
-    const from = playFrom;
+    const from = record ? writeAtRef.current : playFrom;
+    const countIn = record ? BAR : 0;
     const list = notesRef.current.filter((n) => n.start >= from - 1e-6).sort((a, b) => a.start - b.start);
-    if (!list.length) return;
-    const end = Math.max(...list.map((n) => n.start + n.beats));
-    const t0 = audioTime() + 0.1;
+    if (!record && !list.length) return;
+    const end = record ? MAX_ROLL_BEATS : Math.max(...list.map((n) => n.start + n.beats));
+    const t0 = audioTime() + 0.1 + countIn * spb;
+    transport.current = { from, t0, spb };
+    if (record) {
+      take.current = { before: notesRef.current, held: new Map() };
+      setRecording(true);
+      setPianoOn(true);
+      setSelected(new Set());
+    } else setPlaying(true);
     let i = 0;
-    setPlaying(true);
+    let click = Math.ceil(from - countIn - 1e-6); // next metronome beat
     const tick = () => {
       const now = audioTime();
-      while (i < list.length && t0 + (list[i].start - from) * spb < now + 0.2) {
+      const ahead = now + 0.2;
+      while (i < list.length && t0 + (list[i].start - from) * spb < ahead) {
         const n = list[i++];
         scheduleNote(n.midi, Math.max(now, t0 + (n.start - from) * spb), n.beats * spb * 0.95, 0.8);
       }
+      while (t0 + (click - from) * spb < ahead) {
+        const at = t0 + (click - from) * spb;
+        if (metronomeRef.current && at > now - 0.05) scheduleClick(Math.max(now, at), ((click % BAR) + BAR) % BAR === 0);
+        click++;
+      }
       const beat = from + (now - t0) / spb;
       placePlayhead(Math.max(from, beat), true);
-      if (beat > end + 0.25) return stop();
+      // Held keys grow while recording, as in FL Studio.
+      const rec = take.current;
+      if (rec?.held.size) {
+        const grow = new Map([...rec.held.values()].map((h) => [h.id, Math.max(0.05, beat - h.start)]));
+        apply(notesRef.current.map((n) => (grow.has(n.id) ? { ...n, beats: grow.get(n.id)! } : n)));
+      }
+      if (beat > end + 0.25 || beat >= MAX_ROLL_BEATS) return stop();
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
   }
+  const busy = playing || recording;
+
+  // Keep the tempo box in step with the form's tempo field.
+  useEffect(() => {
+    setBpmText((x) => (Number(x) === bpm ? x : String(bpm)));
+  }, [bpm]);
+  const changeBpm = (text: string) => {
+    setBpmText(text);
+    const n = Math.round(Number(text));
+    if (n >= 30 && n <= 240) onBpmChange(n);
+  };
 
   /* -------------------------------- keyboard -------------------------------- */
 
@@ -600,7 +665,7 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
     else if (mod && k === "b") (duplicateSelected(), handled());
     else if (k === "delete" || k === "backspace") (deleteSelected(), handled());
     else if (k === "escape" && selected.size) (setSelected(new Set()), handled());
-    else if (k === " ") (playing ? stop() : void play(), handled());
+    else if (k === " ") (busy ? stop() : void start(false), handled());
     else if (k === "arrowup" || k === "arrowdown") (shiftSelected((k === "arrowup" ? 1 : -1) * (e.shiftKey ? 12 : 1), 0), handled());
     else if ((k === "arrowleft" || k === "arrowright") && selected.size) (shiftSelected(0, (k === "arrowright" ? 1 : -1) * snap), handled());
   }
@@ -625,8 +690,45 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" onClick={() => (playing ? stop() : void play())} disabled={!notes.length}>
-          {playing ? <Square /> : <Play />} {playing ? t("Stop") : playFrom > 0 ? t("Play from bar {0}", Math.floor(playFrom / BAR) + 1) : t("Play")}
+        <Button type="button" size="sm" onClick={() => (busy ? stop() : void start(false))} disabled={!busy && !notes.length}>
+          {busy ? <Square /> : <Play />} {busy ? t("Stop") : playFrom > 0 ? t("Play from bar {0}", Math.floor(playFrom / BAR) + 1) : t("Play")}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          aria-pressed={recording}
+          onClick={() => (recording ? stop() : void start(true))}
+          className={cn("border-danger/60 text-danger", recording && "animate-pulse bg-danger text-white")}
+          title={t("Record from the green line: one bar of count-in, then play the piano")}
+        >
+          <Circle className="fill-current" /> {recording ? t("Stop recording") : t("Record")}
+        </Button>
+        <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+          {t("Tempo")}
+          <Input
+            type="number"
+            inputMode="numeric"
+            min={30}
+            max={240}
+            value={bpmText}
+            onChange={(x) => changeBpm(x.target.value)}
+            onBlur={() => setBpmText(String(bpm))}
+            disabled={busy}
+            className="h-8 w-[4.5rem] px-2 text-xs"
+            aria-label={t("Tempo (BPM)")}
+          />
+          BPM
+        </label>
+        <Button
+          type="button"
+          size="sm"
+          variant={metronome ? "secondary" : "ghost"}
+          aria-pressed={metronome}
+          onClick={() => setMetronome((x) => !x)}
+          title={t("Metronome during play and recording")}
+        >
+          <Timer /> {t("Metronome")}
         </Button>
         <div className="inline-flex rounded-lg border p-0.5" role="group" aria-label={t("Tool")}>
           {tools.map(([id, Icon, label]) => (
@@ -762,7 +864,7 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
               className="absolute bottom-0 size-0 -translate-x-1/2 border-x-[6px] border-t-[8px] border-x-transparent border-t-amber-400"
               style={{ left: playFrom * zoom }}
             />
-            {pianoOn && record && (
+            {pianoOn && (
               <span
                 className="absolute top-0 size-0 -translate-x-1/2 border-x-[6px] border-b-[8px] border-x-transparent border-b-emerald-400"
                 style={{ left: writeAt * zoom }}
@@ -854,7 +956,7 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
                 }}
               />
             )}
-            {pianoOn && record && <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-emerald-400/80" style={{ left: writeAt * zoom }} />}
+            {pianoOn && <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-emerald-400/80" style={{ left: writeAt * zoom }} />}
             <div
               ref={playheadRef}
               className="pointer-events-none absolute inset-y-0 left-0 w-0.5 bg-amber-400"
@@ -907,40 +1009,18 @@ export function SongPianoRoll({ initial, bpm, title, onChange }: { initial: Song
             <PianoIcon /> {pianoOn ? t("Hide touch piano") : t("Show touch piano")}
           </Button>
           {pianoOn && (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                aria-pressed={record}
-                onClick={() => setRecord((x) => !x)}
-                className={cn(record && "border-danger text-danger")}
-              >
-                <Circle className={cn(record && "fill-current")} /> {record ? t("Recording to the piano roll") : t("Not recording (play only)")}
-              </Button>
-              {record && (
-                <>
-                  <span className="text-xs font-semibold text-muted-foreground">
-                    {t("Writing at bar {0}, beat {1}", Math.floor(writeAt / BAR) + 1, Number(((writeAt % BAR) + 1).toFixed(3)))}
-                  </span>
-                  <span className="ml-auto inline-flex gap-1">
-                    <Button type="button" size="sm" variant="outline" onClick={() => (setWriteAt(writeAtRef.current + length), reveal(writeAtRef.current))}>
-                      <Pause /> {t("Rest")}
-                    </Button>
-                    <Button type="button" size="sm" variant="outline" disabled={writeAt <= 0} onClick={stepBack}>
-                      <Delete /> {t("Step back")}
-                    </Button>
-                  </span>
-                </>
-              )}
-            </>
+            <span className="text-xs font-semibold text-muted-foreground">
+              {recording
+                ? t("Recording… play the piano. Hold a key longer for a longer note.")
+                : t("Recording starts at bar {0}, beat {1} (the green line)", Math.floor(writeAt / BAR) + 1, Number(((writeAt % BAR) + 1).toFixed(3)))}
+            </span>
           )}
         </div>
         {pianoOn && (
           <>
-            {record && !full && (
+            {!full && !recording && (
               <p className="text-xs text-muted-foreground">
-                {t("Press the keys: each note is written at the green line with the chosen note length, then the line moves on. Hold keys together for a chord. Laptop keys A S D F… and a MIDI keyboard work too.")}
+                {t("The piano only sounds. To write, press Record: after a one-bar count-in, play along with the metronome; notes appear as you play and grow while a key is held. Press Stop recording to finish (Ctrl+Z undoes the whole take). Laptop keys A S D F… and a MIDI keyboard work too.")}
               </p>
             )}
             <Piano onNotePress={onPianoPress} onNoteRelease={onPianoRelease} keysClassName={full ? "h-32 sm:h-40" : undefined} />
