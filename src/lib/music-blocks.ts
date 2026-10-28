@@ -30,8 +30,16 @@ export const isMeter = (v: unknown): v is Meter => typeof v === "string" && v in
 /** Quarter notes per bar ("4/4" when missing). */
 export const barBeats = (meter?: Meter) => METERS[meter ?? "4/4"].bar;
 
-/** `bpm`: the tempo the pattern is played at (80 when missing, as in older blocks). `meter`: 4/4 when missing. */
-export type RhythmBlockData = { pattern: NoteGlyphKind[]; bpm?: number; meter?: Meter };
+/** The percussion sounds a rhythm block can be played with (see RHYTHM_VOICES in src/lib/audio.ts). */
+export const RHYTHM_VOICE_IDS = ["drum", "tom", "kendang", "tepuk", "kentongan", "tamborin"] as const;
+export type RhythmVoice = (typeof RHYTHM_VOICE_IDS)[number];
+export const isRhythmVoice = (v: unknown): v is RhythmVoice => typeof v === "string" && (RHYTHM_VOICE_IDS as readonly string[]).includes(v);
+
+/**
+ * `bpm`: the tempo the pattern is played at (80 when missing, as in older blocks). `meter`: 4/4 when missing.
+ *  `voice`: the sound the teacher chose (drum when missing).
+ */
+export type RhythmBlockData = { pattern: NoteGlyphKind[]; bpm?: number; meter?: Meter; voice?: RhythmVoice };
 /** `beats[i]`: how long chord i lasts (one 4/4 bar when missing). `bpm`: playback tempo (90 when missing). */
 export type ChordsBlockData = { label?: string; items: string[]; beats?: number[]; bpm?: number; meter?: Meter };
 
@@ -248,7 +256,7 @@ export function decodeFence(lang: string | null | undefined, raw: string): Decod
   if (lang === "music:rhythm") {
     if (!Array.isArray(d.pattern)) return null;
     const pattern = d.pattern.filter((p): p is NoteGlyphKind => (ALL_GLYPH_KINDS as readonly string[]).includes(p));
-    return { lang, pattern, bpm: tempo(d.bpm), meter: isMeter(d.meter) ? d.meter : undefined };
+    return { lang, pattern, bpm: tempo(d.bpm), meter: isMeter(d.meter) ? d.meter : undefined, voice: isRhythmVoice(d.voice) ? d.voice : undefined };
   }
   if (lang === "music:chords") {
     if (!Array.isArray(d.items)) return null;

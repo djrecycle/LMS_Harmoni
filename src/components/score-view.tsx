@@ -132,7 +132,10 @@ export function ScoreView({
 
       const top = clef === "percussion" ? 10 : clef === "rhythm" ? 20 : 30;
       const height = clef === "percussion" ? 110 : clef === "rhythm" ? 130 : 160;
-      const widths = bars.map((parts, i) => Math.max(110, 40 + parts.length * 34 + parts.reduce((s, p) => s + (p.first && events[p.event]?.label ? events[p.event].label!.length * 4 : 0), 0)) + (i === 0 ? 70 : 0));
+      // Bar width from its notes (about 40px each, chord names a little more), plus room for the clef on the first bar.
+      const widths = bars.map(
+        (parts, i) => Math.max(140, 50 + parts.length * 40 + parts.reduce((s, p) => s + (p.first && events[p.event]?.label ? events[p.event].label!.length * 4 : 0), 0)) + (i === 0 ? 70 : 0),
+      );
       const renderer = new Renderer(box, Renderer.Backends.SVG);
       renderer.resize(16 + widths.reduce((a, b) => a + b, 0), height);
       const ctx = renderer.getContext();
@@ -158,7 +161,8 @@ export function ScoreView({
         voice.addTickables(notes);
         new Formatter().joinVoices([voice]).format([voice], Math.max(20, stave.getNoteEndX() - stave.getNoteStartX() - 10));
         // 6/8 beams eighths in threes; the other meters per quarter note.
-        const beams = Beam.generateBeams(notes.filter((n) => !n.isRest()), { ...(drum ? { stemDirection: 1 } : {}), ...(meter === "6/8" ? { groups: [new Fraction(3, 8)] } : {}) });
+        // Rests stay in so beams group by beat and break at rests (6/8 beams eighths in threes, other meters per quarter).
+        const beams = Beam.generateBeams(notes, { beamRests: false, ...(drum ? { stemDirection: 1 } : {}), ...(meter === "6/8" ? { groups: [new Fraction(3, 8)] } : {}) });
         voice.draw(ctx, stave);
         beams.forEach((b) => b.setContext(ctx).draw());
         tuplets.forEach((tp) => tp.setContext(ctx).draw());

@@ -3,7 +3,7 @@
  *  (src/components/rhythm-practice.tsx). A material that holds nothing but rhythm (text allowed, no other music
  *  or media) is not listed as a separate card on the Practice page: it lives in Rhythm Practice instead.
  */
-import { barBeats, decodeFence, RHYTHM_DEFAULT_BPM, type Meter } from "./music-blocks";
+import { barBeats, decodeFence, RHYTHM_DEFAULT_BPM, type Meter, type RhythmVoice } from "./music-blocks";
 import type { RhythmPattern } from "./practice";
 import { rhythmBeats, rhythmOnsets, rhythmToText } from "./rhythm";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
@@ -12,11 +12,11 @@ import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
 const FENCE = /```([a-z]+:[a-z]+)\r?\n([\s\S]*?)\r?\n```/g;
 
 /** The rhythm blocks of a material's Markdown, in order. */
-export function rhythmBlocksOf(content: string): { pattern: NoteGlyphKind[]; bpm: number; meter: Meter }[] {
-  const out: { pattern: NoteGlyphKind[]; bpm: number; meter: Meter }[] = [];
+export function rhythmBlocksOf(content: string): { pattern: NoteGlyphKind[]; bpm: number; meter: Meter; voice: RhythmVoice }[] {
+  const out: { pattern: NoteGlyphKind[]; bpm: number; meter: Meter; voice: RhythmVoice }[] = [];
   for (const m of content.matchAll(FENCE)) {
     const d = decodeFence(m[1], m[2]);
-    if (d?.lang === "music:rhythm" && d.pattern.length && rhythmOnsets(d.pattern).length) out.push({ pattern: d.pattern, bpm: d.bpm ?? RHYTHM_DEFAULT_BPM, meter: d.meter ?? "4/4" });
+    if (d?.lang === "music:rhythm" && d.pattern.length && rhythmOnsets(d.pattern).length) out.push({ pattern: d.pattern, bpm: d.bpm ?? RHYTHM_DEFAULT_BPM, meter: d.meter ?? "4/4", voice: d.voice ?? "drum" });
   }
   return out;
 }
@@ -46,6 +46,7 @@ export function rhythmPatternsFromMaterials(materials: { id: string; title: stri
         glyphs: b.pattern,
         bpm: b.bpm,
         meter: b.meter,
+        voice: b.voice,
         materialId: m.id,
       } satisfies RhythmPattern;
     });

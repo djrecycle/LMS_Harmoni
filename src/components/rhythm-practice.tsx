@@ -61,6 +61,10 @@ export function RhythmPractice({
       const s = localStorage.getItem(VOICE_KEY);
       if (RHYTHM_VOICES.some((x) => x.id === s)) setVoice(s as ClickVoice);
     } catch {}
+    // A teacher's pattern starts with the sound the teacher chose.
+    const first = patterns.find((p) => p.id === patternId);
+    if (first?.voice) setVoice(first.voice);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const chooseVoice = (v: ClickVoice) => {
     setVoice(v);
@@ -234,6 +238,7 @@ export function RhythmPractice({
               setPhaseAll("ready");
               const next = patterns.find((p) => p.id === e.target.value);
               if (next?.bpm) setBpm(next.bpm);
+              if (next?.voice) setVoice(next.voice);
             }}
             disabled={activeInProgress}
             className="mt-1.5"

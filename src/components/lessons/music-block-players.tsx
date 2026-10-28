@@ -13,10 +13,10 @@ import { Hand, Minus, Play, Plus, Square, Timer, Volume2 } from "lucide-react";
 import { ScoreView, totalBeats, type ScoreEvent } from "@/components/score-view";
 import { SongPlayer } from "@/components/song-player";
 import { Button } from "@/components/ui/button";
-import { audioTime, loadAudio, playChord, scheduleClick, scheduleNote, unlockAudio } from "@/lib/audio";
+import { audioTime, loadAudio, playChord, RHYTHM_VOICES, scheduleClick, scheduleNote, unlockAudio } from "@/lib/audio";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
 import { chordMidis } from "@/lib/music";
-import { CHORDS_DEFAULT_BPM, glyphNotation, isRestGlyph, METERS, NOTE_GLYPH_BEATS, RHYTHM_DEFAULT_BPM, type Meter } from "@/lib/music-blocks";
+import { CHORDS_DEFAULT_BPM, glyphNotation, isRestGlyph, METERS, NOTE_GLYPH_BEATS, RHYTHM_DEFAULT_BPM, type Meter, type RhythmVoice } from "@/lib/music-blocks";
 import type { Song, SongNote } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
@@ -153,6 +153,33 @@ export function CountIn({ beat, meter = "4/4" }: { beat: number | null; meter?: 
   return <span className="text-sm font-bold text-primary">{t("Count: {0}", Math.min(bar, Math.floor(beat) + bar + 1))}</span>;
 }
 
+/** Percussion sound picker for rhythms; plays the chosen sound once so it can be heard. */
+export function VoiceSelect({ value, onChange, disabled }: { value: RhythmVoice; onChange: (v: RhythmVoice) => void; disabled?: boolean }) {
+  const t = useT();
+  return (
+    <label className="inline-flex items-center gap-1.5 text-sm font-semibold">
+      {t("Sound")}
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => {
+          const v = e.target.value as RhythmVoice;
+          onChange(v);
+          void unlockAudio().then(() => scheduleClick(audioTime() + 0.02, true, v));
+        }}
+        className="h-9 rounded-lg border bg-card px-2 text-sm"
+        aria-label={t("Sound")}
+      >
+        {RHYTHM_VOICES.map((v) => (
+          <option key={v.id} value={v.id}>
+            {t(v.label)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 /** Time signature picker (sukat). */
 export function MeterSelect({ value, onChange, disabled }: { value: Meter; onChange: (m: Meter) => void; disabled?: boolean }) {
   const t = useT();
@@ -217,11 +244,23 @@ function scoreTaps(taps: number[], onsets: number[], r: TransportRun) {
  * Plays a rhythm pattern after a one-bar count-in, with a cursor over the staff. The student can tap along
  *  (button, or Space / Enter while the player has focus); taps are matched to the notes and scored at the end.
  */
-export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM, meter = "4/4" }: { pattern: NoteGlyphKind[]; bpm?: number; meter?: Meter }) {
+export function RhythmBlockPlayer({
+  pattern,
+  bpm = RHYTHM_DEFAULT_BPM,
+  meter = "4/4",
+  voice: teacherVoice = "drum",
+}: {
+  pattern: NoteGlyphKind[];
+  bpm?: number;
+  meter?: Meter;
+  /** The sound the teacher chose; the student can change it. */
+  voice?: RhythmVoice;
+}) {
   const t = useT();
   const [tempo, setTempo] = useState(bpm);
   const [metronome, setMetronome] = useState(true);
   const [sound, setSound] = useState(true);
+  const [voice, setVoice] = useState<RhythmVoice>(teacherVoice);
   const [tapFlash, setTapFlash] = useState(false);
   const [result, setResult] = useState<{ hit: number; total: number; extra: number } | null>(null);
   const taps = useRef<number[]>([]);
@@ -239,7 +278,7 @@ export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM, meter = "
       countIn: 1,
       total,
       metronome,
-      sounds: sound ? onsets.map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, "drum") })) : [],
+      sounds: sound ? onsets.map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, voice) })) : [],
       onEnd: (r) => setResult(taps.current.length ? scoreTaps(taps.current, onsets, r) : null),
     });
   }
@@ -247,7 +286,7 @@ export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM, meter = "
   function tap() {
     if (!tr.playing) return;
     taps.current.push(audioTime());
-    scheduleClick(audioTime() + 0.005, true, "drum"); // hear your own tap
+    scheduleClick(audioTime() + 0.005, true, voice); // hear your own tap
     setTapFlash(true);
     setTimeout(() => setTapFlash(false), 120);
   }
@@ -265,13 +304,14 @@ export function RhythmBlockPlayer({ pattern, bpm = RHYTHM_DEFAULT_BPM, meter = "
         }
       }}
     >
-      <ScoreView events={events} clef="percussion" meter={meter} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
+      <ScoreView events={events} clef="rhythm" meter={meter} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
       <div className="flex flex-wrap items-center gap-2">
         <Button type="button" size="sm" onClick={() => (tr.playing ? tr.stop() : play())}>
           {tr.playing ? <Square /> : <Play />} {tr.playing ? t("Stop") : t("Play")}
         </Button>
         <TempoControl bpm={tempo} onChange={setTempo} disabled={tr.playing} />
         <MetronomeButton on={metronome} onChange={setMetronome} disabled={tr.playing} />
+        <VoiceSelect value={voice} onChange={setVoice} disabled={tr.playing} />
         <label className="inline-flex items-center gap-1.5 text-sm font-semibold">
           <input type="checkbox" checked={sound} disabled={tr.playing} onChange={(e) => setSound(e.target.checked)} className="size-4 accent-[var(--primary)]" />
           {t("Play the pattern")}

@@ -18,6 +18,7 @@ import {
   CountIn,
   MeterSelect,
   MetronomeButton,
+  VoiceSelect,
   rhythmEvents,
   rhythmOnsetBeats,
   TempoControl,
@@ -253,7 +254,7 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
       countIn: 1,
       total: totalBeats(events),
       metronome,
-      sounds: rhythmOnsetBeats(block.pattern).map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, "drum") })),
+      sounds: rhythmOnsetBeats(block.pattern).map((o) => ({ beat: o, play: (time: number) => scheduleClick(time, true, block.voice) })),
     });
   }
 
@@ -284,7 +285,7 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
   function tap() {
     if (!recording) return;
     taps.current.push(audioTime());
-    scheduleClick(audioTime() + 0.005, true, "drum");
+    scheduleClick(audioTime() + 0.005, true, block.voice);
     setTapFlash(true);
     setTimeout(() => setTapFlash(false), 120);
   }
@@ -319,6 +320,7 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
           <TempoControl bpm={block.bpm} onChange={(bpm) => onChange({ ...block, bpm })} disabled={tr.playing} />
           <MetronomeButton on={metronome} onChange={setMetronome} disabled={tr.playing} />
           <MeterSelect value={block.meter} onChange={(meter) => onChange({ ...block, meter })} disabled={tr.playing} />
+          <VoiceSelect value={block.voice} onChange={(voice) => onChange({ ...block, voice })} disabled={tr.playing} />
           <label className="inline-flex items-center gap-1.5 text-sm font-semibold" title={t("How finely the taps are written when recording")}>
             {t("Recording detail")}
             <select value={grid} disabled={tr.playing} onChange={(e) => setGrid(Number(e.target.value) as 0.5 | 0.25)} className="h-9 rounded-lg border bg-card px-2 text-sm">
@@ -361,7 +363,7 @@ function RhythmCard({ block, onChange, onDelete }: { block: Extract<EditorBlock,
               : t("A triplet group crosses a bar line; move it so it fits inside one bar.")}
           </Alert>
         )}
-        <ScoreView events={events} clef="percussion" meter={block.meter} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
+        <ScoreView events={events} clef="rhythm" meter={block.meter} cursorBeat={tr.beat !== null && tr.beat >= 0 ? tr.beat : null} />
         <div className="grid gap-1.5">
           {RHYTHM_PALETTE.map((row) => (
             <div key={row.label} className="flex flex-wrap items-center gap-1.5">

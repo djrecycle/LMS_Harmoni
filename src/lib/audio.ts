@@ -4,6 +4,7 @@
  */
 import type * as ToneNS from "tone";
 import { midiToFrequency } from "./music";
+import type { RhythmVoice } from "./music-blocks";
 
 type ToneModul = typeof ToneNS;
 
@@ -23,7 +24,7 @@ let kendangSynth: ToneNS.MembraneSynth | null = null;
 export type ClickVoice = "click" | "tepuk" | "kentongan" | "tamborin" | "drum" | "tom" | "kendang";
 
 /** The percussion sounds a rhythm can be played with (labels are English source strings for t()). */
-export const RHYTHM_VOICES: { id: ClickVoice; label: string }[] = [
+export const RHYTHM_VOICES: { id: RhythmVoice; label: string }[] = [
   { id: "drum", label: "Drum (snare)" },
   { id: "tom", label: "Tom drum" },
   { id: "kendang", label: "Kendang" },
