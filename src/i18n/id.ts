@@ -1939,6 +1939,7 @@ export const id: Record<string, string> = {
   "Click to choose where playback starts and where the touch piano writes": "Klik untuk memilih titik mulai pemutaran dan tempat piano sentuh menulis",
   "Touch piano": "Piano sentuh",
   "Full screen": "Layar penuh",
+  "Exit full screen": "Keluar layar penuh",
   "Record": "Rekam",
   "Record from the green line: one bar of count-in, then play the piano": "Rekam dari garis hijau: hitungan pembuka 1 birama, lalu mainkan piano",
   "Metronome during play and recording": "Metronom saat memutar dan merekam",

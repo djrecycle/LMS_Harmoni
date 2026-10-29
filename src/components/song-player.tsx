@@ -55,7 +55,7 @@ const EMPTY_KEYS: KeyState = { target: [], sounding: [], good: [], bad: [] };
  *  The tempo (BPM) sets how fast the song runs; the metronome ticks every beat, with a one-bar count-in.
  */
 /** `computerKeys`: play with the laptop keyboard (off when another piano on the page uses it). */
-export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = true }: { songs?: Song[]; saveScores?: boolean; computerKeys?: boolean }) {
+export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = true, full = false }: { songs?: Song[]; saveScores?: boolean; computerKeys?: boolean; full?: boolean }) {
   const t = useT();
   const [songId, setSongId] = useState(songs[0].id);
   const song = songs.find((s) => s.id === songId) ?? songs[0];
@@ -403,7 +403,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   const accuracy = tries > 0 ? Math.round((score.hit / tries) * 100) : 0;
 
   return (
-    <div className="grid gap-3">
+    <div className={cn("grid gap-3", full && "flex flex-1 flex-col")}>
       <div className="grid gap-2">
         {songs.length === 1 ? (
           song.title && <p className="text-sm font-semibold break-words">{song.title}</p>
@@ -512,8 +512,8 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl bg-neutral-900 shadow-inner">
-        <div ref={boxRef} className="relative h-64 w-full sm:h-80">
+      <div className={cn("overflow-hidden rounded-xl bg-neutral-900 shadow-inner", full && "flex flex-1 flex-col")}>
+        <div ref={boxRef} className={cn("relative w-full", full ? "min-h-64 flex-1" : "h-64 sm:h-80")}>
           <canvas ref={canvasRef} className="absolute inset-0 size-full" aria-hidden />
           {!playing && (
             <div className="absolute inset-0 grid place-items-center bg-black/40 p-4 text-center text-white">
@@ -560,7 +560,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
         <div className="h-1 bg-white/10">
           <div ref={progressRef} className="h-full w-0 bg-primary" />
         </div>
-        <div role="group" aria-label={t("Virtual piano")} className="relative h-32 w-full select-none p-1 pt-0 sm:h-40">
+        <div role="group" aria-label={t("Virtual piano")} className={cn("relative w-full shrink-0 select-none p-1 pt-0", full ? "h-36 sm:h-48" : "h-32 sm:h-40")}>
           <div className="relative flex h-full w-full">
             {range.white.map((m) => (
               <button
