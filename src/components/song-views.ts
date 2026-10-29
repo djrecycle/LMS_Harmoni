@@ -494,12 +494,19 @@ export function drawStaff(
     }
     ctx.restore();
 
+    // Lowest point of a stem, flag or beam hanging under the note, so its name can sit below it.
+    let reach = y;
     // Stem and flags (no stem on a whole note); stems go down from the middle line up.
     if (n.beats < 4 - 1e-6) {
       const beam = beamOf.get(i);
       const up = beam ? beam.up : step < bottomStep + 4;
       const sx = stemX(hx, up);
       const ey = beam ? beamY(beam, sx) : up ? y - stemLen : y + stemLen;
+      if (!up) {
+        // A beamed group's names share one line, under the lowest end of the beam.
+        const ends = beam ? [beam.group[0], beam.group[beam.group.length - 1]].map((j) => beamY(beam, stemX(xOf(j), false))) : [ey];
+        reach = Math.max(...ends);
+      }
       ctx.strokeStyle = color;
       ctx.lineWidth = Math.max(1.2, sp * 0.1);
       ctx.beginPath();
@@ -555,7 +562,8 @@ export function drawStaff(
       ctx.textAlign = "center";
       ctx.fillStyle = color;
       // Below the note's staff, or below the note itself when it hangs under the staff on ledger lines.
-      const baseline = Math.max(bottomY[si] + sp * 2.4, y + sp * 1.9) + (label.dots > 0 ? 4 * label.dots : 0);
+      // Also below a stem or beam that points down past the staff.
+      const baseline = Math.max(bottomY[si] + sp * 2.4, y + sp * 1.9, reach + sp * 1.6) + (label.dots > 0 ? 4 * label.dots : 0);
       drawLabel(ctx, label, hx, Math.min(H - 3 - (label.dots < 0 ? 5 * -label.dots : 0), baseline), size);
     }
   });
