@@ -35,7 +35,7 @@ import { audioTime, playChord, scheduleClick } from "@/lib/audio";
 import { chordNameOf, chordMidis, midiToNote, NOTE_NAMES, noteToMidi } from "@/lib/music";
 import { barBeats, CHORD_LENGTHS, glyphLabel, tripletProblem } from "@/lib/music-blocks";
 import { onsetsToPattern } from "@/lib/rhythm";
-import { parseSongNotation, SONGS, type Song } from "@/lib/songs";
+import { detectDoMidi, parseSongNotation, SONGS, type Song } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 
@@ -620,7 +620,7 @@ function SongCard({ block, onChange, onDelete }: { block: Extract<EditorBlock, {
       if (o && r?.ok) picked = { title: o.title, bpm: o.bpm, doNote: o.doNote, notes: r.notes };
     } else {
       const o = SONGS.find((x) => x.id === id);
-      if (o) picked = { title: t(o.title), bpm: o.bpm, doNote: midiToNote(o.doMidi ?? 60), notes: o.notes };
+      if (o) picked = { title: t(o.title), bpm: o.bpm, doNote: midiToNote(o.doMidi ?? detectDoMidi(o.notes)), notes: o.notes };
     }
     if (!picked) return;
     onChange({ ...block, title: block.title.trim() || picked.title, bpm: picked.bpm, doNote: DO_NOTES.includes(picked.doNote) ? picked.doNote : "C4", notes: picked.notes });

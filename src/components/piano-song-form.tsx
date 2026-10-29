@@ -13,8 +13,8 @@ import { Alert, Badge } from "@/components/ui/misc";
 import { SubmitButton } from "@/components/ui/submit";
 import { initialState } from "@/lib/action-result";
 import { MidiFileError, midiToNotation, notesToAngka, parseMidiFile, type MidiFile } from "@/lib/midi-file";
-import { noteToMidi } from "@/lib/music";
-import { MAX_SONG_NOTES, notesToRoll, parseSongNotation, songParseMessage, type Song, type SongFormat, type SongNote } from "@/lib/songs";
+import { midiToNote, noteToMidi } from "@/lib/music";
+import { detectDoMidi, MAX_SONG_NOTES, notesToRoll, parseSongNotation, songParseMessage, type Song, type SongFormat, type SongNote } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 
@@ -51,10 +51,12 @@ export function PianoSongForm({
   const preview = useMemo<Song | null>(
     () =>
       parsed.ok
-        ? { id: "preview", title: v.title || t("Preview"), level: 1, bpm: v.bpm, notes: parsed.notes, doMidi: v.format === "angka" ? (noteToMidi(v.doNote) ?? undefined) : undefined }
+        ? { id: "preview", title: v.title || t("Preview"), level: 1, bpm: v.bpm, notes: parsed.notes, doMidi: v.doNote ? (noteToMidi(v.doNote) ?? undefined) : undefined }
         : null,
     [parsed, v.bpm, v.title, v.format, v.doNote, t],
   );
+  // The key guessed from the notes, offered as "Automatic" for letters and piano roll songs.
+  const detectedDo = useMemo(() => (parsed.ok && parsed.notes.length ? midiToNote(detectDoMidi(parsed.notes)) : "C4"), [parsed]);
   const parseError = !parsed.ok && v.notation.trim() ? t(...songParseMessage(parsed)) : null;
 
   const toggle = (id: string) => setClassroomIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
@@ -72,22 +74,25 @@ export function PianoSongForm({
     setFormatNote("");
     let format = f;
     let notation = v.notation;
+    // Notasi angka needs a "do"; the other formats may leave it on Automatic (empty).
+    let doNote = f === "angka" ? v.doNote || detectedDo : v.notation.trim() ? v.doNote : "";
     if (f === "roll") {
       if (!parsed.ok && v.notation.trim()) return setFormatNote(t("Fix the melody first, then open it in the piano roll."));
       notation = parsed.ok ? notesToRoll(parsed.notes) : "";
     } else if (v.format === "roll" && parsed.ok) {
       const asLetters = () => midiToNotation(parsed.notes, { melodyOnly: false, keepLeadingRest: true });
       if (f === "angka") {
-        const angka = notesToAngka(parsed.notes, noteToMidi(v.doNote) ?? 60, { melodyOnly: false, keepLeadingRest: true });
+        const angka = notesToAngka(parsed.notes, noteToMidi(doNote) ?? 60, { melodyOnly: false, keepLeadingRest: true });
         if (angka === null) {
           format = "letters";
           notation = asLetters();
-          setFormatNote(t("Some notes are not in the scale of do = {0}, so the melody is written in note letters.", v.doNote.replace(/\d/, "")));
+          setFormatNote(t("Some notes are not in the scale of do = {0}, so the melody is written in note letters.", doNote.replace(/\d/, "")));
         } else notation = angka;
       } else notation = asLetters();
       if (format === f) setFormatNote(t("The piano roll was written as text. Notes that overlap became chords; check the preview."));
     }
-    setV((o) => ({ ...o, format, notation }));
+    if (format !== "angka" && f === "angka") doNote = v.doNote;
+    setV((o) => ({ ...o, format, notation, doNote }));
     setRollKey((k) => k + 1);
   }
 
@@ -139,19 +144,21 @@ export function PianoSongForm({
               {label}
             </button>
           ))}
-          {v.format === "angka" && (
-            <label className="ml-auto inline-flex items-center gap-2 text-sm font-semibold">
-              {t("Key: do =")}
-              <Select name="doNote" className="h-10 w-auto" value={v.doNote} onChange={(x) => set("doNote", x.target.value)}>
-                {DO_NOTES.map((n) => (
-                  <option key={n} value={n}>
-                    {n.replace(/\d/, "")}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          )}
-          {v.format !== "angka" && <input type="hidden" name="doNote" value="C4" />}
+          <label className="ml-auto inline-flex items-center gap-2 text-sm font-semibold">
+            {t("Key: do =")}
+            <Select name="doNote" className="h-10 w-auto" value={v.doNote} onChange={(x) => set("doNote", x.target.value)}>
+              {v.format !== "angka" && (
+                <option value="">
+                  {t("Automatic")} ({detectedDo.replace(/\d/, "")})
+                </option>
+              )}
+              {DO_NOTES.map((n) => (
+                <option key={n} value={n}>
+                  {n.replace(/\d/, "")}
+                </option>
+              ))}
+            </Select>
+          </label>
         </div>
 
         {formatNote && <Alert kind="info">{formatNote}</Alert>}
@@ -314,7 +321,7 @@ function SongAiPanel({ providers, remaining: remainingInitial, limit, onFill }: 
     // Start at the first bar that has a note.
     const offset = Math.floor(Math.min(...notes.map((n) => n.start)) / 4) * 4;
     notes = notes.slice(0, MAX_SONG_NOTES).map((n) => ({ midi: n.midi, start: Math.round((n.start - offset) * 1000) / 1000, beats: Math.max(0.01, Math.round(n.beats * 1000) / 1000) }));
-    onFill({ format: "roll", doNote: "C4", notation: notesToRoll(notes), bpm: midi.file.bpm, title: midi.name.replace(/\.midi?$/i, "").replace(/[_-]+/g, " ") });
+    onFill({ format: "roll", doNote: "", notation: notesToRoll(notes), bpm: midi.file.bpm, title: midi.name.replace(/\.midi?$/i, "").replace(/[_-]+/g, " ") });
     const note = t("The MIDI file is open in the piano roll below (no AI). Check the melody and remove parts you don't need.");
     setResult({ note: midi.file.notes.length > MAX_SONG_NOTES && !melodyOnly ? `${note} ${t("Only the first {0} notes were kept.", MAX_SONG_NOTES)}` : note, warning: null });
   }

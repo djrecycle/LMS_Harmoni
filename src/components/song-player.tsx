@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import { savePracticeResult } from "@/app/actions/practice";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { drawFalling, drawStaff, labelOf, loadMusicFont, VISIBLE_BEATS, type Labels, type Mode, type NoteState } from "@/components/song-views";
-import { loadAudio, noteOff, noteOn, scheduleClick, scheduleNote, stopAllNotes, unlockAudio, audioTime } from "@/lib/audio";
+import { drawFalling, drawStaff, KEY_CHOICES, keyName, labelOf, loadMusicFont, songKey, VISIBLE_BEATS, type Labels, type Mode, type NoteState } from "@/components/song-views";
+import { loadAudio, noteOff, noteOn, scheduleClick, scheduleNote, stopAllNotes, unlockAudio, audioTime, audioLatency } from "@/lib/audio";
 import { isBlackKey, midiToNote, NOTE_NAMES } from "@/lib/music";
 import type { SongDetail } from "@/lib/practice";
 import { SONGS, songLength, type Song } from "@/lib/songs";
@@ -66,6 +66,11 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   const [wait, setWait] = useState(true);
   const [view, setView] = useState<View>("falling");
   const [labels, setLabels] = useState<Labels>("letter");
+  // Key signature on the staff: "none", "auto" (the song's key) or a key in fifths.
+  // Songs with a saved key start with its key signature.
+  const [keySig, setKeySig] = useState<string>(song.doMidi !== undefined ? "auto" : "none");
+  const autoKey = useMemo(() => songKey(song), [song]);
+  const fifths = keySig === "none" ? null : keySig === "auto" ? autoKey : Number(keySig);
   const [doMidi, setDoMidi] = useState(song.doMidi ?? 60);
   const [playing, setPlaying] = useState(false);
   const [finished, setFinished] = useState(false);
@@ -91,8 +96,8 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
     flash: new Map<number, { ok: boolean; until: number }>(),
     keySig: "",
   });
-  const settings = useRef({ song, mode, tempo, metronome, wait, view, labels, doMidi, range, saveScores });
-  settings.current = { song, mode, tempo, metronome, wait, view, labels, doMidi, range, saveScores };
+  const settings = useRef({ song, mode, tempo, metronome, wait, view, labels, doMidi, fifths, range, saveScores });
+  settings.current = { song, mode, tempo, metronome, wait, view, labels, doMidi, fifths, range, saveScores };
 
   useEffect(() => {
     void loadAudio();
@@ -122,6 +127,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
     setTempo(song.bpm);
     setTempoText(String(song.bpm));
     setDoMidi(song.doMidi ?? 60);
+    setKeySig(song.doMidi !== undefined ? "auto" : "none");
   }, [song]);
 
   const changeTempo = (bpm: number) => {
@@ -280,7 +286,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       const s = g.current;
-      const { song, mode, tempo, metronome, wait, view, labels, doMidi, range } = settings.current;
+      const { song, mode, tempo, metronome, wait, view, labels, doMidi, fifths, range } = settings.current;
       const beatsPerSec = tempo / 60;
       const end = songLength(song);
 
@@ -322,6 +328,10 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
         }
       }
 
+      // What is drawn: in "listen" mode the picture runs behind by the audio output delay (large with Bluetooth
+      // speakers), so a note reaches the play line and its key lights up exactly when it is heard.
+      const shown = mode === "listen" ? s.time - Math.min(0.5, audioLatency()) * beatsPerSec : s.time;
+
       // Keys to light up on the keyboard.
       const target: number[] = [];
       const sounding: number[] = [];
@@ -331,7 +341,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       };
       song.notes.forEach((n, i) => {
         if (isTarget(i)) target.push(n.midi);
-        if (mode === "listen" && n.start <= s.time && s.time < n.start + n.beats) sounding.push(n.midi);
+        if (mode === "listen" && n.start <= shown && shown < n.start + n.beats) sounding.push(n.midi);
       });
       const good: number[] = [];
       const bad: number[] = [];
@@ -347,12 +357,13 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       if (progressRef.current) progressRef.current.style.width = `${Math.max(0, Math.min(100, (s.time / end) * 100))}%`;
 
       const state: NoteState = {
-        done: (i) => (mode === "play" ? s.hit.has(i) : song.notes[i].start + song.notes[i].beats <= s.time),
+        done: (i) => (mode === "play" ? s.hit.has(i) : song.notes[i].start + song.notes[i].beats <= shown),
         target: isTarget,
         missed: (i) => s.missed.has(i),
+        sounding: (i) => mode === "listen" && song.notes[i].start <= shown && shown < song.notes[i].start + song.notes[i].beats,
       };
-      if (view === "staff") drawStaff(canvasRef.current, song, s.time, state, mode, labels, doMidi);
-      else drawFalling(canvasRef.current, song, range.white, s.time, state, mode, labels, doMidi);
+      if (view === "staff") drawStaff(canvasRef.current, song, shown, state, mode, labels, doMidi, fifths);
+      else drawFalling(canvasRef.current, song, range.white, shown, state, mode, labels, doMidi);
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
@@ -490,6 +501,19 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
             <option value="falling">{t("Falling notes")}</option>
             <option value="staff">{t("Staff notation")}</option>
           </Select>
+          {view === "staff" && (
+            <Select aria-label={t("Key signature")} className="h-10 w-auto" value={keySig} onChange={(e) => setKeySig(e.target.value)}>
+              <option value="none">{t("No key signature")}</option>
+              <option value="auto">
+                {t("Song's key")}: {keyName(autoKey)}
+              </option>
+              {KEY_CHOICES.map((k) => (
+                <option key={k} value={k}>
+                  {keyName(k)}
+                </option>
+              ))}
+            </Select>
+          )}
           <Select aria-label={t("Note names")} className="h-10 w-auto" value={labels} onChange={(e) => setLabels(e.target.value as Labels)}>
             <option value="letter">C D E</option>
             <option value="solfege">do re mi</option>

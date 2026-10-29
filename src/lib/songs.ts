@@ -21,7 +21,7 @@ export type Song = {
   origin?: string;
   notes: SongNote[];
   /** Added by a teacher (not built in). */ custom?: boolean;
-  /** The key's "do" (for notasi angka and solfège labels); C4 when unknown. */ doMidi?: number;
+  /** The key's "do" (for notasi angka and solfège labels, and the staff's key signature); unknown when missing. */ doMidi?: number;
 };
 
 type SongSource = { id: string; title: string; level: 1 | 2 | 3; bpm: number; origin?: string } & ({ melody: string } | { angka: string; doNote: string });
@@ -218,8 +218,30 @@ export function songFromRow(row: { id: string; title: string; origin: string; le
   const r = parseSongNotation(row.format, row.notation, row.doNote);
   if (!r.ok) return null;
   const level = Math.min(3, Math.max(1, row.level)) as 1 | 2 | 3;
-  const doMidi = row.format === "angka" ? (noteToMidi(row.doNote) ?? undefined) : undefined;
+  // Letters and piano roll songs may leave the key empty: it is then detected from the notes.
+  const doMidi = row.doNote ? (noteToMidi(row.doNote) ?? undefined) : undefined;
   return { id: row.id, title: row.title, level, bpm: row.bpm, origin: row.origin || undefined, notes: r.notes, custom: true, doMidi };
+}
+
+/**
+ * The "do" of the major key that fits a melody best (most beats in the scale; ending on do breaks ties).
+ *  Returned as C4..G#4 or A3..B3, like the song form's key list.
+ */
+export function detectDoMidi(notes: SongNote[]): number {
+  const last = notes.length ? notes[notes.length - 1].midi % 12 : 0;
+  let best = 0;
+  let bestScore = -Infinity;
+  // Keys with fewer sharps/flats first, so they win a tie.
+  for (const pc of [0, 7, 5, 2, 10, 9, 3, 4, 8, 11, 1, 6]) {
+    const scale = new Set([0, 2, 4, 5, 7, 9, 11].map((d) => (pc + d) % 12));
+    let score = notes.reduce((a, n) => a + (scale.has(n.midi % 12) ? n.beats : 0), 0);
+    if (last === pc) score += 0.5;
+    if (score > bestScore + 1e-9) {
+      bestScore = score;
+      best = pc;
+    }
+  }
+  return best >= 9 ? 48 + best : 60 + best;
 }
 
 export const songLength = (song: Song) => Math.max(...song.notes.map((n) => n.start + n.beats));

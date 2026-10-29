@@ -9,7 +9,8 @@ import { getOwnedPianoSong } from "@/lib/access";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
 import { AiError, aiErrorMessage, generateJson, isPerangkatAiAvailable, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, remainingAllowance, takeAllowance } from "@/lib/ai";
-import { notesToRoll, parseSongNotation, SONG_FORMATS, songFromRow, songParseMessage, type SongFormat } from "@/lib/songs";
+import { noteToMidi, midiToNote } from "@/lib/music";
+import { detectDoMidi, notesToRoll, parseSongNotation, SONG_FORMATS, songFromRow, songParseMessage, type SongFormat } from "@/lib/songs";
 import { requireTeacher } from "@/lib/session";
 import { getT } from "@/i18n/server";
 
@@ -22,7 +23,13 @@ const songSchema = z.object({
   level: z.coerce.number().int().min(1).max(3),
   bpm: z.coerce.number().int().min(30, "Tempo must be 30-240 BPM").max(240, "Tempo must be 30-240 BPM"),
   format: z.enum(SONG_FORMATS),
-  doNote: z.string().trim().max(4).default("C4"),
+  /** The key's "do". Empty (letters and piano roll only) = detect the key from the notes. */
+  doNote: z
+    .string()
+    .trim()
+    .max(4)
+    .default("")
+    .refine((x) => !x || noteToMidi(x) !== null, "The key is invalid"),
   notation: z.string().max(60_000),
 });
 
@@ -47,7 +54,7 @@ export async function savePianoSong(_: ActionResult, fd: FormData): Promise<Acti
   const owned = await db.select({ id: S.classroom.id }).from(S.classroom).where(eq(S.classroom.teacherId, teacher.id));
   if (classroomIds.some((id) => !owned.some((k) => k.id === id))) return fail(t("Some classes are invalid."));
 
-  const values = { title: v.title, origin: v.origin, level: v.level, bpm: v.bpm, format: v.format as SongFormat, doNote: v.doNote || "C4", notation: v.notation.trim() };
+  const values = { title: v.title, origin: v.origin, level: v.level, bpm: v.bpm, format: v.format as SongFormat, doNote: v.format === "angka" ? v.doNote || "C4" : v.doNote, notation: v.notation.trim() };
   let id = String(fd.get("id") || "");
   if (id) {
     const song = await getOwnedPianoSong(teacher.id, id);
@@ -77,7 +84,7 @@ export async function listSongsForBlocks(): Promise<BlockSongOption[]> {
   return rows.flatMap((r) => {
     const song = songFromRow(r);
     if (!song) return [];
-    return [{ id: r.id, title: r.title, bpm: r.bpm, doNote: r.format === "angka" ? r.doNote : "C4", roll: notesToRoll(song.notes) }];
+    return [{ id: r.id, title: r.title, bpm: r.bpm, doNote: r.doNote || midiToNote(detectDoMidi(song.notes)), roll: notesToRoll(song.notes) }];
   });
 }
 
@@ -123,7 +130,7 @@ Output one song as JSON. Fields:
     Tokens separated by spaces: 1-7 = do re mi fa sol la si; ' after a digit = one octave up (1'), . after = one octave down (5.); 0 = rest;
     "-" = hold the previous note one more beat; ":x" = length in beats (1 = quarter, 0.5 = eighth, 2 = half, 1.5 = dotted quarter); "|" bar lines.
     Example: "1 3 1 3 | 4 5 5 - | 7 1':0.5 7:0.5 5 0 |"
-  - "letters": note names with octave, middle C = C4, sharps with # (F#4), rest = R, same ":x" lengths and "-" holds. doNote is "C4". Example: "E4 D4 C4 D4 | E4 E4 E4:2".
+  - "letters": note names with octave, middle C = C4, sharps with # (F#4), rest = R, same ":x" lengths and "-" holds. doNote is the key's "do" too (e.g. "D4" for D major), or "" when unsure. Example: "E4 D4 C4 D4 | E4 E4 E4:2".
   - Chords (only when asked): join notes with "+", e.g. "1+3+5:2" or "C4+E4+G4:2".
 - note: one or two sentences for the teacher (in the teacher's language): what you did, and anything uncertain they should check.
 Accuracy matters: students learn the melody from this. Transcribe a given photo or note list faithfully, keeping its rhythm and key.
@@ -177,7 +184,11 @@ export async function generateSongDraft(fd: FormData): Promise<ActionResult<{ dr
       level: [1, 2, 3].includes(data.level) ? data.level : 1,
       bpm: Math.min(240, Math.max(30, Math.round(data.bpm) || 90)),
       format: data.format === "letters" ? "letters" : "angka",
-      doNote: (data.doNote ?? "C4").trim().slice(0, 4) || "C4",
+      doNote: (() => {
+        const d = (data.doNote ?? "").trim().slice(0, 4);
+        if (d && noteToMidi(d) !== null) return d;
+        return data.format === "letters" ? "" : "C4";
+      })(),
       notation: data.notation.trim(),
       note: (data.note ?? "").trim(),
     };
