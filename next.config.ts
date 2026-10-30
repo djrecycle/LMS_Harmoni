@@ -12,6 +12,10 @@ const nextConfig: NextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: "4mb" },
   },
+  // Piano samples (about 2 MB) never change: browsers keep them for a year instead of downloading them again.
+  async headers() {
+    return [{ source: "/audio/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] }];
+  },
 };
 
 export default nextConfig;

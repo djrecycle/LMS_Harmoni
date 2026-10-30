@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ListMusic, Maximize2, Minimize2, Piano as PianoIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { InstrumentSelect } from "@/components/instrument-select";
 import { Metronome } from "@/components/metronome";
 import { Piano } from "@/components/piano";
 import { SongPlayer } from "@/components/song-player";
@@ -78,15 +79,18 @@ export function PianoModes({ songs }: { songs: Song[] }) {
                 </button>
               ))}
             </div>
-            {full ? (
-              <Button type="button" onClick={exitFull}>
-                <Minimize2 /> {t("Exit full screen")}
-              </Button>
-            ) : (
-              <Button type="button" variant="outline" onClick={enterFull}>
-                <Maximize2 /> {t("Full screen")}
-              </Button>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <InstrumentSelect />
+              {full ? (
+                <Button type="button" onClick={exitFull}>
+                  <Minimize2 /> {t("Exit full screen")}
+                </Button>
+              ) : (
+                <Button type="button" variant="outline" onClick={enterFull}>
+                  <Maximize2 /> {t("Full screen")}
+                </Button>
+              )}
+            </div>
           </div>
           {/* Only one is mounted at a time so their computer-keyboard shortcuts don't both fire. */}
           {tab === "song" ? <SongPlayer songs={songs} full={full} /> : <Piano keysClassName={full ? "h-64 sm:h-80" : undefined} />}

@@ -10,7 +10,19 @@ type ToneModul = typeof ToneNS;
 
 let tone: ToneModul | null = null;
 let memuat: Promise<void> | null = null;
-let piano: ToneNS.PolySynth | null = null;
+/** What the piano keys play through: a polyphonic synth, or the sampler of the recorded grand piano. */
+type Voice = {
+  triggerAttack(freq: number, time: number, velocity: number): unknown;
+  triggerRelease(freq: number, time: number): unknown;
+  triggerAttackRelease(freq: number, duration: number, time: number, velocity: number): unknown;
+  releaseAll(time?: number): unknown;
+  dispose(): unknown;
+};
+let piano: Voice | null = null;
+/** The recorded grand piano, loaded once (about 2 MB) the first time it is chosen, then kept. */
+let grand: ToneNS.Sampler | null = null;
+let grandState: "idle" | "loading" | "ready" | "error" = "idle";
+let pianoFilter: ToneNS.Filter | null = null;
 let klikSynth: ToneNS.Synth | null = null;
 let tepukSynth: ToneNS.NoiseSynth | null = null;
 let kentonganSynth: ToneNS.MembraneSynth | null = null;
@@ -19,6 +31,182 @@ let snareNoise: ToneNS.NoiseSynth | null = null;
 let snareBody: ToneNS.MembraneSynth | null = null;
 let tomSynth: ToneNS.MembraneSynth | null = null;
 let kendangSynth: ToneNS.MembraneSynth | null = null;
+
+/* ------------------------------ instruments ------------------------------ */
+
+/**
+ * Sounds the piano keys can play with (labels are English source strings for t()). The grand piano uses recorded
+ *  samples (public/audio/salamander, CC BY 3.0); the rest are synthesized, with nothing to download.
+ */
+export const INSTRUMENTS = [
+  { id: "grand", label: "Grand piano (recorded)" },
+  { id: "piano", label: "Piano" },
+  { id: "epiano", label: "Electric piano" },
+  { id: "organ", label: "Organ" },
+  { id: "strings", label: "Strings" },
+  { id: "marimba", label: "Marimba" },
+  { id: "musicbox", label: "Music box" },
+  { id: "synth", label: "Synth" },
+] as const;
+export type InstrumentId = (typeof INSTRUMENTS)[number]["id"];
+
+const INSTRUMENT_KEY = "harmoni.instrument";
+let instrument: InstrumentId = "piano";
+try {
+  const saved = typeof window !== "undefined" ? window.localStorage.getItem(INSTRUMENT_KEY) : null;
+  if (saved && INSTRUMENTS.some((x) => x.id === saved)) instrument = saved as InstrumentId;
+} catch {
+  /* storage blocked: keep the default */
+}
+const instrumentListeners = new Set<() => void>();
+
+export const getInstrument = () => instrument;
+/** "loading" while the grand piano samples download (a synth piano plays meanwhile), "error" if they failed. */
+export const getInstrumentStatus = () => grandState;
+const notifyInstrument = () => instrumentListeners.forEach((fn) => fn());
+export function subscribeInstrument(fn: () => void) {
+  instrumentListeners.add(fn);
+  return () => void instrumentListeners.delete(fn);
+}
+export function setInstrument(id: InstrumentId) {
+  if (id === instrument) return;
+  instrument = id;
+  try {
+    window.localStorage.setItem(INSTRUMENT_KEY, id);
+  } catch {
+    /* ignore */
+  }
+  if (tone && pianoFilter) buildPiano(tone, pianoFilter);
+  notifyInstrument();
+}
+
+/** A polyphonic synth for one of the synthesized instruments. Volumes leave headroom for chords. */
+function makeSynth(T: ToneModul, id: InstrumentId) {
+  let cutoff = 4200;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let synth: ToneNS.PolySynth<any>;
+  switch (id) {
+    case "epiano":
+      synth = new T.PolySynth(T.FMSynth, {
+        harmonicity: 3,
+        modulationIndex: 6,
+        oscillator: { type: "sine" },
+        modulation: { type: "sine" },
+        envelope: { attack: 0.002, decay: 1.4, sustain: 0.15, release: 1 },
+        modulationEnvelope: { attack: 0.002, decay: 0.5, sustain: 0.1, release: 0.5 },
+        volume: -11,
+      });
+      break;
+    case "organ":
+      synth = new T.PolySynth(T.Synth, {
+        oscillator: { type: "custom", partials: [1, 0.7, 0.35, 0.25, 0, 0.12, 0, 0.08] },
+        envelope: { attack: 0.012, decay: 0.05, sustain: 0.9, release: 0.12 },
+        volume: -16,
+      });
+      cutoff = 3500;
+      break;
+    case "strings":
+      synth = new T.PolySynth(T.Synth, {
+        oscillator: { type: "sawtooth8" },
+        envelope: { attack: 0.18, decay: 0.3, sustain: 0.75, release: 1.2 },
+        volume: -17,
+      });
+      cutoff = 2200;
+      break;
+    case "marimba":
+      synth = new T.PolySynth(T.FMSynth, {
+        harmonicity: 4,
+        modulationIndex: 1.5,
+        oscillator: { type: "sine" },
+        modulation: { type: "sine" },
+        envelope: { attack: 0.001, decay: 0.6, sustain: 0, release: 0.5 },
+        modulationEnvelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.1 },
+        volume: -7,
+      });
+      break;
+    case "musicbox":
+      synth = new T.PolySynth(T.FMSynth, {
+        harmonicity: 7,
+        modulationIndex: 2.5,
+        oscillator: { type: "sine" },
+        modulation: { type: "sine" },
+        envelope: { attack: 0.001, decay: 1.6, sustain: 0, release: 1.6 },
+        modulationEnvelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.3 },
+        volume: -10,
+      });
+      cutoff = 6000;
+      break;
+    case "synth":
+      synth = new T.PolySynth(T.Synth, {
+        oscillator: { type: "square8" },
+        envelope: { attack: 0.008, decay: 0.2, sustain: 0.5, release: 0.3 },
+        volume: -18,
+      });
+      cutoff = 2800;
+      break;
+    default:
+      synth = new T.PolySynth(T.Synth, {
+        oscillator: { type: "triangle8" },
+        envelope: { attack: 0.005, decay: 0.45, sustain: 0.22, release: 1.1 },
+        volume: -12,
+      });
+  }
+  synth.maxPolyphony = 16;
+  return { synth, cutoff };
+}
+
+const GRAND_CUTOFF = 9000;
+const GRAND_NOTES = ["A0", "C1", "D#1", "F#1", "A1", "C2", "D#2", "F#2", "A2", "C3", "D#3", "F#3", "A3", "C4", "D#4", "F#4", "A4", "C5", "D#5", "F#5", "A5", "C6", "D#6", "F#6", "A6", "C7", "D#7", "F#7", "A7", "C8"];
+
+/** Plays through `next` from now on; the previous voice fades out (synths are then thrown away, the sampler is kept). */
+function swapTo(next: Voice) {
+  const old = piano;
+  piano = next;
+  if (!old || old === next) return;
+  old.releaseAll();
+  if (old !== grand) setTimeout(() => old.dispose(), 1500);
+}
+
+function loadGrand(T: ToneModul, out: ToneNS.Filter) {
+  if (grandState === "loading" || grandState === "ready") return;
+  grandState = "loading";
+  notifyInstrument();
+  grand?.dispose();
+  const urls = Object.fromEntries(GRAND_NOTES.map((n) => [n, `${n.replace("#", "s")}.mp3`]));
+  grand = new T.Sampler({
+    urls,
+    baseUrl: "/audio/salamander/",
+    release: 1,
+    volume: -8,
+    onload: () => {
+      grandState = "ready";
+      if (instrument === "grand" && grand) {
+        out.frequency.value = GRAND_CUTOFF;
+        swapTo(grand);
+      }
+      notifyInstrument();
+    },
+    onerror: () => {
+      grandState = "error";
+      notifyInstrument();
+    },
+  }).connect(out);
+}
+
+/** Switches the keys to the chosen instrument. The grand piano plays the synth piano until its samples are loaded. */
+function buildPiano(T: ToneModul, out: ToneNS.Filter) {
+  if (instrument === "grand") {
+    if (grandState === "ready" && grand) {
+      out.frequency.value = GRAND_CUTOFF;
+      return swapTo(grand);
+    }
+    loadGrand(T, out);
+  }
+  const { synth, cutoff } = makeSynth(T, instrument === "grand" ? "piano" : instrument);
+  out.frequency.value = cutoff;
+  synth.connect(out);
+  swapTo(synth);
+}
 
 /** Percussive timbre used for metronome/rhythm clicks. */
 export type ClickVoice = "click" | "tepuk" | "kentongan" | "tamborin" | "drum" | "tom" | "kendang";
@@ -41,14 +229,14 @@ export function loadAudio(): Promise<void> {
     T.setContext(ctx);
     tone = T;
 
-    const filter = new T.Filter(4200, "lowpass").toDestination();
-    const compressor = new T.Compressor(-18, 4).connect(filter);
-    piano = new T.PolySynth(T.Synth, {
-      oscillator: { type: "triangle8" },
-      envelope: { attack: 0.004, decay: 0.45, sustain: 0.22, release: 1.1 },
-      volume: -7,
-    }).connect(compressor);
-    piano.maxPolyphony = 16;
+    // Master limiter: chords, many held notes and the metronome together never go past full scale
+    // (which is heard as a cracked, distorted sound).
+    T.getDestination().chain(new T.Limiter(-1.5));
+
+    // Piano: soft lowpass, then a compressor that evens out chords.
+    const compressor = new T.Compressor({ threshold: -20, ratio: 4, attack: 0.002, release: 0.15 }).toDestination();
+    pianoFilter = new T.Filter(4200, "lowpass").connect(compressor);
+    buildPiano(T, pianoFilter);
 
     klikSynth = new T.Synth({
       oscillator: { type: "square" },
@@ -125,18 +313,22 @@ export function audioTime(): number {
   return tone ? tone.getContext().currentTime : 0;
 }
 
+const START_AHEAD = 0.005;
+
 export function noteOn(midi: number, velocity = 0.85) {
   if (!piano || !tone) {
-    void unlockAudio().then(() => piano?.triggerAttack(midiToFrequency(midi), tone!.now(), velocity));
+    void unlockAudio().then(() => piano?.triggerAttack(midiToFrequency(midi), tone!.now() + START_AHEAD, velocity));
     return;
   }
   if (tone.getContext().state !== "running") void tone.start();
-  piano.triggerAttack(midiToFrequency(midi), tone.now(), velocity);
+  // A few milliseconds ahead: a note started "now" may already be in the past for the audio thread,
+  // which cuts its attack and is heard as a click.
+  piano.triggerAttack(midiToFrequency(midi), tone.now() + START_AHEAD, velocity);
 }
 
 export function noteOff(midi: number) {
   if (!piano || !tone) return;
-  piano.triggerRelease(midiToFrequency(midi), tone.now());
+  piano.triggerRelease(midiToFrequency(midi), tone.now() + START_AHEAD);
 }
 
 export function stopAllNotes() {

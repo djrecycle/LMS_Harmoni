@@ -1,0 +1,4 @@
+Salamander Grand Piano V3 — samples by Alexander Holm
+License: Creative Commons Attribution 3.0 (CC BY 3.0) https://creativecommons.org/licenses/by/3.0/
+Source: https://archive.org/details/SalamanderGrandPianoV3 (MP3 set as published with Tone.js: https://tonejs.github.io/audio/salamander/)
+Used for the "Grand piano (recorded)" sound of the virtual piano.
