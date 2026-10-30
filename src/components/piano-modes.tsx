@@ -105,18 +105,18 @@ export function PianoModes({ songs }: { songs: Song[] }) {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {tab === "free" && (
-                <Button type="button" variant={roll ? "secondary" : "outline"} aria-pressed={roll} onClick={() => setRoll((x) => !x)}>
-                  <AudioLines /> {t("Piano roll & record")}
+                <Button type="button" variant={roll ? "secondary" : "outline"} aria-pressed={roll} aria-label={t("Piano roll & record")} onClick={() => setRoll((x) => !x)}>
+                  <AudioLines /> <span className="hidden sm:inline">{t("Piano roll & record")}</span>
                 </Button>
               )}
               <InstrumentSelect />
               {full ? (
-                <Button type="button" onClick={exitFull}>
-                  <Minimize2 /> {t("Exit full screen")}
+                <Button type="button" aria-label={t("Exit full screen")} onClick={exitFull}>
+                  <Minimize2 /> <span className="hidden sm:inline">{t("Exit full screen")}</span>
                 </Button>
               ) : (
-                <Button type="button" variant="outline" onClick={enterFull}>
-                  <Maximize2 /> {t("Full screen")}
+                <Button type="button" variant="outline" aria-label={t("Full screen")} onClick={enterFull}>
+                  <Maximize2 /> <span className="hidden sm:inline">{t("Full screen")}</span>
                 </Button>
               )}
             </div>

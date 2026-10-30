@@ -76,8 +76,10 @@ export function Piano({
     return () => stopAllNotes();
   }, []);
 
-  // Number of white keys that fit: 7 to 15, starting from C.
-  const whiteKeyCount = Math.max(7, Math.min(15, Math.floor(width / MIN_KEY_WIDTH) || 7));
+  // Number of white keys that fit, starting from C: 7 to 15, or with the size buttons, wider keys = fewer keys
+  // (the octave arrows reach the rest) and smaller keys = more.
+  const fitCount = Math.max(7, Math.min(15, Math.floor(width / MIN_KEY_WIDTH) || 7));
+  const whiteKeyCount = sizeControl ? Math.max(4, Math.min(22, Math.round(fitCount / keyScale))) : fitCount;
   const midiInitial = (initialOctave + 1) * 12; // C{octave}
 
   // Build the key list: each white key is followed by the black key between it and the next (if any).
@@ -214,8 +216,8 @@ export function Piano({
             ) : midi.status === "ditolak" ? (
               <span className="text-danger">{t("MIDI permission was denied. Change it in the site settings.")}</span>
             ) : (
-              <Button variant="outline" size="sm" onClick={midi.connect} disabled={midi.status === "meminta"}>
-                <Usb /> {t("Connect MIDI keyboard")}
+              <Button variant="outline" size="sm" aria-label={t("Connect MIDI keyboard")} onClick={midi.connect} disabled={midi.status === "meminta"}>
+                <Usb /> <span className="hidden sm:inline">{t("Connect MIDI keyboard")}</span>
               </Button>
             )}
           </div>

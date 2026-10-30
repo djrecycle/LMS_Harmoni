@@ -67,6 +67,7 @@ export function FreeRecorder({ fill = false }: { fill?: boolean }) {
       hideFullscreen
       fill={fill}
       pianoSizeControl
+      compact
     />
   );
 }

@@ -35,12 +35,19 @@ const WHITE_OFFSETS = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17];
 const BLACK_KEY_MAP: Record<string, number> = { w: 1, e: 3, t: 6, y: 8, u: 10, o: 13, p: 15, "]": 18 };
 
 /** Whole octaves around the song: from the C below its lowest note to the C above its highest. */
-/** Keys shown under the song: the octaves its notes use, moved `shift` octaves left (-) or right (+). */
-function keyRange(song: Song, shift = 0) {
+/**
+ * Keys shown under the song: the octaves its notes use, moved `shift` octaves left (-) or right (+).
+ *  `scale` > 1 (larger keys) shows fewer octaves, starting from the song's lowest; < 1 shows more around it.
+ */
+function keyRange(song: Song, shift = 0, scale = 1) {
   const lo = Math.min(...song.notes.map((n) => n.midi));
   const hi = Math.max(...song.notes.map((n) => n.midi));
-  const first = Math.floor(lo / 12) * 12 + shift * 12;
-  const last = Math.max(first + 12, Math.ceil((hi + 1) / 12) * 12 + shift * 12);
+  let first = Math.floor(lo / 12) * 12;
+  const songOctaves = Math.max(1, Math.ceil((hi + 1) / 12) - Math.floor(lo / 12));
+  const octaves = Math.max(1, Math.min(7, Math.round(songOctaves / scale)));
+  if (octaves > songOctaves) first -= Math.floor((octaves - songOctaves) / 2) * 12;
+  first = Math.max(12, first + shift * 12); // not below C0
+  const last = first + octaves * 12;
   const white: number[] = [];
   for (let m = first; m <= last; m++) if (!isBlackKey(m)) white.push(m);
   return { first, last, white };
@@ -84,7 +91,8 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   // Octave shift of the keyboard (the song itself stays the same; notes off the keys are marked at the edge).
   const [octave, setOctave] = useState(0);
   useEffect(() => setOctave(0), [song]);
-  const range = useMemo(() => keyRange(song, octave), [song, octave]);
+  const keyScale = useKeyScale();
+  const range = useMemo(() => keyRange(song, octave, keyScale), [song, octave, keyScale]);
   const canLower = range.first - 12 >= 12; // C0
   const canRaise = range.last + 12 <= 120; // C9
 
@@ -416,7 +424,6 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
     onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
   });
 
-  const keyScale = useKeyScale();
   const total = song.notes.length;
   const tries = score.hit + score.wrong + score.missed;
   const accuracy = tries > 0 ? Math.round((score.hit / tries) * 100) : 0;
@@ -570,8 +577,8 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
               {midi.device.length ? midi.device.join(", ") : t("MIDI active, plug in a keyboard")}
             </span>
           ) : midi.status === "pending" || midi.status === "meminta" ? (
-            <Button variant="outline" onClick={midi.connect} disabled={midi.status === "meminta"}>
-              <Usb /> {t("Connect MIDI keyboard")}
+            <Button variant="outline" aria-label={t("Connect MIDI keyboard")} onClick={midi.connect} disabled={midi.status === "meminta"}>
+              <Usb /> <span className="hidden sm:inline">{t("Connect MIDI keyboard")}</span>
             </Button>
           ) : null}
         </div>

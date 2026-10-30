@@ -10,7 +10,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ArrowDown, ArrowUp, Circle, Copy, Download, Eraser, Maximize2, Minimize2, MousePointer2, Pencil, Piano as PianoIcon, Play, Redo2, Square, Timer, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, Circle, Copy, Download, Eraser, Maximize2, Minimize2, MousePointer2, Pencil, Piano as PianoIcon, Play, Redo2, Square, Timer, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
 import { Piano } from "@/components/piano";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -90,6 +90,7 @@ export function SongPianoRoll({
   hideFullscreen = false,
   fill = false,
   pianoSizeControl = false,
+  compact = false,
 }: {
   initial: SongNote[];
   bpm: number;
@@ -107,6 +108,11 @@ export function SongPianoRoll({
   fill?: boolean;
   /** Show the − / + key size buttons on the touch piano. */
   pianoSizeControl?: boolean;
+  /**
+   * Free Play on any screen, phones included: the touch piano is always shown, the roll can be collapsed,
+   *  and rarely used settings are hidden on small screens so roll and piano fit on one screen.
+   */
+  compact?: boolean;
 }) {
   const t = useT();
   const nextId = useRef(1);
@@ -129,7 +135,10 @@ export function SongPianoRoll({
   const [playFrom, setPlayFrom] = useState(0);
   // Touch piano: it only sounds, unless a recording is running. Recording starts at `writeAt` (the green line),
   // after a one-bar count-in, and writes what is played in real time: holding a key makes a longer note.
-  const [pianoOn, setPianoOn] = useState(pianoInitiallyOn);
+  const [pianoOnState, setPianoOn] = useState(pianoInitiallyOn);
+  const pianoOn = compact || pianoOnState;
+  const [rollOpen, setRollOpen] = useState(true);
+  const showRoll = !compact || rollOpen;
   const [recording, setRecording] = useState(false);
   const [metronome, setMetronome] = useState(true);
   const metronomeRef = useRef(metronome);
@@ -749,10 +758,11 @@ export function SongPianoRoll({
           aria-pressed={metronome}
           onClick={() => setMetronome((x) => !x)}
           title={t("Metronome during play and recording")}
+          aria-label={t("Metronome")}
         >
-          <Timer /> {t("Metronome")}
+          <Timer /> <span className="hidden sm:inline">{t("Metronome")}</span>
         </Button>
-        <div className="inline-flex rounded-lg border p-0.5" role="group" aria-label={t("Tool")}>
+        <div className={cn("inline-flex rounded-lg border p-0.5", !showRoll && "hidden")} role="group" aria-label={t("Tool")}>
           {tools.map(([id, Icon, label]) => (
             <button
               key={id}
@@ -764,11 +774,11 @@ export function SongPianoRoll({
                 tool === id ? "bg-primary text-primary-foreground" : "hover:bg-muted",
               )}
             >
-              <Icon className="size-4" /> {label}
+              <Icon className="size-4" /> <span className="hidden sm:inline">{label}</span>
             </button>
           ))}
         </div>
-        <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+        <label className={cn("inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground", compact && "hidden sm:inline-flex", !showRoll && "!hidden")}>
           {t("Note length")}
           <Select className="h-8 w-auto text-xs" value={length} onChange={(x) => setLength(Number(x.target.value))}>
             {!LENGTHS.some(([v]) => v === length) && <option value={length}>{t("{0} beats", length)}</option>}
@@ -779,7 +789,7 @@ export function SongPianoRoll({
             ))}
           </Select>
         </label>
-        <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+        <label className={cn("inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground", compact && "hidden sm:inline-flex", !showRoll && "!hidden")}>
           {t("Snap")}
           <Select className="h-8 w-auto text-xs" value={snap} onChange={(x) => setSnap(Number(x.target.value))}>
             {SNAPS.map(([v, label]) => (
@@ -789,7 +799,7 @@ export function SongPianoRoll({
             ))}
           </Select>
         </label>
-        <div className="ml-auto inline-flex items-center gap-1">
+        <div className={cn("ml-auto inline-flex items-center gap-1", !showRoll && "hidden")}>
           <Button
             type="button"
             size="icon"
@@ -850,7 +860,10 @@ export function SongPianoRoll({
         onKeyDown={onKeyDown}
         aria-label={t("Piano roll")}
         // contain:inline-size keeps the wide roll from stretching the page on phones; it scrolls here instead.
-        className={cn(full ? "min-h-[16rem] flex-1" : fill ? "min-h-[8rem] flex-1" : "h-[26rem]", "overflow-auto overscroll-contain rounded-xl border bg-neutral-900 outline-none select-none [contain:inline-size] focus-visible:ring-2 focus-visible:ring-primary")}
+        className={cn(
+          full ? "min-h-[16rem] flex-1" : fill ? "min-h-[8rem] flex-1" : compact ? "h-[14rem] sm:h-[22rem]" : "h-[26rem]",
+          !showRoll && "hidden",
+          "overflow-auto overscroll-contain rounded-xl border bg-neutral-900 outline-none select-none [contain:inline-size] focus-visible:ring-2 focus-visible:ring-primary")}
       >
         <div
           className="grid"
@@ -988,7 +1001,7 @@ export function SongPianoRoll({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className={cn("flex flex-wrap items-center gap-2 text-xs", !showRoll && "hidden")}>
         <span className="font-semibold text-muted-foreground">
           {t("{0} notes · {1} bars", notes.length, Math.ceil(songEnd / BAR))}
           {selectedNotes.length > 0 && ` · ${t("{0} selected", selectedNotes.length)}`}
@@ -1025,11 +1038,17 @@ export function SongPianoRoll({
         </span>
       </div>
 
-      <div className={cn("grid gap-3 rounded-xl border p-3", (full || fill) && "shrink-0")}>
+      <div className={cn("grid rounded-xl border", compact ? "gap-2 p-2" : "gap-3 p-3", (full || fill) && "shrink-0", fill && !showRoll && "mt-auto")}>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" size="sm" variant={pianoOn ? "secondary" : "outline"} aria-expanded={pianoOn} onClick={() => setPianoOn((x) => !x)}>
-            <PianoIcon /> {pianoOn ? t("Hide touch piano") : t("Show touch piano")}
-          </Button>
+          {compact ? (
+            <Button type="button" size="sm" variant="outline" aria-expanded={rollOpen} onClick={() => setRollOpen((x) => !x)}>
+              {rollOpen ? <ChevronDown /> : <ChevronUp />} {rollOpen ? t("Hide piano roll") : t("Show piano roll")}
+            </Button>
+          ) : (
+            <Button type="button" size="sm" variant={pianoOn ? "secondary" : "outline"} aria-expanded={pianoOn} onClick={() => setPianoOn((x) => !x)}>
+              <PianoIcon /> {pianoOn ? t("Hide touch piano") : t("Show touch piano")}
+            </Button>
+          )}
           {pianoOn && (
             <span className="text-xs font-semibold text-muted-foreground">
               {recording
@@ -1041,7 +1060,7 @@ export function SongPianoRoll({
         </div>
         {pianoOn && (
           <>
-            {!full && !fill && !recording && (
+            {!full && !fill && !compact && !recording && (
               <p className="text-xs text-muted-foreground">
                 {t("The piano only sounds. To write, press Record: after a one-bar count-in, play along with the metronome; notes appear as you play and grow while a key is held. Press Stop recording to finish (Ctrl+Z undoes the whole take). Laptop keys A S D F… and a MIDI keyboard work too.")}
               </p>
