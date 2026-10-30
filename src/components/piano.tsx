@@ -33,7 +33,7 @@ type Props = {
   className?: string;
   /** Overrides the height of the keys (default h-44 sm:h-56). With `sizeControl`, sets `--kh` instead (the height at 100%). */
   keysClassName?: string;
-  /** Shows − / + buttons to resize the keys (Virtual Piano). */
+  /** Shows − / + buttons to resize the keys (on by default; the size is shared by every piano in this browser). */
   sizeControl?: boolean;
 };
 
@@ -49,7 +49,7 @@ export function Piano({
   bolehMidi = true,
   className,
   keysClassName,
-  sizeControl = false,
+  sizeControl = true,
 }: Props) {
   const t = useT();
   const keyScale = useKeyScale();

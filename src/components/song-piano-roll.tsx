@@ -18,6 +18,7 @@ import { audioTime, loadAudio, scheduleClick, scheduleNote, stopAllNotes, unlock
 import { writeMidiFile } from "@/lib/midi-file";
 import { isBlackKey, midiToNote } from "@/lib/music";
 import { MAX_ROLL_BEATS, MAX_SONG_NOTES, type SongNote } from "@/lib/songs";
+import { lockLandscape, unlockOrientation } from "@/lib/orientation";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 
@@ -89,7 +90,7 @@ export function SongPianoRoll({
   maxNotes = MAX_SONG_NOTES,
   hideFullscreen = false,
   fill = false,
-  pianoSizeControl = false,
+  pianoSizeControl = true,
   compact = false,
 }: {
   initial: SongNote[];
@@ -547,12 +548,16 @@ export function SongPianoRoll({
     const el = rootRef.current;
     if (el?.requestFullscreen) {
       el.requestFullscreen()
-        .then(() => (viaApi.current = true))
+        .then(() => {
+          viaApi.current = true;
+          lockLandscape(); // phones and tablets turn sideways for a wider roll and piano
+        })
         .catch(() => {}); // e.g. iPhone: the editor still fills the window
     }
   };
   const exitFull = () => {
     setFull(false);
+    unlockOrientation();
     if (viaApi.current && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     viaApi.current = false;
   };
@@ -564,6 +569,7 @@ export function SongPianoRoll({
     const onFullscreenChange = () => {
       if (viaApi.current && !document.fullscreenElement) {
         viaApi.current = false;
+        unlockOrientation();
         setFull(false);
       }
     };
@@ -708,7 +714,7 @@ export function SongPianoRoll({
   return (
     <div
       ref={rootRef}
-      className={cn(full ? "fixed inset-0 z-50 flex flex-col gap-2 overflow-y-auto bg-background p-3 sm:p-4" : fill ? "flex min-h-0 min-w-0 flex-1 flex-col gap-2" : "grid min-w-0 gap-2")}
+      className={cn(full ? "fixed inset-0 z-50 flex flex-col gap-2 overflow-y-auto bg-background p-3 sm:p-4 short:gap-1 short:p-1.5" : fill ? "flex min-h-0 min-w-0 flex-1 flex-col gap-2" : "grid min-w-0 gap-2")}
     >
       {full && (
         <div className="flex items-center gap-2">
@@ -719,7 +725,7 @@ export function SongPianoRoll({
         </div>
       )}
       {/* On a short screen (phone sideways) the compact toolbar is one row that scrolls sideways, icons only. */}
-      <div className={cn("flex flex-wrap items-center gap-2", compact && "short:flex-nowrap short:gap-1 short:overflow-x-auto")}>
+      <div className="flex flex-wrap items-center gap-2 short:flex-nowrap short:gap-1 short:overflow-x-auto">
         <Button
           type="button"
           size="sm"
@@ -729,7 +735,7 @@ export function SongPianoRoll({
           className="shrink-0"
         >
           {busy ? <Square /> : <Play />}{" "}
-          <span className={cn(compact && "short:hidden")}>{busy ? t("Stop") : playFrom > 0 ? t("Play from bar {0}", Math.floor(playFrom / BAR) + 1) : t("Play")}</span>
+          <span className="short:hidden">{busy ? t("Stop") : playFrom > 0 ? t("Play from bar {0}", Math.floor(playFrom / BAR) + 1) : t("Play")}</span>
         </Button>
         <Button
           type="button"
@@ -742,10 +748,10 @@ export function SongPianoRoll({
           title={t("Record from the green line: one bar of count-in, then play the piano")}
           aria-label={recording ? t("Stop recording") : t("Record")}
         >
-          <Circle className="fill-current" /> <span className={cn(compact && "short:hidden")}>{recording ? t("Stop recording") : t("Record")}</span>
+          <Circle className="fill-current" /> <span className="short:hidden">{recording ? t("Stop recording") : t("Record")}</span>
         </Button>
         <label className="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-          <span className={cn(compact && "short:hidden")}>{t("Tempo")}</span>
+          <span className="short:hidden">{t("Tempo")}</span>
           <Input
             type="number"
             inputMode="numeric"
@@ -894,7 +900,7 @@ export function SongPianoRoll({
         aria-label={t("Piano roll")}
         // contain:inline-size keeps the wide roll from stretching the page on phones; it scrolls here instead.
         className={cn(
-          full ? "min-h-[16rem] flex-1" : fill ? "min-h-[4.5rem] flex-1 tall:min-h-[8rem]" : compact ? "h-[9rem] tall:h-[14rem] sm:tall:h-[22rem]" : "h-[26rem]",
+          full ? "min-h-[6rem] flex-1 tall:min-h-[16rem]" : fill ? "min-h-[4.5rem] flex-1 tall:min-h-[8rem]" : compact ? "h-[9rem] tall:h-[14rem] sm:tall:h-[22rem]" : "h-[12rem] tall:h-[26rem]",
           !showRoll && "hidden",
           "overflow-auto overscroll-contain rounded-xl border bg-neutral-900 outline-none select-none [contain:inline-size] focus-visible:ring-2 focus-visible:ring-primary")}
       >

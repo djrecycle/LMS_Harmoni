@@ -51,7 +51,7 @@ export function MidiKeyPreview({ notes, mode }: { notes: string[]; mode: "ordere
         </Button>
         <span className="text-xs text-muted-foreground">{t("Green keys are the answer key.")}</span>
       </div>
-      <Piano correctKeys={midis} highlight={highlight} bolehMidi={false} />
+      <Piano correctKeys={midis} highlight={highlight} bolehMidi={false} sizeControl={false} />
     </div>
   );
 }

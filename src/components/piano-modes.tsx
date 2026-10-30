@@ -9,12 +9,9 @@ import { Metronome } from "@/components/metronome";
 import { Piano } from "@/components/piano";
 import { SongPlayer } from "@/components/song-player";
 import type { Song } from "@/lib/songs";
+import { lockLandscape, unlockOrientation } from "@/lib/orientation";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
-
-/** Screen orientation control (lock/unlock exist on Android browsers in full screen, not on iPhone). */
-const orientation = () =>
-  (typeof screen !== "undefined" ? screen.orientation : undefined) as (ScreenOrientation & { lock?: (o: string) => Promise<void>; unlock?: () => void }) | undefined;
 
 /** Virtual piano page: free play, or play a song with falling notes.
  *  The song player has its own metronome that follows the song, so the stand-alone one is shown only for free play. */
@@ -39,13 +36,13 @@ export function PianoModes({ songs }: { songs: Song[] }) {
       .then(() => {
         viaApi.current = true;
         // Phones and tablets turn to landscape, so the keyboard is as wide as possible.
-        if (window.matchMedia("(pointer: coarse)").matches) void orientation()?.lock?.("landscape").catch(() => {});
+        lockLandscape();
       })
       .catch(() => {}); // e.g. iPhone: the page still fills the window (a hint asks to turn the phone)
   };
   const exitFull = () => {
     setFull(false);
-    orientation()?.unlock?.();
+    unlockOrientation();
     if (viaApi.current && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     viaApi.current = false;
   };
@@ -57,7 +54,7 @@ export function PianoModes({ songs }: { songs: Song[] }) {
     const onFullscreenChange = () => {
       if (viaApi.current && !document.fullscreenElement) {
         viaApi.current = false;
-        orientation()?.unlock?.();
+        unlockOrientation();
         setFull(false);
       }
     };
