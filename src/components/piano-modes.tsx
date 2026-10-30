@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AudioLines, ListMusic, Maximize2, Minimize2, Piano as PianoIcon } from "lucide-react";
+import { AudioLines, ListMusic, RotateCw, Maximize2, Minimize2, Piano as PianoIcon } from "lucide-react";
 import { FreeRecorder } from "@/components/free-recorder";
 import { Button } from "@/components/ui/button";
 import { InstrumentSelect } from "@/components/instrument-select";
@@ -11,6 +11,10 @@ import { SongPlayer } from "@/components/song-player";
 import type { Song } from "@/lib/songs";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
+
+/** Screen orientation control (lock/unlock exist on Android browsers in full screen, not on iPhone). */
+const orientation = () =>
+  (typeof screen !== "undefined" ? screen.orientation : undefined) as (ScreenOrientation & { lock?: (o: string) => Promise<void>; unlock?: () => void }) | undefined;
 
 /** Virtual piano page: free play, or play a song with falling notes.
  *  The song player has its own metronome that follows the song, so the stand-alone one is shown only for free play. */
@@ -32,11 +36,16 @@ export function PianoModes({ songs }: { songs: Song[] }) {
     setFull(true);
     rootRef.current
       ?.requestFullscreen?.()
-      .then(() => (viaApi.current = true))
-      .catch(() => {}); // e.g. iPhone: the page still fills the window
+      .then(() => {
+        viaApi.current = true;
+        // Phones and tablets turn to landscape, so the keyboard is as wide as possible.
+        if (window.matchMedia("(pointer: coarse)").matches) void orientation()?.lock?.("landscape").catch(() => {});
+      })
+      .catch(() => {}); // e.g. iPhone: the page still fills the window (a hint asks to turn the phone)
   };
   const exitFull = () => {
     setFull(false);
+    orientation()?.unlock?.();
     if (viaApi.current && document.fullscreenElement) void document.exitFullscreen().catch(() => {});
     viaApi.current = false;
   };
@@ -48,6 +57,7 @@ export function PianoModes({ songs }: { songs: Song[] }) {
     const onFullscreenChange = () => {
       if (viaApi.current && !document.fullscreenElement) {
         viaApi.current = false;
+        orientation()?.unlock?.();
         setFull(false);
       }
     };
@@ -63,10 +73,21 @@ export function PianoModes({ songs }: { songs: Song[] }) {
     };
   }, [full]);
 
+  // Where the screen can't be turned by the page (iPhone), a phone held upright gets a hint to turn it.
+  const [portraitPhone, setPortraitPhone] = useState(false);
+  useEffect(() => {
+    if (!full) return;
+    const mq = window.matchMedia("(orientation: portrait) and (pointer: coarse) and (max-width: 768px)");
+    const update = () => setPortraitPhone(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, [full]);
+
   return (
     <div ref={rootRef} className={cn(full && "fixed inset-0 z-50 overflow-y-auto bg-background p-3 sm:p-4")}>
-      <div className={cn("grid gap-6", tab === "free" && !roll && "lg:grid-cols-[1fr_20rem] lg:items-start", full && "min-h-full gap-3")}>
-        <div className={cn("grid gap-4 rounded-2xl border bg-card p-4 shadow-xs sm:p-5", full && "flex flex-col p-3 sm:p-4")}>
+      <div className={cn("grid gap-6", tab === "free" && !roll && "lg:grid-cols-[1fr_20rem] lg:items-start", full && "h-full gap-3")}>
+        <div className={cn("grid gap-4 rounded-2xl border bg-card p-4 shadow-xs sm:p-5", full && "flex min-h-0 flex-col p-3 sm:p-4")}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div role="tablist" className="inline-flex w-fit rounded-xl border bg-card p-1 shadow-xs">
               {tabs.map(({ id, label, Icon }) => (
@@ -100,6 +121,11 @@ export function PianoModes({ songs }: { songs: Song[] }) {
               )}
             </div>
           </div>
+          {full && portraitPhone && (
+            <p className="inline-flex items-center gap-2 rounded-lg bg-primary-soft px-3 py-2 text-sm font-semibold text-primary">
+              <RotateCw className="size-4 shrink-0" /> {t("Turn your phone sideways (landscape) for wider keys.")}
+            </p>
+          )}
           {/* Only one is mounted at a time so their computer-keyboard shortcuts don't both fire. */}
           {tab === "song" ? (
             <SongPlayer songs={songs} full={full} />

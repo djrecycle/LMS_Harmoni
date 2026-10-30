@@ -850,7 +850,7 @@ export function SongPianoRoll({
         onKeyDown={onKeyDown}
         aria-label={t("Piano roll")}
         // contain:inline-size keeps the wide roll from stretching the page on phones; it scrolls here instead.
-        className={cn(full ? "min-h-[16rem] flex-1" : fill ? "min-h-[12rem] flex-1" : "h-[26rem]", "overflow-auto overscroll-contain rounded-xl border bg-neutral-900 outline-none select-none [contain:inline-size] focus-visible:ring-2 focus-visible:ring-primary")}
+        className={cn(full ? "min-h-[16rem] flex-1" : fill ? "min-h-[8rem] flex-1" : "h-[26rem]", "overflow-auto overscroll-contain rounded-xl border bg-neutral-900 outline-none select-none [contain:inline-size] focus-visible:ring-2 focus-visible:ring-primary")}
       >
         <div
           className="grid"

@@ -1956,6 +1956,7 @@ export const id: Record<string, string> = {
   "Staff notation": "Notasi balok",
   "Key signature": "Tanda mula",
   "Key size": "Ukuran tuts",
+  "Turn your phone sideways (landscape) for wider keys.": "Putar HP ke posisi mendatar (landscape) agar tuts lebih lebar.",
   "Piano roll & record": "Piano roll & rekam",
   "My recording": "Rekamanku",
   "At most {0} bars": "Maksimal {0} birama",
