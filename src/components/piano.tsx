@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Keyboard, Usb } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { KeySizeControl, useKeyScale } from "@/components/key-size-control";
 import { unlockAudio, loadAudio, noteOn, noteOff, stopAllNotes } from "@/lib/audio";
 import { isBlackKey, midiToNote } from "@/lib/music";
 import { useMidi } from "@/lib/use-midi";
@@ -30,8 +31,10 @@ type Props = {
   formatName?: boolean;
   bolehMidi?: boolean;
   className?: string;
-  /** Overrides the height of the keys (default h-44 sm:h-56). */
+  /** Overrides the height of the keys (default h-44 sm:h-56). With `sizeControl`, sets `--kh` instead (the height at 100%). */
   keysClassName?: string;
+  /** Shows − / + buttons to resize the keys (Virtual Piano). */
+  sizeControl?: boolean;
 };
 
 export function Piano({
@@ -46,8 +49,10 @@ export function Piano({
   bolehMidi = true,
   className,
   keysClassName,
+  sizeControl = false,
 }: Props) {
   const t = useT();
+  const keyScale = useKeyScale();
   const storeRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [initialOctave, setInitialOctave] = useState(4);
@@ -191,6 +196,11 @@ export function Piano({
           <Button variant="outline" size="icon" className="size-9" aria-label={t("Higher octave")} disabled={initialOctave >= 6} onClick={() => setInitialOctave((o) => o + 1)}>
             <ChevronRight />
           </Button>
+          {sizeControl && (
+            <span className="ml-2">
+              <KeySizeControl />
+            </span>
+          )}
         </div>
         {bolehMidi && (
           <div className="flex items-center gap-2 text-xs">
@@ -216,7 +226,12 @@ export function Piano({
         ref={storeRef}
         role="group"
         aria-label={t("Virtual piano")}
-        className={cn("relative h-44 w-full select-none overflow-hidden rounded-xl bg-neutral-900 p-1.5 pt-3 shadow-inner sm:h-56", keysClassName, disabled && "opacity-60")}
+        style={sizeControl ? ({ "--ks": keyScale } as React.CSSProperties) : undefined}
+        className={cn(
+          "relative w-full select-none overflow-hidden rounded-xl bg-neutral-900 p-1.5 pt-3 shadow-inner",
+          sizeControl ? cn("h-[calc(var(--kh)*var(--ks))]", keysClassName ?? "[--kh:11rem] sm:[--kh:14rem]") : cn("h-44 sm:h-56", keysClassName),
+          disabled && "opacity-60",
+        )}
       >
         <div className="relative flex h-full w-full">
           {white.map((m) => (

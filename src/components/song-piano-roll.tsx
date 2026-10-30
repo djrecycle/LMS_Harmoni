@@ -85,6 +85,11 @@ export function SongPianoRoll({
   title,
   onChange,
   pianoInitiallyOn = true,
+  maxBeats = MAX_ROLL_BEATS,
+  maxNotes = MAX_SONG_NOTES,
+  hideFullscreen = false,
+  fill = false,
+  pianoSizeControl = false,
 }: {
   initial: SongNote[];
   bpm: number;
@@ -93,6 +98,15 @@ export function SongPianoRoll({
   onChange: (notes: SongNote[]) => void;
   /** Show the touch piano at first (off where several rolls share a page, as in the lesson block editor). */
   pianoInitiallyOn?: boolean;
+  /** Length limit in beats (the end of the roll; a recording stops there). Students get a short one. */
+  maxBeats?: number;
+  maxNotes?: number;
+  /** Hide the roll's own full screen button (when the page around it already has one). */
+  hideFullscreen?: boolean;
+  /** Grow to fill a flex column (the page around it is in full screen); the piano stays at the bottom. */
+  fill?: boolean;
+  /** Show the − / + key size buttons on the touch piano. */
+  pianoSizeControl?: boolean;
 }) {
   const t = useT();
   const nextId = useRef(1);
@@ -161,7 +175,7 @@ export function SongPianoRoll({
     finish(before);
   };
   const setWriteAt = (beat: number) => {
-    const b = round3(Math.min(MAX_ROLL_BEATS, Math.max(0, beat)));
+    const b = round3(Math.min(maxBeats, Math.max(0, beat)));
     writeAtRef.current = b;
     setWriteAtState(b);
   };
@@ -189,7 +203,7 @@ export function SongPianoRoll({
     const rec = take.current;
     if (!rec || !transport.current) return;
     if (rec.held.has(midi)) endHeld(midi);
-    if (notesRef.current.length >= MAX_SONG_NOTES) return;
+    if (notesRef.current.length >= maxNotes) return;
     // Snap the start to the grid; a key pressed during the count-in starts on the first beat.
     const start = round3(Math.max(transport.current.from, Math.round(beatNow() / snap) * snap));
     const note = { id: nextId.current++, midi, start, beats: 0.05 };
@@ -230,7 +244,7 @@ export function SongPianoRoll({
   const songEnd = useMemo(() => notes.reduce((m, n) => Math.max(m, n.start + n.beats), 0), [notes]);
   // At least 8 bars, two empty bars after the song, and enough to fill the visible width.
   const fillBeats = Math.ceil((viewW - KEYS_W) / zoom / BAR) * BAR;
-  const totalBeats = Math.min(MAX_ROLL_BEATS, Math.max(BAR * 8, fillBeats, Math.ceil((songEnd + BAR * 2) / BAR) * BAR));
+  const totalBeats = Math.min(maxBeats, Math.max(BAR * 8, fillBeats, Math.ceil((songEnd + BAR * 2) / BAR) * BAR));
   const gridW = totalBeats * zoom;
   const gridH = (HIGH - LOW + 1) * ROW_H;
   const rows = useMemo(() => Array.from({ length: HIGH - LOW + 1 }, (_, i) => HIGH - i), []);
@@ -269,8 +283,8 @@ export function SongPianoRoll({
   const snapDown = (beat: number) => Math.floor(beat / snap + 1e-9) * snap;
 
   const addNote = (beat: number, midi: number) => {
-    if (notesRef.current.length >= MAX_SONG_NOTES) return null;
-    const start = round3(Math.min(snapDown(beat), MAX_ROLL_BEATS - length));
+    if (notesRef.current.length >= maxNotes) return null;
+    const start = round3(Math.min(snapDown(beat), maxBeats - length));
     const note = { id: nextId.current++, midi, start, beats: length };
     apply([...notesRef.current, note]);
     setSelected(new Set([note.id]));
@@ -404,7 +418,7 @@ export function SongPianoRoll({
           n.id,
           {
             ...n,
-            start: round3(Math.min(n.start + dBeat, MAX_ROLL_BEATS - n.beats)),
+            start: round3(Math.min(n.start + dBeat, maxBeats - n.beats)),
             midi: n.midi + dPitch,
           },
         ]),
@@ -422,7 +436,7 @@ export function SongPianoRoll({
           n.id,
           {
             ...n,
-            beats: round3(Math.min(64, MAX_ROLL_BEATS - n.start, Math.max(Math.min(n.beats, snap), n.beats + dLen))),
+            beats: round3(Math.min(64, maxBeats - n.start, Math.max(Math.min(n.beats, snap), n.beats + dLen))),
           },
         ]),
       );
@@ -478,11 +492,11 @@ export function SongPianoRoll({
   /** Copies the selected notes right after themselves (FL Studio's Ctrl+B). */
   const duplicateSelected = () => {
     const sel = notesRef.current.filter((n) => selected.has(n.id));
-    if (!sel.length || notesRef.current.length + sel.length > MAX_SONG_NOTES) return;
+    if (!sel.length || notesRef.current.length + sel.length > maxNotes) return;
     const s0 = Math.min(...sel.map((n) => n.start));
     const s1 = Math.max(...sel.map((n) => n.start + n.beats));
     const offset = Math.max(1, Math.ceil(s1 - s0 - 1e-9));
-    if (s1 + offset > MAX_ROLL_BEATS) return;
+    if (s1 + offset > maxBeats) return;
     const copies = sel.map((n) => ({
       ...n,
       id: nextId.current++,
@@ -605,7 +619,7 @@ export function SongPianoRoll({
     const countIn = record ? BAR : 0;
     const list = notesRef.current.filter((n) => n.start >= from - 1e-6).sort((a, b) => a.start - b.start);
     if (!record && !list.length) return;
-    const end = record ? MAX_ROLL_BEATS : Math.max(...list.map((n) => n.start + n.beats));
+    const end = record ? maxBeats : Math.max(...list.map((n) => n.start + n.beats));
     const t0 = audioTime() + 0.1 + countIn * spb;
     transport.current = { from, t0, spb };
     if (record) {
@@ -636,7 +650,7 @@ export function SongPianoRoll({
         const grow = new Map([...rec.held.values()].map((h) => [h.id, Math.max(0.05, beat - h.start)]));
         apply(notesRef.current.map((n) => (grow.has(n.id) ? { ...n, beats: grow.get(n.id)! } : n)));
       }
-      if (beat > end + 0.25 || beat >= MAX_ROLL_BEATS) return stop();
+      if (beat > end + 0.25 || beat >= maxBeats) return stop();
       raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
@@ -683,7 +697,10 @@ export function SongPianoRoll({
   const bars = totalBeats / BAR;
 
   return (
-    <div ref={rootRef} className={cn(full ? "fixed inset-0 z-50 flex flex-col gap-2 overflow-y-auto bg-background p-3 sm:p-4" : "grid min-w-0 gap-2")}>
+    <div
+      ref={rootRef}
+      className={cn(full ? "fixed inset-0 z-50 flex flex-col gap-2 overflow-y-auto bg-background p-3 sm:p-4" : fill ? "flex min-h-0 min-w-0 flex-1 flex-col gap-2" : "grid min-w-0 gap-2")}
+    >
       {full && (
         <div className="flex items-center gap-2">
           <p className="min-w-0 flex-1 font-bold break-words">{title.trim() || t("Piano roll")}</p>
@@ -702,6 +719,7 @@ export function SongPianoRoll({
           variant="outline"
           aria-pressed={recording}
           onClick={() => (recording ? stop() : void start(true))}
+          disabled={!recording && writeAt >= maxBeats}
           className={cn("border-danger/60 text-danger", recording && "animate-pulse bg-danger text-white")}
           title={t("Record from the green line: one bar of count-in, then play the piano")}
         >
@@ -818,7 +836,7 @@ export function SongPianoRoll({
           >
             <ZoomIn />
           </Button>
-          {!full && (
+          {!full && !hideFullscreen && (
             <Button type="button" size="sm" variant="outline" onClick={enterFull}>
               <Maximize2 /> {t("Full screen")}
             </Button>
@@ -832,7 +850,7 @@ export function SongPianoRoll({
         onKeyDown={onKeyDown}
         aria-label={t("Piano roll")}
         // contain:inline-size keeps the wide roll from stretching the page on phones; it scrolls here instead.
-        className={cn(full ? "min-h-[16rem] flex-1" : "h-[26rem]", "overflow-auto overscroll-contain rounded-xl border bg-neutral-900 outline-none select-none [contain:inline-size] focus-visible:ring-2 focus-visible:ring-primary")}
+        className={cn(full ? "min-h-[16rem] flex-1" : fill ? "min-h-[12rem] flex-1" : "h-[26rem]", "overflow-auto overscroll-contain rounded-xl border bg-neutral-900 outline-none select-none [contain:inline-size] focus-visible:ring-2 focus-visible:ring-primary")}
       >
         <div
           className="grid"
@@ -1007,7 +1025,7 @@ export function SongPianoRoll({
         </span>
       </div>
 
-      <div className={cn("grid gap-3 rounded-xl border p-3", full && "shrink-0")}>
+      <div className={cn("grid gap-3 rounded-xl border p-3", (full || fill) && "shrink-0")}>
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" size="sm" variant={pianoOn ? "secondary" : "outline"} aria-expanded={pianoOn} onClick={() => setPianoOn((x) => !x)}>
             <PianoIcon /> {pianoOn ? t("Hide touch piano") : t("Show touch piano")}
@@ -1017,17 +1035,23 @@ export function SongPianoRoll({
               {recording
                 ? t("Recording… play the piano. Hold a key longer for a longer note.")
                 : t("Recording starts at bar {0}, beat {1} (the green line)", Math.floor(writeAt / BAR) + 1, Number(((writeAt % BAR) + 1).toFixed(3)))}
+              {maxBeats < MAX_ROLL_BEATS && ` · ${t("At most {0} bars", maxBeats / BAR)}`}
             </span>
           )}
         </div>
         {pianoOn && (
           <>
-            {!full && !recording && (
+            {!full && !fill && !recording && (
               <p className="text-xs text-muted-foreground">
                 {t("The piano only sounds. To write, press Record: after a one-bar count-in, play along with the metronome; notes appear as you play and grow while a key is held. Press Stop recording to finish (Ctrl+Z undoes the whole take). Laptop keys A S D F… and a MIDI keyboard work too.")}
               </p>
             )}
-            <Piano onNotePress={onPianoPress} onNoteRelease={onPianoRelease} keysClassName={full ? "h-32 sm:h-40" : undefined} />
+            <Piano
+              onNotePress={onPianoPress}
+              onNoteRelease={onPianoRelease}
+              sizeControl={pianoSizeControl}
+              keysClassName={pianoSizeControl ? (full || fill ? "[--kh:8rem] sm:[--kh:10rem]" : undefined) : full ? "h-32 sm:h-40" : undefined}
+            />
           </>
         )}
       </div>

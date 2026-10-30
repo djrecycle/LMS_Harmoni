@@ -93,8 +93,15 @@ export function drawFalling(canvas: HTMLCanvasElement | null, song: Song, white:
     const bottom = H - (n.start - time) * pxPerBeat;
     const top = bottom - n.beats * pxPerBeat;
     if (top > H || bottom < 0) return;
-    const { x, width } = laneOf(n.midi, white, keyW);
     const done = state.done(i);
+    // Off the keys shown (the keyboard was moved an octave): a bar at that edge says which way to go.
+    if (n.midi < white[0] || n.midi > white[white.length - 1]) {
+      const right = n.midi > white[0];
+      ctx.fillStyle = done ? "rgba(139,92,246,0.25)" : "rgba(250,204,21,0.85)";
+      ctx.fillRect(right ? W - 5 : 0, top + 1, 5, Math.max(4, bottom - top - 2));
+      return;
+    }
+    const { x, width } = laneOf(n.midi, white, keyW);
     const missed = state.missed(i);
     const black = isBlackKey(n.midi);
     const sounding = state.sounding(i);

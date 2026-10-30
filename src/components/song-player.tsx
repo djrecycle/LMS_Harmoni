@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check, Headphones, Minus, Pause, Play, Plus, RotateCcw, Timer, Usb } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Headphones, Minus, Pause, Play, Plus, RotateCcw, Timer, Usb } from "lucide-react";
 import { toast } from "sonner";
 import { savePracticeResult } from "@/app/actions/practice";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { KeySizeControl, useKeyScale } from "@/components/key-size-control";
 import { drawFalling, drawStaff, KEY_CHOICES, keyName, labelOf, loadMusicFont, songKey, VISIBLE_BEATS, type Labels, type Mode, type NoteState } from "@/components/song-views";
 import { loadAudio, noteOff, noteOn, scheduleClick, scheduleNote, stopAllNotes, unlockAudio, audioTime, audioLatency } from "@/lib/audio";
 import { isBlackKey, midiToNote, NOTE_NAMES } from "@/lib/music";
@@ -34,11 +35,12 @@ const WHITE_OFFSETS = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17];
 const BLACK_KEY_MAP: Record<string, number> = { w: 1, e: 3, t: 6, y: 8, u: 10, o: 13, p: 15, "]": 18 };
 
 /** Whole octaves around the song: from the C below its lowest note to the C above its highest. */
-function keyRange(song: Song) {
+/** Keys shown under the song: the octaves its notes use, moved `shift` octaves left (-) or right (+). */
+function keyRange(song: Song, shift = 0) {
   const lo = Math.min(...song.notes.map((n) => n.midi));
   const hi = Math.max(...song.notes.map((n) => n.midi));
-  const first = Math.floor(lo / 12) * 12;
-  const last = Math.max(first + 12, Math.ceil((hi + 1) / 12) * 12);
+  const first = Math.floor(lo / 12) * 12 + shift * 12;
+  const last = Math.max(first + 12, Math.ceil((hi + 1) / 12) * 12 + shift * 12);
   const white: number[] = [];
   for (let m = first; m <= last; m++) if (!isBlackKey(m)) white.push(m);
   return { first, last, white };
@@ -79,7 +81,12 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   const [pressed, setPressed] = useState<Set<number>>(new Set());
   const [saved, setSaved] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
-  const range = useMemo(() => keyRange(song), [song]);
+  // Octave shift of the keyboard (the song itself stays the same; notes off the keys are marked at the edge).
+  const [octave, setOctave] = useState(0);
+  useEffect(() => setOctave(0), [song]);
+  const range = useMemo(() => keyRange(song, octave), [song, octave]);
+  const canLower = range.first - 12 >= 12; // C0
+  const canRaise = range.last + 12 <= 120; // C9
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -409,6 +416,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
     onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
   });
 
+  const keyScale = useKeyScale();
   const total = song.notes.length;
   const tries = score.hit + score.wrong + score.missed;
   const accuracy = tries > 0 ? Math.round((score.hit / tries) * 100) : 0;
@@ -536,6 +544,46 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant={playing ? "outline" : "default"} onClick={togglePlay}>
+            {playing ? <Pause /> : <Play />} {playing ? t("Pause") : t("Play")}
+          </Button>
+          <Button variant="outline" size="icon" aria-label={t("Start over")} onClick={reset}>
+            <RotateCcw />
+          </Button>
+          <div className="inline-flex items-center gap-1 rounded-lg border bg-card p-0.5" role="group" aria-label={t("Octave")}>
+            <Button type="button" variant="ghost" size="icon" className="size-9" aria-label={t("Lower octave")} disabled={!canLower} onClick={() => setOctave((o) => o - 1)}>
+              <ChevronLeft />
+            </Button>
+            <span className="min-w-16 px-1 text-center text-sm font-semibold tabular-nums">
+              {midiToNote(range.first)}–{midiToNote(range.last)}
+            </span>
+            <Button type="button" variant="ghost" size="icon" className="size-9" aria-label={t("Higher octave")} disabled={!canRaise} onClick={() => setOctave((o) => o + 1)}>
+              <ChevronRight />
+            </Button>
+          </div>
+          <KeySizeControl />
+          {midi.status === "connected" ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-success-soft px-3 py-1.5 text-xs font-semibold text-success">
+              <Usb className="size-3.5" />
+              {midi.device.length ? midi.device.join(", ") : t("MIDI active, plug in a keyboard")}
+            </span>
+          ) : midi.status === "pending" || midi.status === "meminta" ? (
+            <Button variant="outline" onClick={midi.connect} disabled={midi.status === "meminta"}>
+              <Usb /> {t("Connect MIDI keyboard")}
+            </Button>
+          ) : null}
+        </div>
+        {mode === "play" && (
+          // Score = correct notes out of all tries (wrong keys and missed notes count against it), as saved at the end.
+          <div className="flex items-baseline gap-2 rounded-xl border bg-card px-4 py-1.5" aria-live="polite">
+            <span className="text-sm font-semibold text-muted-foreground">{t("Score")}</span>
+            <span className="text-3xl font-extrabold tabular-nums text-primary">{accuracy}</span>
+          </div>
+        )}
+      </div>
+
       <div className={cn("overflow-hidden rounded-xl bg-neutral-900 shadow-inner", full && "flex flex-1 flex-col")}>
         <div ref={boxRef} className={cn("relative w-full", full ? "min-h-64 flex-1" : "h-64 sm:h-80")}>
           <canvas ref={canvasRef} className="absolute inset-0 size-full" aria-hidden />
@@ -584,7 +632,12 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
         <div className="h-1 bg-white/10">
           <div ref={progressRef} className="h-full w-0 bg-primary" />
         </div>
-        <div role="group" aria-label={t("Virtual piano")} className={cn("relative w-full shrink-0 select-none p-1 pt-0", full ? "h-36 sm:h-48" : "h-32 sm:h-40")}>
+        <div
+          role="group"
+          aria-label={t("Virtual piano")}
+          style={{ "--ks": keyScale } as React.CSSProperties}
+          className={cn("relative h-[calc(var(--kh)*var(--ks))] w-full shrink-0 select-none p-1 pt-0", full ? "[--kh:9rem] sm:[--kh:12rem]" : "[--kh:8rem] sm:[--kh:10rem]")}
+        >
           <div className="relative flex h-full w-full">
             {range.white.map((m) => (
               <button
@@ -616,32 +669,6 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={togglePlay}>
-            {playing ? <Pause /> : <Play />} {playing ? t("Pause") : t("Play")}
-          </Button>
-          <Button variant="outline" size="icon" aria-label={t("Start over")} onClick={reset}>
-            <RotateCcw />
-          </Button>
-          {mode === "play" && (
-            <span className="text-sm font-semibold text-muted-foreground">
-              {t("Correct")}: {score.hit}/{total} · {t("Wrong")}: {score.wrong}
-              {!wait && ` · ${t("Missed")}: ${score.missed}`}
-            </span>
-          )}
-        </div>
-        {midi.status === "connected" ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-success-soft px-3 py-1.5 text-xs font-semibold text-success">
-            <Usb className="size-3.5" />
-            {midi.device.length ? midi.device.join(", ") : t("MIDI active, plug in a keyboard")}
-          </span>
-        ) : midi.status === "pending" || midi.status === "meminta" ? (
-          <Button variant="outline" size="sm" onClick={midi.connect} disabled={midi.status === "meminta"}>
-            <Usb /> {t("Connect MIDI keyboard")}
-          </Button>
-        ) : null}
-      </div>
       <p className={cn("hidden text-xs text-muted-foreground", computerKeys && "sm:block")}>
         {t("Computer keyboard: A S D F G H J K L for white keys, W E T Y U O P for black keys, Space to play/pause.")}
       </p>
