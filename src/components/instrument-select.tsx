@@ -9,7 +9,7 @@ import { useT } from "@/i18n/client";
 /** Picks the sound of the piano keys. The choice is kept in this browser and applies to every piano in the app. */
 export function InstrumentSelect({ className }: { className?: string }) {
   const t = useT();
-  const value = useSyncExternalStore(subscribeInstrument, getInstrument, () => "piano" as InstrumentId);
+  const value = useSyncExternalStore(subscribeInstrument, getInstrument, () => "grand" as InstrumentId);
   const status = useSyncExternalStore(subscribeInstrument, getInstrumentStatus, () => "idle" as const);
   return (
     <label className={className ?? "inline-flex items-center gap-2 text-sm font-semibold"}>

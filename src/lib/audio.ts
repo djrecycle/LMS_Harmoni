@@ -51,7 +51,7 @@ export const INSTRUMENTS = [
 export type InstrumentId = (typeof INSTRUMENTS)[number]["id"];
 
 const INSTRUMENT_KEY = "harmoni.instrument";
-let instrument: InstrumentId = "piano";
+let instrument: InstrumentId = "grand";
 try {
   const saved = typeof window !== "undefined" ? window.localStorage.getItem(INSTRUMENT_KEY) : null;
   if (saved && INSTRUMENTS.some((x) => x.id === saved)) instrument = saved as InstrumentId;
