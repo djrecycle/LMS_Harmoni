@@ -43,11 +43,11 @@ export function KeySizeControl() {
   const t = useT();
   const i = useSyncExternalStore(subscribe, () => size, () => DEFAULT);
   return (
-    <div className="inline-flex items-center gap-1 rounded-lg border bg-card p-0.5" role="group" aria-label={t("Key size")}>
+    <div className="inline-flex shrink-0 items-center gap-1 rounded-lg border bg-card p-0.5" role="group" aria-label={t("Key size")}>
       <Button type="button" variant="ghost" size="icon" className="size-9" aria-label={t("Smaller keys")} disabled={i <= 0} onClick={() => setSize(i - 1)}>
         <ZoomOut />
       </Button>
-      <span className="px-1 text-sm font-semibold">{t("Keys")}</span>
+      <span className="px-1 text-sm font-semibold short:hidden">{t("Keys")}</span>
       <Button type="button" variant="ghost" size="icon" className="size-9" aria-label={t("Larger keys")} disabled={i >= KEY_SCALES.length - 1} onClick={() => setSize(i + 1)}>
         <ZoomIn />
       </Button>

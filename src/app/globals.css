@@ -1,6 +1,9 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark *));
+/* Short screens: a phone held sideways (landscape). Used to fit the Virtual Piano on one screen. */
+@custom-variant short (@media (max-height: 500px));
+@custom-variant tall (@media (min-height: 501px));
 
 :root {
   --background: oklch(0.985 0.006 285);

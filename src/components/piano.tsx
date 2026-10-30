@@ -188,7 +188,7 @@ export function Piano({
   };
 
   return (
-    <div className={cn("grid gap-3", className)}>
+    <div className={cn("grid gap-3 short:gap-1.5", className)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1">
           <Button variant="outline" size="icon" className="size-9" aria-label={t("Lower octave")} disabled={initialOctave <= 1} onClick={() => setInitialOctave((o) => o - 1)}>
@@ -217,7 +217,7 @@ export function Piano({
               <span className="text-danger">{t("MIDI permission was denied. Change it in the site settings.")}</span>
             ) : (
               <Button variant="outline" size="sm" aria-label={t("Connect MIDI keyboard")} onClick={midi.connect} disabled={midi.status === "meminta"}>
-                <Usb /> <span className="hidden sm:inline">{t("Connect MIDI keyboard")}</span>
+                <Usb /> <span className="hidden sm:tall:inline">{t("Connect MIDI keyboard")}</span>
               </Button>
             )}
           </div>
@@ -231,7 +231,7 @@ export function Piano({
         style={sizeControl ? ({ "--ks": keyScale } as React.CSSProperties) : undefined}
         className={cn(
           "relative w-full select-none overflow-hidden rounded-xl bg-neutral-900 p-1.5 pt-3 shadow-inner",
-          sizeControl ? cn("h-[calc(var(--kh)*var(--ks))]", keysClassName ?? "[--kh:11rem] sm:[--kh:14rem]") : cn("h-44 sm:h-56", keysClassName),
+          sizeControl ? cn("h-[calc(var(--kh)*var(--ks))]", keysClassName ?? "[--kh:7rem] tall:[--kh:11rem] sm:tall:[--kh:14rem]") : cn("h-44 sm:h-56", keysClassName),
           disabled && "opacity-60",
         )}
       >
@@ -267,7 +267,7 @@ export function Piano({
           ))}
         </div>
       </div>
-      <p className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+      <p className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:tall:flex">
         <Keyboard className="size-3.5" /> {t("You can also play with your computer keyboard:")} <kbd className="rounded bg-muted px-1.5 font-mono">A S D F G H J K L</kbd> {t("(white keys) and")}{" "}
         <kbd className="rounded bg-muted px-1.5 font-mono">W E T Y U O P</kbd> {t("(black keys).")}
       </p>

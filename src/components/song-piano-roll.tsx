@@ -718,9 +718,18 @@ export function SongPianoRoll({
           </Button>
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" onClick={() => (busy ? stop() : void start(false))} disabled={!busy && !notes.length}>
-          {busy ? <Square /> : <Play />} {busy ? t("Stop") : playFrom > 0 ? t("Play from bar {0}", Math.floor(playFrom / BAR) + 1) : t("Play")}
+      {/* On a short screen (phone sideways) the compact toolbar is one row that scrolls sideways, icons only. */}
+      <div className={cn("flex flex-wrap items-center gap-2", compact && "short:flex-nowrap short:gap-1 short:overflow-x-auto")}>
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => (busy ? stop() : void start(false))}
+          disabled={!busy && !notes.length}
+          aria-label={busy ? t("Stop") : t("Play")}
+          className="shrink-0"
+        >
+          {busy ? <Square /> : <Play />}{" "}
+          <span className={cn(compact && "short:hidden")}>{busy ? t("Stop") : playFrom > 0 ? t("Play from bar {0}", Math.floor(playFrom / BAR) + 1) : t("Play")}</span>
         </Button>
         <Button
           type="button"
@@ -729,13 +738,14 @@ export function SongPianoRoll({
           aria-pressed={recording}
           onClick={() => (recording ? stop() : void start(true))}
           disabled={!recording && writeAt >= maxBeats}
-          className={cn("border-danger/60 text-danger", recording && "animate-pulse bg-danger text-white")}
+          className={cn("shrink-0 border-danger/60 text-danger", recording && "animate-pulse bg-danger text-white")}
           title={t("Record from the green line: one bar of count-in, then play the piano")}
+          aria-label={recording ? t("Stop recording") : t("Record")}
         >
-          <Circle className="fill-current" /> {recording ? t("Stop recording") : t("Record")}
+          <Circle className="fill-current" /> <span className={cn(compact && "short:hidden")}>{recording ? t("Stop recording") : t("Record")}</span>
         </Button>
-        <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-          {t("Tempo")}
+        <label className="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+          <span className={cn(compact && "short:hidden")}>{t("Tempo")}</span>
           <Input
             type="number"
             inputMode="numeric"
@@ -760,7 +770,7 @@ export function SongPianoRoll({
           title={t("Metronome during play and recording")}
           aria-label={t("Metronome")}
         >
-          <Timer /> <span className="hidden sm:inline">{t("Metronome")}</span>
+          <Timer /> <span className="hidden sm:tall:inline">{t("Metronome")}</span>
         </Button>
         <div className={cn("inline-flex rounded-lg border p-0.5", !showRoll && "hidden")} role="group" aria-label={t("Tool")}>
           {tools.map(([id, Icon, label]) => (
@@ -774,11 +784,11 @@ export function SongPianoRoll({
                 tool === id ? "bg-primary text-primary-foreground" : "hover:bg-muted",
               )}
             >
-              <Icon className="size-4" /> <span className="hidden sm:inline">{label}</span>
+              <Icon className="size-4" /> <span className="hidden sm:tall:inline">{label}</span>
             </button>
           ))}
         </div>
-        <label className={cn("inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground", compact && "hidden sm:inline-flex", !showRoll && "!hidden")}>
+        <label className={cn("inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground", compact && "hidden sm:tall:inline-flex", !showRoll && "!hidden")}>
           {t("Note length")}
           <Select className="h-8 w-auto text-xs" value={length} onChange={(x) => setLength(Number(x.target.value))}>
             {!LENGTHS.some(([v]) => v === length) && <option value={length}>{t("{0} beats", length)}</option>}
@@ -789,7 +799,7 @@ export function SongPianoRoll({
             ))}
           </Select>
         </label>
-        <label className={cn("inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground", compact && "hidden sm:inline-flex", !showRoll && "!hidden")}>
+        <label className={cn("inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground", compact && "hidden sm:tall:inline-flex", !showRoll && "!hidden")}>
           {t("Snap")}
           <Select className="h-8 w-auto text-xs" value={snap} onChange={(x) => setSnap(Number(x.target.value))}>
             {SNAPS.map(([v, label]) => (
@@ -799,7 +809,30 @@ export function SongPianoRoll({
             ))}
           </Select>
         </label>
-        <div className={cn("ml-auto inline-flex items-center gap-1", !showRoll && "hidden")}>
+        {compact && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+            aria-expanded={rollOpen}
+            aria-label={rollOpen ? t("Hide piano roll") : t("Show piano roll")}
+            onClick={() => setRollOpen((x) => !x)}
+          >
+            {rollOpen ? <ChevronUp /> : <ChevronDown />} <span className="hidden sm:tall:inline">{rollOpen ? t("Hide piano roll") : t("Show piano roll")}</span>
+          </Button>
+        )}
+        <div className={cn("ml-auto inline-flex shrink-0 items-center gap-1", !showRoll && "hidden")}>
+          {compact && (
+            <>
+              <Button type="button" size="icon" variant="ghost" className="size-8" aria-label={t("Download MIDI")} title={t("Download MIDI")} onClick={exportMidi} disabled={!notes.length}>
+                <Download />
+              </Button>
+              <Button type="button" size="icon" variant="ghost" className="size-8" aria-label={t("Clear all")} title={t("Clear all")} onClick={clearAll} disabled={!notes.length}>
+                <Trash2 />
+              </Button>
+            </>
+          )}
           <Button
             type="button"
             size="icon"
@@ -861,7 +894,7 @@ export function SongPianoRoll({
         aria-label={t("Piano roll")}
         // contain:inline-size keeps the wide roll from stretching the page on phones; it scrolls here instead.
         className={cn(
-          full ? "min-h-[16rem] flex-1" : fill ? "min-h-[8rem] flex-1" : compact ? "h-[14rem] sm:h-[22rem]" : "h-[26rem]",
+          full ? "min-h-[16rem] flex-1" : fill ? "min-h-[4.5rem] flex-1 tall:min-h-[8rem]" : compact ? "h-[9rem] tall:h-[14rem] sm:tall:h-[22rem]" : "h-[26rem]",
           !showRoll && "hidden",
           "overflow-auto overscroll-contain rounded-xl border bg-neutral-900 outline-none select-none [contain:inline-size] focus-visible:ring-2 focus-visible:ring-primary")}
       >
@@ -1001,18 +1034,20 @@ export function SongPianoRoll({
         </div>
       </div>
 
-      <div className={cn("flex flex-wrap items-center gap-2 text-xs", !showRoll && "hidden")}>
+      <div className={cn("flex flex-wrap items-center gap-2 text-xs", compact && !selectedNotes.length && "hidden sm:tall:flex", !showRoll && "!hidden")}>
         <span className="font-semibold text-muted-foreground">
           {t("{0} notes · {1} bars", notes.length, Math.ceil(songEnd / BAR))}
           {selectedNotes.length > 0 && ` · ${t("{0} selected", selectedNotes.length)}`}
         </span>
         {selectedNotes.length > 0 && (
           <span className="inline-flex flex-wrap items-center gap-1">
-            <Button type="button" size="sm" variant="outline" onClick={() => shiftSelected(1, 0)} title="↑">
-              <ArrowUp /> {t("Semitone")}
+            <Button type="button" size="sm" variant="outline" onClick={() => shiftSelected(1, 0)} title="↑" aria-label={t("Semitone up")}>
+              <ArrowUp /> <span className="short:hidden">{t("Semitone")}</span>
+              <span className="hidden short:inline">½</span>
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => shiftSelected(-1, 0)} title="↓">
-              <ArrowDown /> {t("Semitone")}
+            <Button type="button" size="sm" variant="outline" onClick={() => shiftSelected(-1, 0)} title="↓" aria-label={t("Semitone down")}>
+              <ArrowDown /> <span className="short:hidden">{t("Semitone")}</span>
+              <span className="hidden short:inline">½</span>
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={() => shiftSelected(12, 0)} title="Shift+↑">
               <ArrowUp /> {t("Octave")}
@@ -1021,14 +1056,14 @@ export function SongPianoRoll({
               <ArrowDown /> {t("Octave")}
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={duplicateSelected} title="Ctrl+B">
-              <Copy /> {t("Duplicate")}
+              <Copy /> <span className="short:hidden">{t("Duplicate")}</span>
             </Button>
             <Button type="button" size="sm" variant="outline" onClick={deleteSelected} title="Delete">
               <Trash2 /> {t("Delete")}
             </Button>
           </span>
         )}
-        <span className="ml-auto inline-flex gap-1">
+        <span className={cn("ml-auto inline-flex gap-1", compact && "hidden")}>
           <Button type="button" size="sm" variant="ghost" onClick={exportMidi} disabled={!notes.length}>
             <Download /> {t("Download MIDI")}
           </Button>
@@ -1038,13 +1073,17 @@ export function SongPianoRoll({
         </span>
       </div>
 
-      <div className={cn("grid rounded-xl border", compact ? "gap-2 p-2" : "gap-3 p-3", (full || fill) && "shrink-0", fill && !showRoll && "mt-auto")}>
-        <div className="flex flex-wrap items-center gap-2">
-          {compact ? (
-            <Button type="button" size="sm" variant="outline" aria-expanded={rollOpen} onClick={() => setRollOpen((x) => !x)}>
-              {rollOpen ? <ChevronDown /> : <ChevronUp />} {rollOpen ? t("Hide piano roll") : t("Show piano roll")}
-            </Button>
-          ) : (
+      <div
+        className={cn(
+          "grid rounded-xl border",
+          compact ? "gap-2 p-2 short:gap-1 short:border-0 short:p-0" : "gap-3 p-3",
+          (full || fill) && "shrink-0",
+          fill && !showRoll && "mt-auto",
+        )}
+      >
+        {/* Compact: only the recording status (the roll's show/hide button is in the toolbar). */}
+        <div className={cn("flex flex-wrap items-center gap-2", compact && !recording && "short:hidden")}>
+          {compact ? null : (
             <Button type="button" size="sm" variant={pianoOn ? "secondary" : "outline"} aria-expanded={pianoOn} onClick={() => setPianoOn((x) => !x)}>
               <PianoIcon /> {pianoOn ? t("Hide touch piano") : t("Show touch piano")}
             </Button>
@@ -1069,7 +1108,7 @@ export function SongPianoRoll({
               onNotePress={onPianoPress}
               onNoteRelease={onPianoRelease}
               sizeControl={pianoSizeControl}
-              keysClassName={pianoSizeControl ? (full || fill ? "[--kh:8rem] sm:[--kh:10rem]" : undefined) : full ? "h-32 sm:h-40" : undefined}
+              keysClassName={pianoSizeControl ? (full || fill ? "[--kh:6rem] tall:[--kh:8rem] sm:tall:[--kh:10rem]" : undefined) : full ? "h-32 sm:h-40" : undefined}
             />
           </>
         )}

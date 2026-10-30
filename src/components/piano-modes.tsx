@@ -85,10 +85,10 @@ export function PianoModes({ songs }: { songs: Song[] }) {
   }, [full]);
 
   return (
-    <div ref={rootRef} className={cn(full && "fixed inset-0 z-50 overflow-y-auto bg-background p-3 sm:p-4")}>
-      <div className={cn("grid gap-6", tab === "free" && !roll && "lg:grid-cols-[1fr_20rem] lg:items-start", full && "h-full gap-3")}>
-        <div className={cn("grid gap-4 rounded-2xl border bg-card p-4 shadow-xs sm:p-5", full && "flex min-h-0 flex-col p-3 sm:p-4")}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
+    <div ref={rootRef} className={cn(full && "fixed inset-0 z-50 overflow-y-auto bg-background p-3 sm:p-4 short:p-1.5")}>
+      <div className={cn("grid gap-6", tab === "free" && !roll && "lg:grid-cols-[1fr_20rem] lg:items-start", full && "h-full gap-3 short:gap-1.5")}>
+        <div className={cn("grid gap-4 rounded-2xl border bg-card p-4 shadow-xs sm:p-5", full && "flex min-h-0 flex-col p-3 sm:p-4 short:gap-1.5 short:p-1.5")}>
+          <div className="flex flex-wrap items-center justify-between gap-2 short:gap-1">
             <div role="tablist" className="inline-flex w-fit rounded-xl border bg-card p-1 shadow-xs">
               {tabs.map(({ id, label, Icon }) => (
                 <button
@@ -96,27 +96,28 @@ export function PianoModes({ songs }: { songs: Song[] }) {
                   type="button"
                   role="tab"
                   aria-selected={tab === id}
+                  aria-label={label}
                   onClick={() => setTab(id)}
-                  className={cn("inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors [&_svg]:size-4", tab === id ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
+                  className={cn("inline-flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors short:h-8 short:px-3 [&_svg]:size-4", tab === id ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
                 >
-                  <Icon /> {label}
+                  <Icon /> <span className="short:hidden">{label}</span>
                 </button>
               ))}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {tab === "free" && (
-                <Button type="button" variant={roll ? "secondary" : "outline"} aria-pressed={roll} aria-label={t("Piano roll & record")} onClick={() => setRoll((x) => !x)}>
-                  <AudioLines /> <span className="hidden sm:inline">{t("Piano roll & record")}</span>
+                <Button type="button" variant={roll ? "secondary" : "outline"} aria-pressed={roll} aria-label={t("Piano roll")} onClick={() => setRoll((x) => !x)}>
+                  <AudioLines /> <span className="hidden sm:tall:inline">{t("Piano roll")}</span>
                 </Button>
               )}
               <InstrumentSelect />
               {full ? (
                 <Button type="button" aria-label={t("Exit full screen")} onClick={exitFull}>
-                  <Minimize2 /> <span className="hidden sm:inline">{t("Exit full screen")}</span>
+                  <Minimize2 /> <span className="hidden sm:tall:inline">{t("Exit full screen")}</span>
                 </Button>
               ) : (
                 <Button type="button" variant="outline" aria-label={t("Full screen")} onClick={enterFull}>
-                  <Maximize2 /> <span className="hidden sm:inline">{t("Full screen")}</span>
+                  <Maximize2 /> <span className="hidden sm:tall:inline">{t("Full screen")}</span>
                 </Button>
               )}
             </div>
@@ -133,7 +134,7 @@ export function PianoModes({ songs }: { songs: Song[] }) {
             <FreeRecorder fill={full} />
           ) : (
             // In full screen the keys sit at the bottom of the screen.
-            <Piano sizeControl className={full ? "mt-auto" : undefined} keysClassName={full ? "[--kh:16rem] sm:[--kh:20rem]" : undefined} />
+            <Piano sizeControl className={full ? "mt-auto" : undefined} keysClassName={full ? "[--kh:9rem] tall:[--kh:16rem] sm:tall:[--kh:20rem]" : undefined} />
           )}
         </div>
         {/* The piano roll has its own metronome (it follows the recording tempo). */}

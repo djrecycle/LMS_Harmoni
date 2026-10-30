@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Headphones, Minus, Pause, Play, Plus, RotateCcw, Timer, Usb } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Headphones, SlidersHorizontal, Minus, Pause, Play, Plus, RotateCcw, Timer, Usb } from "lucide-react";
 import { toast } from "sonner";
 import { savePracticeResult } from "@/app/actions/practice";
 import { Button } from "@/components/ui/button";
@@ -424,13 +424,20 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
     onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
   });
 
+  // Song choice and settings: in full screen on a short screen (phone sideways) they start folded away,
+  // so the notes and the keys fit; a button opens them.
+  const [settingsOpen, setSettingsOpen] = useState(true);
+  useEffect(() => {
+    setSettingsOpen(!(full && window.matchMedia("(max-height: 500px)").matches));
+  }, [full]);
+
   const total = song.notes.length;
   const tries = score.hit + score.wrong + score.missed;
   const accuracy = tries > 0 ? Math.round((score.hit / tries) * 100) : 0;
 
   return (
-    <div className={cn("grid gap-3", full && "flex flex-1 flex-col")}>
-      <div className="grid gap-2">
+    <div className={cn("grid gap-3", full && "flex flex-1 flex-col short:gap-1.5")}>
+      <div className={cn("grid gap-2", !settingsOpen && "hidden")}>
         {songs.length === 1 ? (
           song.title && <p className="text-sm font-semibold break-words">{song.title}</p>
         ) : (
@@ -551,15 +558,28 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant={playing ? "outline" : "default"} onClick={togglePlay}>
-            {playing ? <Pause /> : <Play />} {playing ? t("Pause") : t("Play")}
+      <div className="flex flex-wrap items-center justify-between gap-2 short:flex-nowrap short:gap-1">
+        <div className="flex flex-wrap items-center gap-2 short:min-w-0 short:flex-nowrap short:gap-1 short:overflow-x-auto">
+          {full && (
+            <Button
+              variant={settingsOpen ? "secondary" : "outline"}
+              size="icon"
+              className="shrink-0"
+              aria-expanded={settingsOpen}
+              aria-label={t("Song and settings")}
+              title={t("Song and settings")}
+              onClick={() => setSettingsOpen((x) => !x)}
+            >
+              <SlidersHorizontal />
+            </Button>
+          )}
+          <Button variant={playing ? "outline" : "default"} className="shrink-0" aria-label={playing ? t("Pause") : t("Play")} onClick={togglePlay}>
+            {playing ? <Pause /> : <Play />} <span className="short:hidden">{playing ? t("Pause") : t("Play")}</span>
           </Button>
-          <Button variant="outline" size="icon" aria-label={t("Start over")} onClick={reset}>
+          <Button variant="outline" size="icon" className="shrink-0" aria-label={t("Start over")} onClick={reset}>
             <RotateCcw />
           </Button>
-          <div className="inline-flex items-center gap-1 rounded-lg border bg-card p-0.5" role="group" aria-label={t("Octave")}>
+          <div className="inline-flex shrink-0 items-center gap-1 rounded-lg border bg-card p-0.5" role="group" aria-label={t("Octave")}>
             <Button type="button" variant="ghost" size="icon" className="size-9" aria-label={t("Lower octave")} disabled={!canLower} onClick={() => setOctave((o) => o - 1)}>
               <ChevronLeft />
             </Button>
@@ -578,21 +598,21 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
             </span>
           ) : midi.status === "pending" || midi.status === "meminta" ? (
             <Button variant="outline" aria-label={t("Connect MIDI keyboard")} onClick={midi.connect} disabled={midi.status === "meminta"}>
-              <Usb /> <span className="hidden sm:inline">{t("Connect MIDI keyboard")}</span>
+              <Usb /> <span className="hidden sm:tall:inline">{t("Connect MIDI keyboard")}</span>
             </Button>
           ) : null}
         </div>
         {mode === "play" && (
           // Score = correct notes out of all tries (wrong keys and missed notes count against it), as saved at the end.
-          <div className="flex items-baseline gap-2 rounded-xl border bg-card px-4 py-1.5" aria-live="polite">
+          <div className="flex shrink-0 items-baseline gap-2 rounded-xl border bg-card px-4 py-1.5 short:px-2.5 short:py-0.5" aria-live="polite">
             <span className="text-sm font-semibold text-muted-foreground">{t("Score")}</span>
-            <span className="text-3xl font-extrabold tabular-nums text-primary">{accuracy}</span>
+            <span className="text-3xl font-extrabold tabular-nums text-primary short:text-2xl">{accuracy}</span>
           </div>
         )}
       </div>
 
       <div className={cn("overflow-hidden rounded-xl bg-neutral-900 shadow-inner", full && "flex flex-1 flex-col")}>
-        <div ref={boxRef} className={cn("relative w-full", full ? "min-h-64 flex-1" : "h-64 sm:h-80")}>
+        <div ref={boxRef} className={cn("relative w-full", full ? "min-h-24 flex-1 tall:min-h-64" : "h-40 tall:h-64 sm:tall:h-80")}>
           <canvas ref={canvasRef} className="absolute inset-0 size-full" aria-hidden />
           {!playing && (
             <div className="absolute inset-0 grid place-items-center bg-black/40 p-4 text-center text-white">
@@ -643,7 +663,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
           role="group"
           aria-label={t("Virtual piano")}
           style={{ "--ks": keyScale } as React.CSSProperties}
-          className={cn("relative h-[calc(var(--kh)*var(--ks))] w-full shrink-0 select-none p-1 pt-0", full ? "[--kh:9rem] sm:[--kh:12rem]" : "[--kh:8rem] sm:[--kh:10rem]")}
+          className={cn("relative h-[calc(var(--kh)*var(--ks))] w-full shrink-0 select-none p-1 pt-0", full ? "[--kh:6.5rem] tall:[--kh:9rem] sm:tall:[--kh:12rem]" : "[--kh:6rem] tall:[--kh:8rem] sm:tall:[--kh:10rem]")}
         >
           <div className="relative flex h-full w-full">
             {range.white.map((m) => (
@@ -676,7 +696,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
         </div>
       </div>
 
-      <p className={cn("hidden text-xs text-muted-foreground", computerKeys && "sm:block")}>
+      <p className={cn("hidden text-xs text-muted-foreground", computerKeys && "sm:tall:block")}>
         {t("Computer keyboard: A S D F G H J K L for white keys, W E T Y U O P for black keys, Space to play/pause.")}
       </p>
     </div>
