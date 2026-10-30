@@ -13,11 +13,11 @@ export function InstrumentSelect({ className }: { className?: string }) {
   const status = useSyncExternalStore(subscribeInstrument, getInstrumentStatus, () => "idle" as const);
   return (
     <label className={className ?? "inline-flex items-center gap-2 text-sm font-semibold"}>
-      <Music2 className="size-4 text-muted-foreground" aria-hidden />
+      <Music2 className="size-4 text-muted-foreground short:hidden" aria-hidden />
       <span className="sr-only">{t("Sound")}</span>
       <Select
         aria-label={t("Sound")}
-        className="h-10 w-auto"
+        className="h-10 w-auto short:h-8"
         value={value}
         onChange={(e) => {
           setInstrument(e.target.value as InstrumentId);

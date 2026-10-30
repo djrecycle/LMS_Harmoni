@@ -12,6 +12,12 @@ import { useT } from "@/i18n/client";
 
 const MIN_KEY_WIDTH = 42; // px, comfortable for fingers on a phone
 
+/**
+ * With several pianos on one page (lesson editor, quiz), only one answers the computer keyboard and the MIDI
+ *  keyboard: the one touched or clicked last (the first one shown until then). Otherwise every piano would sound.
+ */
+let activePiano: object | null = null;
+
 /** Computer keyboard mapping: the row "asdfghjkl;" = white keys, "wetyuop" = black keys (starting from C). */
 const WHITE_KEYS = ["a", "s", "d", "f", "g", "h", "j", "k", "l", ";"];
 const BLACK_KEY_MAP: Record<string, number> = { w: 1, e: 3, t: 6, y: 8, u: 10, o: 13, p: 15 };
@@ -35,6 +41,11 @@ type Props = {
   keysClassName?: string;
   /** Shows − / + buttons to resize the keys (on by default; the size is shared by every piano in this browser). */
   sizeControl?: boolean;
+  /** Controlled lowest octave (C{octave}); without it the piano keeps its own. */
+  octave?: number;
+  onOctaveChange?: (octave: number) => void;
+  /** Extra classes for the bar above the keys (octave, size, MIDI), e.g. to hide it where a parent shows them. */
+  barClassName?: string;
 };
 
 export function Piano({
@@ -50,14 +61,31 @@ export function Piano({
   className,
   keysClassName,
   sizeControl = true,
+  octave,
+  onOctaveChange,
+  barClassName,
 }: Props) {
   const t = useT();
   const keyScale = useKeyScale();
   const storeRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
-  const [initialOctave, setInitialOctave] = useState(4);
+  const [ownOctave, setOwnOctave] = useState(4);
+  const initialOctave = octave ?? ownOctave;
+  const setInitialOctave = (f: (o: number) => number) => {
+    const next = f(initialOctave);
+    setOwnOctave(next);
+    onOctaveChange?.(next);
+  };
   const [active, setActive] = useState<Set<number>>(new Set());
   const activeRef = useRef<Map<string, number>>(new Map()); // pointerId/source -> midi
+  const me = useRef({});
+  useEffect(() => {
+    const self = me.current;
+    activePiano ??= self;
+    return () => {
+      if (activePiano === self) activePiano = null;
+    };
+  }, []);
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled;
 
@@ -136,6 +164,7 @@ export function Piano({
       return null;
     };
     const down = (e: KeyboardEvent) => {
+      if (activePiano !== me.current) return;
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !bukanInput(e.target)) return;
       const m = keyToMidi(e.key.toLowerCase());
       if (m !== null) {
@@ -144,7 +173,9 @@ export function Piano({
         press(`kb:${e.key.toLowerCase()}`, m);
       }
     };
-    const up = (e: KeyboardEvent) => release(`kb:${e.key.toLowerCase()}`);
+    const up = (e: KeyboardEvent) => {
+      if (activePiano === me.current) release(`kb:${e.key.toLowerCase()}`);
+    };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     return () => {
@@ -154,7 +185,7 @@ export function Piano({
   }, [midiInitial, press, release]);
 
   const midi = useMidi(
-    (n, k) => press(`midi:${n}`, n, 0.4 + k * 0.6),
+    (n, k) => activePiano === me.current && press(`midi:${n}`, n, 0.4 + k * 0.6),
     (n) => release(`midi:${n}`),
   );
 
@@ -166,6 +197,7 @@ export function Piano({
   const handlerTuts = (m: number) => ({
     onPointerDown: (e: React.PointerEvent) => {
       e.preventDefault();
+      activePiano = me.current;
       void unlockAudio();
       press(`p:${e.pointerId}`, m);
     },
@@ -189,7 +221,7 @@ export function Piano({
 
   return (
     <div className={cn("grid gap-3 short:gap-1.5", className)}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className={cn("flex flex-wrap items-center justify-between gap-2", barClassName)}>
         <div className="flex items-center gap-1">
           <Button variant="outline" size="icon" className="size-9" aria-label={t("Lower octave")} disabled={initialOctave <= 1} onClick={() => setInitialOctave((o) => o - 1)}>
             <ChevronLeft />

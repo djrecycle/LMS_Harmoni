@@ -86,7 +86,7 @@ export function PianoModes({ songs }: { songs: Song[] }) {
       <div className={cn("grid gap-6", tab === "free" && !roll && "lg:grid-cols-[1fr_20rem] lg:items-start", full && "h-full gap-3 short:gap-1.5")}>
         <div className={cn("grid gap-4 rounded-2xl border bg-card p-4 shadow-xs sm:p-5", full && "flex min-h-0 flex-col p-3 sm:p-4 short:gap-1.5 short:p-1.5")}>
           <div className="flex flex-wrap items-center justify-between gap-2 short:gap-1">
-            <div role="tablist" className="inline-flex w-fit rounded-xl border bg-card p-1 shadow-xs">
+            <div role="tablist" className="inline-flex w-fit rounded-xl border bg-card p-1 shadow-xs short:p-0.5">
               {tabs.map(({ id, label, Icon }) => (
                 <button
                   key={id}
@@ -103,17 +103,17 @@ export function PianoModes({ songs }: { songs: Song[] }) {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {tab === "free" && (
-                <Button type="button" variant={roll ? "secondary" : "outline"} aria-pressed={roll} aria-label={t("Piano roll")} onClick={() => setRoll((x) => !x)}>
+                <Button type="button" variant={roll ? "secondary" : "outline"} className="short:h-8 short:px-2.5" aria-pressed={roll} aria-label={t("Piano roll")} onClick={() => setRoll((x) => !x)}>
                   <AudioLines /> <span className="hidden sm:tall:inline">{t("Piano roll")}</span>
                 </Button>
               )}
               <InstrumentSelect />
               {full ? (
-                <Button type="button" aria-label={t("Exit full screen")} onClick={exitFull}>
+                <Button type="button" className="short:h-8 short:px-2.5" aria-label={t("Exit full screen")} onClick={exitFull}>
                   <Minimize2 /> <span className="hidden sm:tall:inline">{t("Exit full screen")}</span>
                 </Button>
               ) : (
-                <Button type="button" variant="outline" aria-label={t("Full screen")} onClick={enterFull}>
+                <Button type="button" variant="outline" className="short:h-8 short:px-2.5" aria-label={t("Full screen")} onClick={enterFull}>
                   <Maximize2 /> <span className="hidden sm:tall:inline">{t("Full screen")}</span>
                 </Button>
               )}

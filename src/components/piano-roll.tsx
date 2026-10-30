@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Play, Square } from "lucide-react";
+import { KeySizeControl } from "@/components/key-size-control";
 import { Piano } from "@/components/piano";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -49,6 +50,8 @@ export function PianoRoll({
   const [cursor, setCursor] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const [open, setOpen] = useState(true);
+  // The piano's lowest octave; on a short screen its buttons sit in the toolbar above the roll.
+  const [pianoOctave, setPianoOctave] = useState(4);
   const stopRef = useRef<(() => void) | null>(null);
   useEffect(() => () => stopRef.current?.(), []);
   useEffect(() => setCursor((c) => Math.min(c, Math.max(0, length - 1))), [length]);
@@ -135,15 +138,23 @@ export function PianoRoll({
   }, [notes, length, stop]);
 
   return (
-    <div className={cn("grid gap-2", className)}>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" size="sm" variant="outline" onClick={() => (activeUnit === null ? play() : stop())}>
+    <div className={cn("grid gap-2 short:gap-1", className)}>
+      {/* On a short screen (phone sideways) the toolbar is one row that scrolls sideways. */}
+      <div className="flex flex-wrap items-center gap-2 short:flex-nowrap short:gap-1 short:overflow-x-auto">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="shrink-0"
+          aria-label={activeUnit === null ? t("Listen") : t("Stop")}
+          onClick={() => (activeUnit === null ? play() : stop())}
+        >
           {activeUnit === null ? <Play className="size-3.5" /> : <Square className="size-3.5" />}
-          {activeUnit === null ? t("Listen") : t("Stop")}
+          <span className="short:hidden">{activeUnit === null ? t("Listen") : t("Stop")}</span>
         </Button>
         {editable && open && (
-          <label className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
-            {t("Note value")}
+          <label className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+            <span className="short:hidden">{t("Note value")}</span>
             <Select className="h-8 w-auto text-xs" value={value} onChange={(ev) => setValue(ev.target.value as MelodyNoteValue)}>
               {VALUE_OPTIONS.map((v) => (
                 <option key={v} value={v}>
@@ -153,9 +164,31 @@ export function PianoRoll({
             </Select>
           </label>
         )}
-        <Button type="button" size="sm" variant="ghost" className="ml-auto" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {editable && length > 0 && (
+          <div className="hidden shrink-0 items-center gap-1 short:inline-flex">
+            <div className="inline-flex items-center rounded-lg border p-0.5" role="group" aria-label={t("Octave")}>
+              <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("Lower octave")} disabled={pianoOctave <= 1} onClick={() => setPianoOctave((o) => o - 1)}>
+                <ChevronLeft />
+              </Button>
+              <span className="px-1 text-xs font-bold tabular-nums">C{pianoOctave}</span>
+              <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("Higher octave")} disabled={pianoOctave >= 6} onClick={() => setPianoOctave((o) => o + 1)}>
+                <ChevronRight />
+              </Button>
+            </div>
+            <KeySizeControl />
+          </div>
+        )}
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="ml-auto shrink-0"
+          aria-expanded={open}
+          aria-label={open ? t("Minimize piano roll") : t("Expand piano roll")}
+          onClick={() => setOpen((o) => !o)}
+        >
           {open ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-          {open ? t("Minimize piano roll") : t("Expand piano roll")}
+          <span className="short:hidden">{open ? t("Minimize piano roll") : t("Expand piano roll")}</span>
         </Button>
       </div>
 
@@ -200,7 +233,8 @@ export function PianoRoll({
       {open && (
         // contain:inline-size — the grid is wider than a phone; without it that width leaks up through every
         // parent grid and stretches the whole page sideways instead of scrolling here.
-        <div className="overflow-x-auto rounded-xl border bg-neutral-900 p-1.5 [contain:inline-size]">
+        // Short screen: the roll keeps a small height and scrolls, so the piano stays right under it.
+        <div className="overflow-x-auto rounded-xl border bg-neutral-900 p-1.5 [contain:inline-size] short:max-h-[8.5rem] short:overflow-y-auto">
           <div className="inline-grid" style={{ gridTemplateColumns: `3rem repeat(${length}, minmax(1.25rem, 1fr))` }}>
             {pitches.map((midi) => {
               const black = isBlackKey(midi);
@@ -245,7 +279,16 @@ export function PianoRoll({
         </div>
       )}
 
-      {editable && length > 0 && <Piano onNotePress={writeFromPiano} formatName={false} className="pt-1" />}
+      {editable && length > 0 && (
+        <Piano
+          onNotePress={writeFromPiano}
+          formatName={false}
+          className="pt-1 short:pt-0"
+          octave={pianoOctave}
+          onOctaveChange={setPianoOctave}
+          barClassName="short:hidden"
+        />
+      )}
     </div>
   );
 }

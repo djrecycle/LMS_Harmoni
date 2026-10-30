@@ -674,7 +674,6 @@ function SongCard({ block, onChange, onDelete }: { block: Extract<EditorBlock, {
           onBpmChange={(bpm) => onChange({ ...block, bpm })}
           title={block.title}
           onChange={(notes) => onChange({ ...block, notes })}
-          pianoInitiallyOn={false}
         />
         {block.notes.length > 0 && (
           <div className="grid gap-2">

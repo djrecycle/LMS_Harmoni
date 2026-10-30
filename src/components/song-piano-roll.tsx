@@ -10,7 +10,8 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, Circle, Copy, Download, Eraser, Maximize2, Minimize2, MousePointer2, Pencil, Piano as PianoIcon, Play, Redo2, Square, Timer, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Circle, Copy, Download, Eraser, Maximize2, Minimize2, MousePointer2, Pencil, Play, Redo2, Square, Timer, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { KeySizeControl } from "@/components/key-size-control";
 import { Piano } from "@/components/piano";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -85,7 +86,6 @@ export function SongPianoRoll({
   onBpmChange,
   title,
   onChange,
-  pianoInitiallyOn = true,
   maxBeats = MAX_ROLL_BEATS,
   maxNotes = MAX_SONG_NOTES,
   hideFullscreen = false,
@@ -98,8 +98,6 @@ export function SongPianoRoll({
   onBpmChange: (bpm: number) => void;
   title: string;
   onChange: (notes: SongNote[]) => void;
-  /** Show the touch piano at first (off where several rolls share a page, as in the lesson block editor). */
-  pianoInitiallyOn?: boolean;
   /** Length limit in beats (the end of the roll; a recording stops there). Students get a short one. */
   maxBeats?: number;
   maxNotes?: number;
@@ -136,10 +134,9 @@ export function SongPianoRoll({
   const [playFrom, setPlayFrom] = useState(0);
   // Touch piano: it only sounds, unless a recording is running. Recording starts at `writeAt` (the green line),
   // after a one-bar count-in, and writes what is played in real time: holding a key makes a longer note.
-  const [pianoOnState, setPianoOn] = useState(pianoInitiallyOn);
-  const pianoOn = compact || pianoOnState;
+  // The touch piano is always shown right under the roll; the roll itself can be closed.
   const [rollOpen, setRollOpen] = useState(true);
-  const showRoll = !compact || rollOpen;
+  const showRoll = rollOpen;
   const [recording, setRecording] = useState(false);
   const [metronome, setMetronome] = useState(true);
   const metronomeRef = useRef(metronome);
@@ -259,14 +256,40 @@ export function SongPianoRoll({
   const gridH = (HIGH - LOW + 1) * ROW_H;
   const rows = useMemo(() => Array.from({ length: HIGH - LOW + 1 }, (_, i) => HIGH - i), []);
 
-  // Start scrolled to the notes (or middle C).
+  /** Scrolls the roll so `midi` is in the middle of its height. */
+  const centerOn = useCallback((midi: number) => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = (HIGH - midi) * ROW_H - el.clientHeight / 2 + RULER_H;
+  }, []);
+  // The touch piano's lowest octave (C4 at first): the roll follows it when it moves.
+  const [pianoOctave, setPianoOctave] = useState(4);
+  const pianoOctaveRef = useRef(pianoOctave);
+  pianoOctaveRef.current = pianoOctave;
+  /** Where to look: the middle of the notes, or of the piano's first octave when the roll is empty. */
+  const homeMidi = useCallback(() => {
+    const list = notesRef.current;
+    return list.length ? Math.round(list.reduce((s, n) => s + n.midi, 0) / list.length) : (pianoOctaveRef.current + 1) * 12 + 6;
+  }, []);
+  // Start scrolled there, and again whenever the roll's height changes (full screen, rotating the phone,
+  // opening the roll), since a short roll would otherwise show only the top rows.
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const list = notesRef.current;
-    const center = list.length ? Math.round(list.reduce((s, n) => s + n.midi, 0) / list.length) : 66;
-    el.scrollTop = (HIGH - center) * ROW_H - el.clientHeight / 2 + RULER_H;
-  }, []);
+    centerOn(homeMidi());
+    let lastH = el.clientHeight;
+    const ro = new ResizeObserver(() => {
+      if (Math.abs(el.clientHeight - lastH) < 8) return;
+      lastH = el.clientHeight;
+      centerOn(homeMidi());
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [centerOn, homeMidi]);
+  const changePianoOctave = (o: number) => {
+    const next = Math.max(1, Math.min(6, o));
+    setPianoOctave(next);
+    centerOn((next + 1) * 12 + 6);
+  };
 
   /* ---------------------------- pointer editing ---------------------------- */
 
@@ -640,7 +663,6 @@ export function SongPianoRoll({
     if (record) {
       take.current = { before: notesRef.current, held: new Map() };
       setRecording(true);
-      setPianoOn(true);
       setSelected(new Set());
     } else setPlaying(true);
     let i = 0;
@@ -815,19 +837,30 @@ export function SongPianoRoll({
             ))}
           </Select>
         </label>
-        {compact && (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="shrink-0"
-            aria-expanded={rollOpen}
-            aria-label={rollOpen ? t("Hide piano roll") : t("Show piano roll")}
-            onClick={() => setRollOpen((x) => !x)}
-          >
-            {rollOpen ? <ChevronUp /> : <ChevronDown />} <span className="hidden sm:tall:inline">{rollOpen ? t("Hide piano roll") : t("Show piano roll")}</span>
-          </Button>
-        )}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="shrink-0"
+          aria-expanded={rollOpen}
+          aria-label={rollOpen ? t("Hide piano roll") : t("Show piano roll")}
+          onClick={() => setRollOpen((x) => !x)}
+        >
+          {rollOpen ? <ChevronUp /> : <ChevronDown />} <span className="hidden sm:tall:inline">{rollOpen ? t("Hide piano roll") : t("Show piano roll")}</span>
+        </Button>
+        {/* Short screens: the piano's octave and size buttons sit here, so the roll gets the room. */}
+        <div className="hidden shrink-0 items-center gap-1 short:inline-flex">
+          <div className="inline-flex items-center rounded-lg border p-0.5" role="group" aria-label={t("Octave")}>
+            <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("Lower octave")} disabled={pianoOctave <= 1} onClick={() => changePianoOctave(pianoOctave - 1)}>
+              <ChevronLeft />
+            </Button>
+            <span className="px-1 text-xs font-bold tabular-nums">C{pianoOctave}</span>
+            <Button type="button" variant="ghost" size="icon" className="size-8" aria-label={t("Higher octave")} disabled={pianoOctave >= 6} onClick={() => changePianoOctave(pianoOctave + 1)}>
+              <ChevronRight />
+            </Button>
+          </div>
+          <KeySizeControl />
+        </div>
         <div className={cn("ml-auto inline-flex shrink-0 items-center gap-1", !showRoll && "hidden")}>
           {compact && (
             <>
@@ -938,12 +971,10 @@ export function SongPianoRoll({
               className="absolute bottom-0 size-0 -translate-x-1/2 border-x-[6px] border-t-[8px] border-x-transparent border-t-amber-400"
               style={{ left: playFrom * zoom }}
             />
-            {pianoOn && (
-              <span
-                className="absolute top-0 size-0 -translate-x-1/2 border-x-[6px] border-b-[8px] border-x-transparent border-b-emerald-400"
-                style={{ left: writeAt * zoom }}
-              />
-            )}
+            <span
+              className="absolute top-0 size-0 -translate-x-1/2 border-x-[6px] border-b-[8px] border-x-transparent border-b-emerald-400"
+              style={{ left: writeAt * zoom }}
+            />
           </div>
 
           {/* Keyboard: press a key to hear it. */}
@@ -1030,7 +1061,7 @@ export function SongPianoRoll({
                 }}
               />
             )}
-            {pianoOn && <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-emerald-400/80" style={{ left: writeAt * zoom }} />}
+            <div className="pointer-events-none absolute inset-y-0 w-0.5 bg-emerald-400/80" style={{ left: writeAt * zoom }} />
             <div
               ref={playheadRef}
               className="pointer-events-none absolute inset-y-0 left-0 w-0.5 bg-amber-400"
@@ -1084,40 +1115,33 @@ export function SongPianoRoll({
           "grid rounded-xl border",
           compact ? "gap-2 p-2 short:gap-1 short:border-0 short:p-0" : "gap-3 p-3",
           (full || fill) && "shrink-0",
-          fill && !showRoll && "mt-auto",
+          (fill || full) && !showRoll && "mt-auto",
         )}
       >
-        {/* Compact: only the recording status (the roll's show/hide button is in the toolbar). */}
-        <div className={cn("flex flex-wrap items-center gap-2", compact && !recording && "short:hidden")}>
-          {compact ? null : (
-            <Button type="button" size="sm" variant={pianoOn ? "secondary" : "outline"} aria-expanded={pianoOn} onClick={() => setPianoOn((x) => !x)}>
-              <PianoIcon /> {pianoOn ? t("Hide touch piano") : t("Show touch piano")}
-            </Button>
-          )}
-          {pianoOn && (
-            <span className="text-xs font-semibold text-muted-foreground">
-              {recording
-                ? t("Recording… play the piano. Hold a key longer for a longer note.")
-                : t("Recording starts at bar {0}, beat {1} (the green line)", Math.floor(writeAt / BAR) + 1, Number(((writeAt % BAR) + 1).toFixed(3)))}
-              {maxBeats < MAX_ROLL_BEATS && ` · ${t("At most {0} bars", maxBeats / BAR)}`}
-            </span>
-          )}
+        {/* The recording status (on a short screen only while recording). */}
+        <div className={cn("flex flex-wrap items-center gap-2", !recording && "short:hidden")}>
+          <span className="text-xs font-semibold text-muted-foreground">
+            {recording
+              ? t("Recording… play the piano. Hold a key longer for a longer note.")
+              : t("Recording starts at bar {0}, beat {1} (the green line)", Math.floor(writeAt / BAR) + 1, Number(((writeAt % BAR) + 1).toFixed(3)))}
+            {maxBeats < MAX_ROLL_BEATS && ` · ${t("At most {0} bars", maxBeats / BAR)}`}
+          </span>
         </div>
-        {pianoOn && (
-          <>
-            {!full && !fill && !compact && !recording && (
-              <p className="text-xs text-muted-foreground">
-                {t("The piano only sounds. To write, press Record: after a one-bar count-in, play along with the metronome; notes appear as you play and grow while a key is held. Press Stop recording to finish (Ctrl+Z undoes the whole take). Laptop keys A S D F… and a MIDI keyboard work too.")}
-              </p>
-            )}
-            <Piano
-              onNotePress={onPianoPress}
-              onNoteRelease={onPianoRelease}
-              sizeControl={pianoSizeControl}
-              keysClassName={pianoSizeControl ? (full || fill ? "[--kh:6rem] tall:[--kh:8rem] sm:tall:[--kh:10rem]" : undefined) : full ? "h-32 sm:h-40" : undefined}
-            />
-          </>
+        {!full && !fill && !compact && !recording && (
+          <p className="text-xs text-muted-foreground short:hidden">
+            {t("The piano only sounds. To write, press Record: after a one-bar count-in, play along with the metronome; notes appear as you play and grow while a key is held. Press Stop recording to finish (Ctrl+Z undoes the whole take). Laptop keys A S D F… and a MIDI keyboard work too.")}
+          </p>
         )}
+        <Piano
+          octave={pianoOctave}
+          onOctaveChange={changePianoOctave}
+          // On a short screen the octave and size buttons are in the toolbar.
+          barClassName="short:hidden"
+          onNotePress={onPianoPress}
+          onNoteRelease={onPianoRelease}
+          sizeControl={pianoSizeControl}
+          keysClassName={pianoSizeControl ? (full || fill ? "[--kh:6rem] tall:[--kh:8rem] sm:tall:[--kh:10rem]" : undefined) : full ? "h-32 sm:h-40" : undefined}
+        />
       </div>
     </div>
   );
