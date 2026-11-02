@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { BackPractice } from "@/components/back-practice";
 import { PracticeMaterialView } from "@/components/practice-material-view";
+import { PracticeScopeProvider } from "@/components/practice-scope";
 import { db, schema } from "@/db";
 import { isUuid } from "@/lib/access";
 import { requireStudent } from "@/lib/session";
@@ -33,7 +34,10 @@ export default async function PracticeMaterialPage({ params }: { params: Promise
   return (
     <article className="mx-auto max-w-3xl">
       <BackPractice />
-      <PracticeMaterialView material={row.material} teacherName={row.teacher} />
+      {/* Songs in it save the student's "Perform" scores for the teacher. */}
+      <PracticeScopeProvider practiceMaterialId={row.material.id}>
+        <PracticeMaterialView material={row.material} teacherName={row.teacher} />
+      </PracticeScopeProvider>
     </article>
   );
 }

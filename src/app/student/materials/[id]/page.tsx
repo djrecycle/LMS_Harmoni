@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { and, eq, lte } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import { Markdown } from "@/components/markdown";
+import { PracticeScopeProvider } from "@/components/practice-scope";
 import { MaterialPlayer } from "@/components/material-player";
 import { MaterialViewTracker } from "@/components/live/material-view-tracker";
 import { AiInteractiveLesson } from "@/components/lessons/ai-interactive-lesson";
@@ -61,7 +62,9 @@ export default async function ReadMaterial({ params }: { params: Promise<{ id: s
 
       {material.typeMedia === "interactive" && material.interactiveData && (
         <div className="mb-6">
-          <AiInteractiveLesson data={material.interactiveData} title={material.title} materialId={material.id} completedInitial={progress?.completed ?? false} />
+          <PracticeScopeProvider materialId={material.id}>
+            <AiInteractiveLesson data={material.interactiveData} title={material.title} materialId={material.id} completedInitial={progress?.completed ?? false} />
+          </PracticeScopeProvider>
         </div>
       )}
       {material.typeMedia === "interactive" && !material.interactiveData && material.mediaKey && (
@@ -79,7 +82,10 @@ export default async function ReadMaterial({ params }: { params: Promise<{ id: s
       {/* An interactive lesson replaces the text it was built from; the text stays stored as its source. */}
       {material.typeMedia !== "interactive" && material.content.trim() && (
         <div className="rounded-xl border bg-card p-5 shadow-xs sm:p-7">
-          <Markdown>{material.content}</Markdown>
+          {/* Songs in the lesson save the student's "Perform" scores, linked to it (the teacher's practice recap). */}
+          <PracticeScopeProvider materialId={material.id}>
+            <Markdown>{material.content}</Markdown>
+          </PracticeScopeProvider>
         </div>
       )}
 

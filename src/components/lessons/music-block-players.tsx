@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Hand, Minus, Play, Plus, Square, Timer, Volume2 } from "lucide-react";
 import { ScoreView, totalBeats, type ScoreEvent } from "@/components/score-view";
+import { usePracticeScope } from "@/components/practice-scope";
 import { SongPlayer } from "@/components/song-player";
 import { Button } from "@/components/ui/button";
 import { audioTime, loadAudio, playChord, RHYTHM_VOICES, scheduleClick, scheduleNote, unlockAudio } from "@/lib/audio";
@@ -28,8 +29,10 @@ export function SongBlockPlayer({ id, title, bpm, doMidi, notes }: { id: string;
   // `id` is a hash of the notes, so a re-render with equal notes keeps the player (and its progress) as it is.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const song = useMemo<Song>(() => ({ id, title: title ?? "", level: 1, bpm, notes, doMidi }), [id, title, bpm, doMidi]);
+  // On a student's lesson or practice material page the score of a "Perform" run is saved, linked to that page.
+  const scope = usePracticeScope();
   if (!notes.length) return <p className="text-sm text-muted-foreground">{t("The song has no notes yet.")}</p>;
-  return <SongPlayer songs={[song]} saveScores={false} />;
+  return <SongPlayer songs={[song]} saveScores={Boolean(scope)} materialId={scope?.materialId} practiceMaterialId={scope?.practiceMaterialId} />;
 }
 
 /* -------------------------------- transport -------------------------------- */

@@ -27,7 +27,7 @@ const LEAD_IN = VISIBLE_BEATS;
 const EARLY_WINDOW = 0.5;
 const MIN_BPM = 30;
 const MAX_BPM = 240;
-/** In "don't wait" play mode a note counts as missed this long (beats) after it should have been played. */
+/** In "play" mode (the song keeps its tempo) a note counts as missed this long (beats) after it should have been played. */
 const MISS_AFTER = 0.75;
 
 const WHITE_KEYS = ["a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'"];
@@ -58,21 +58,38 @@ const EMPTY_KEYS: KeyState = { target: [], sounding: [], good: [], bad: [] };
 
 /**
  * "Play a song" mode: notes fall toward the keyboard (like Synthesia), or scroll left on a staff.
- *  - play: by default the song waits at each note until the student presses the right key; with "wait" off it
- *    keeps the tempo and notes that pass unplayed count as missed.
+ *  - practice: the song waits at each note until the student presses the right key; no score.
+ *  - play: the song keeps the tempo even when a key is wrong; notes that pass unplayed count as missed, and the
+ *    score is shown (and saved to the student's practice history).
  *  - listen: the song plays by itself and the keys light up.
  *  The tempo (BPM) sets how fast the song runs; the metronome ticks every beat, with a one-bar count-in.
  */
-/** `computerKeys`: play with the laptop keyboard (off when another piano on the page uses it). */
-export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = true, full = false }: { songs?: Song[]; saveScores?: boolean; computerKeys?: boolean; full?: boolean }) {
+/**
+ * `computerKeys`: play with the laptop keyboard (off when another piano on the page uses it).
+ *  `materialId` / `practiceMaterialId`: the lesson or practice material the song is in; its saved scores are linked to it.
+ */
+export function SongPlayer({
+  songs = SONGS,
+  saveScores = true,
+  computerKeys = true,
+  full = false,
+  materialId,
+  practiceMaterialId,
+}: {
+  songs?: Song[];
+  saveScores?: boolean;
+  computerKeys?: boolean;
+  full?: boolean;
+  materialId?: string;
+  practiceMaterialId?: string;
+}) {
   const t = useT();
   const [songId, setSongId] = useState(songs[0].id);
   const song = songs.find((s) => s.id === songId) ?? songs[0];
-  const [mode, setMode] = useState<Mode>("play");
+  const [mode, setMode] = useState<Mode>("practice");
   const [tempo, setTempo] = useState(song.bpm);
   const [tempoText, setTempoText] = useState(String(song.bpm));
   const [metronome, setMetronome] = useState(true);
-  const [wait, setWait] = useState(true);
   const [view, setView] = useState<View>("falling");
   const [labels, setLabels] = useState<Labels>("letter");
   // Key signature on the staff: "none", "auto" (the song's key) or a key in fifths.
@@ -111,8 +128,8 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
     flash: new Map<number, { ok: boolean; until: number }>(),
     keySig: "",
   });
-  const settings = useRef({ song, mode, tempo, metronome, wait, view, labels, doMidi, fifths, range, saveScores });
-  settings.current = { song, mode, tempo, metronome, wait, view, labels, doMidi, fifths, range, saveScores };
+  const settings = useRef({ song, mode, tempo, metronome, view, labels, doMidi, fifths, range, saveScores, materialId, practiceMaterialId });
+  settings.current = { song, mode, tempo, metronome, view, labels, doMidi, fifths, range, saveScores, materialId, practiceMaterialId };
 
   useEffect(() => {
     void loadAudio();
@@ -135,8 +152,8 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
     stopAllNotes();
   }, []);
 
-  // A new song (or a changed melody in the teacher's preview), mode or waiting rule starts over.
-  useEffect(() => reset(), [song, mode, wait, reset]);
+  // A new song (or a changed melody in the teacher's preview) or mode starts over.
+  useEffect(() => reset(), [song, mode, reset]);
   // A new song brings its own tempo and key.
   useEffect(() => {
     setTempo(song.bpm);
@@ -179,13 +196,13 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   /** Called once when a song ends: in "play" mode the score goes to the student's practice history. */
   const onFinish = async () => {
     const s = g.current;
-    const { song, mode, tempo, saveScores } = settings.current;
+    const { song, mode, tempo, saveScores, materialId, practiceMaterialId } = settings.current;
     if (!saveScores || mode !== "play" || s.hit.size + s.missed.size < song.notes.length) return;
     const score = Math.round((s.hit.size / Math.max(1, s.hit.size + s.wrong + s.missed.size)) * 100);
     // `speed` = tempo played / the song's own tempo (the practice analysis reads it as a percentage).
     const detail: SongDetail = { songId: song.id, speed: Math.round((tempo / song.bpm) * 100) / 100, notesTotal: song.notes.length, wrong: s.wrong + s.missed.size };
     setSaved("saving");
-    const r = await savePracticeResult({ kind: "song", title: t("Song: {0} ({1} BPM)", t(song.title), tempo), score, detail });
+    const r = await savePracticeResult({ kind: "song", title: t("Song: {0} ({1} BPM)", song.title.trim() ? t(song.title) : t("Untitled song"), tempo), score, detail, materialId, practiceMaterialId });
     setSaved(r.ok ? "saved" : "error");
     if (!r.ok) toast.error(r.error);
   };
@@ -197,7 +214,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
   const judge = useCallback((midi: number) => {
     const s = g.current;
     const { song, mode } = settings.current;
-    if (!s.playing || mode !== "play") return;
+    if (!s.playing || mode === "listen") return;
     const idx = song.notes.findIndex((n, i) => !s.hit.has(i) && !s.missed.has(i) && n.midi === midi && n.start - s.time <= EARLY_WINDOW && n.start + n.beats > s.time - 0.25);
     const now = performance.now();
     if (idx >= 0) {
@@ -301,13 +318,14 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       const s = g.current;
-      const { song, mode, tempo, metronome, wait, view, labels, doMidi, fifths, range } = settings.current;
+      const { song, mode, tempo, metronome, view, labels, doMidi, fifths, range } = settings.current;
+      const wait = mode === "practice";
       const beatsPerSec = tempo / 60;
       const end = songLength(song);
 
       if (s.playing) {
         let next = s.time + dt * beatsPerSec;
-        if (mode === "play") {
+        if (mode !== "listen") {
           if (wait) {
             // Wait at the first note that has not been played yet.
             const waiting = song.notes.find((n, i) => !s.hit.has(i) && n.start <= next);
@@ -352,7 +370,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       const sounding: number[] = [];
       const isTarget = (i: number) => {
         const n = song.notes[i];
-        return mode === "play" && !s.hit.has(i) && !s.missed.has(i) && n.start <= s.time + 0.001 && s.time >= 0 && (wait || s.time < n.start + n.beats);
+        return mode !== "listen" && !s.hit.has(i) && !s.missed.has(i) && n.start <= s.time + 0.001 && s.time >= 0 && (wait || s.time < n.start + n.beats);
       };
       song.notes.forEach((n, i) => {
         if (isTarget(i)) target.push(n.midi);
@@ -372,7 +390,7 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
       if (progressRef.current) progressRef.current.style.width = `${Math.max(0, Math.min(100, (s.time / end) * 100))}%`;
 
       const state: NoteState = {
-        done: (i) => (mode === "play" ? s.hit.has(i) : song.notes[i].start + song.notes[i].beats <= shown),
+        done: (i) => (mode !== "listen" ? s.hit.has(i) : song.notes[i].start + song.notes[i].beats <= shown),
         target: isTarget,
         missed: (i) => s.missed.has(i),
         sounding: (i) => mode === "listen" && song.notes[i].start <= shown && shown < song.notes[i].start + song.notes[i].beats,
@@ -467,7 +485,8 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
           <div className="inline-flex rounded-lg border bg-card p-0.5" role="radiogroup" aria-label={t("Mode")}>
             {(
               [
-                ["play", t("Play it")],
+                ["practice", t("Practice")],
+                ["play", t("Perform")],
                 ["listen", t("Listen")],
               ] as const
             ).map(([m, label]) => (
@@ -513,12 +532,6 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
           <Button type="button" variant={metronome ? "secondary" : "outline"} aria-pressed={metronome} onClick={() => setMetronome((x) => !x)}>
             <Timer /> {t("Metronome")}
           </Button>
-          {mode === "play" && (
-            <label className="inline-flex items-center gap-2 text-sm font-semibold">
-              <input type="checkbox" checked={wait} onChange={(e) => setWait(e.target.checked)} className="size-4 accent-[var(--primary)]" />
-              {t("Wait for the right note")}
-            </label>
-          )}
           <Select aria-label={t("Display")} className="h-10 w-auto" value={view} onChange={(e) => setView(e.target.value as View)}>
             <option value="falling">{t("Falling notes")}</option>
             <option value="staff">{t("Staff notation")}</option>
@@ -644,10 +657,10 @@ export function SongPlayer({ songs = SONGS, saveScores = true, computerKeys = tr
                     {mode === "listen"
                       ? t("The song plays by itself. Watch which keys light up.")
                       : view === "staff"
-                        ? wait
+                        ? mode === "practice"
                           ? t("The notes move to the orange line. Press the yellow key: the song waits until you press the right note.")
                           : t("The notes move to the orange line at the tempo. Press each key when its note reaches the line.")
-                        : wait
+                        : mode === "practice"
                           ? t("The notes fall to the keyboard. Press the yellow key: the song waits until you press the right note.")
                           : t("The notes fall at the tempo. Press each key when its note reaches the keyboard.")}
                   </p>

@@ -6,7 +6,8 @@
 import { angkaOf, isBlackKey, midiToNote, solfegeOf } from "@/lib/music";
 import { detectDoMidi, type Song } from "@/lib/songs";
 
-export type Mode = "play" | "listen";
+/** practice: the song waits for the right key, no score · play: keeps the tempo, scored · listen: plays by itself. */
+export type Mode = "practice" | "play" | "listen";
 export type Labels = "letter" | "solfege" | "angka" | "none";
 
 /** Beats visible above the hit line in the falling view. */
@@ -110,7 +111,7 @@ export function drawFalling(canvas: HTMLCanvasElement | null, song: Song, white:
       : sounding
         ? "#c4b5fd"
         : done
-          ? mode === "play"
+          ? mode !== "listen"
             ? "rgba(34,197,94,0.55)"
             : "rgba(139,92,246,0.35)"
           : black
@@ -399,7 +400,7 @@ export function drawStaff(
       : state.sounding(i)
         ? "#7c3aed"
         : state.done(i)
-          ? mode === "play"
+          ? mode !== "listen"
             ? "#16a34a"
             : "#a5a3c9"
           : state.target(i)

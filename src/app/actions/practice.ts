@@ -22,6 +22,8 @@ const resultSchema = z.object({
   detail: z.record(z.string(), z.unknown()).optional(),
   /** The lesson the practice was done in (only kept when the lesson is published in one of the student's classes). */
   materialId: z.string().uuid().optional(),
+  /** The practice material the practice was done in (only kept when it is shown to one of the student's classes). */
+  practiceMaterialId: z.string().uuid().optional(),
 });
 
 /** Save the pitch/rhythm practice score of the signed-in student. */
@@ -30,7 +32,7 @@ export async function savePracticeResult(data: unknown): Promise<ActionResult<{ 
   const student = await requireStudent();
   const p = resultSchema.safeParse(data);
   if (!p.success) return zodError(p.error);
-  const { materialId, ...result } = p.data;
+  const { materialId, practiceMaterialId, ...result } = p.data;
   let lesson: string | null = null;
   if (materialId) {
     const [m] = await db
@@ -42,9 +44,20 @@ export async function savePracticeResult(data: unknown): Promise<ActionResult<{ 
     lesson = m?.id ?? null;
     if (!lesson) console.warn(`[practice] lesson ${materialId} is not published in a class of student ${student.id}; score saved without it`);
   }
-  await db.insert(S.practiceResult).values({ studentId: student.id, ...result, detail: result.detail ?? null, materialId: lesson });
+  let practiceMaterial: string | null = null;
+  if (practiceMaterialId) {
+    const [m] = await db
+      .select({ id: S.classroomPracticeMaterial.practiceMaterialId })
+      .from(S.classroomPracticeMaterial)
+      .innerJoin(S.classroomMembership, eq(S.classroomMembership.classroomId, S.classroomPracticeMaterial.classroomId))
+      .where(and(eq(S.classroomPracticeMaterial.practiceMaterialId, practiceMaterialId), eq(S.classroomMembership.studentId, student.id)))
+      .limit(1);
+    practiceMaterial = m?.id ?? null;
+    if (!practiceMaterial) console.warn(`[practice] practice material ${practiceMaterialId} is not shown to a class of student ${student.id}; score saved without it`);
+  }
+  await db.insert(S.practiceResult).values({ studentId: student.id, ...result, detail: result.detail ?? null, materialId: lesson, practiceMaterialId: practiceMaterial });
   refresh();
-  return succeed(t("Practice score saved."), { linked: Boolean(lesson) });
+  return succeed(t("Practice score saved."), { linked: Boolean(lesson ?? practiceMaterial) });
 }
 
 const recordingSchema = z.object({

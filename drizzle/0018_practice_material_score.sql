@@ -1,0 +1,3 @@
+ALTER TABLE "practice_result" ADD COLUMN "practice_material_id" uuid;--> statement-breakpoint
+ALTER TABLE "practice_result" ADD CONSTRAINT "practice_result_practice_material_id_practice_material_id_fk" FOREIGN KEY ("practice_material_id") REFERENCES "public"."practice_material"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "practice_result_practice_material_idx" ON "practice_result" USING btree ("practice_material_id","student_id");

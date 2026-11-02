@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { desc, eq, inArray } from "drizzle-orm";
-import { Eye, Headphones, Image as ImageIcon, Music, Pencil, Plus, Type, Video } from "lucide-react";
+import { Eye, Headphones, Trophy, Image as ImageIcon, Music, Pencil, Plus, Type, Video } from "lucide-react";
 import { deletePracticeMaterial } from "@/app/actions/practice-material";
 import { DeleteButton } from "@/components/delete-button";
 import { Button } from "@/components/ui/button";
@@ -82,6 +82,11 @@ export default async function PracticeMaterialList({ searchParams }: { searchPar
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <Button asChild variant="outline" size="sm">
+                    <Link href={`/teacher/practice-materials/${m.id}/scores`}>
+                      <Trophy /> {t("Student scores")}
+                    </Link>
+                  </Button>
                   <Button asChild variant="outline" size="sm">
                     <Link href={`/teacher/practice-materials/${m.id}/preview`}>
                       <Eye /> {t("Preview")}

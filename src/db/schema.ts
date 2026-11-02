@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   date,
   index,
@@ -420,9 +421,15 @@ export const practiceResult = pgTable(
     detail: jsonb("detail").$type<Record<string, unknown>>(),
     /** Set when the practice was done inside a lesson (for the teacher's per-lesson practice recap). */
     materialId: uuid("material_id").references(() => material.id, { onDelete: "cascade" }),
+    /** Set when the practice was done in a practice material (a song played in it), for the teacher's score list. */
+    practiceMaterialId: uuid("practice_material_id").references((): AnyPgColumn => practiceMaterial.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("practice_result_student_idx").on(t.studentId, t.createdAt), index("practice_result_material_idx").on(t.materialId, t.studentId)],
+  (t) => [
+    index("practice_result_student_idx").on(t.studentId, t.createdAt),
+    index("practice_result_material_idx").on(t.materialId, t.studentId),
+    index("practice_result_practice_material_idx").on(t.practiceMaterialId, t.studentId),
+  ],
 );
 
 /** Extra practice material a teacher posts on the students' Practice page (a song, exercise sheet, demo video…). */

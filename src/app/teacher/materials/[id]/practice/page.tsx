@@ -29,7 +29,7 @@ export default async function MaterialPracticeRecap({ params }: { params: Promis
       </Link>
       <PageHeader
         title={t("Practice recap")}
-        description={t("{0} — scores from the tempo, rhythm, melody and solfège practice in this lesson.", material.title)}
+        description={t("{0} — scores from the tempo, rhythm, melody, solfège and song practice in this lesson.", material.title)}
       />
       <PracticeRecap materialId={material.id} materialTitle={material.title} classes={classes} rows={rows} />
     </>

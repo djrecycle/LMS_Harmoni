@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Eye } from "lucide-react";
+import { Eye, Trophy } from "lucide-react";
 import { eq } from "drizzle-orm";
 import { PracticeMaterialForm } from "@/components/practice-material-form";
 import { Button } from "@/components/ui/button";
@@ -35,11 +35,18 @@ export default async function EditPracticeMaterial({ params }: { params: Promise
         title={t("Edit practice material")}
         description={material.title}
         action={
-          <Button asChild variant="outline" size="sm">
-            <Link href={`/teacher/practice-materials/${material.id}/preview`} target="_blank">
-              <Eye /> {t("Preview")}
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/teacher/practice-materials/${material.id}/scores`}>
+                <Trophy /> {t("Student scores")}
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/teacher/practice-materials/${material.id}/preview`} target="_blank">
+                <Eye /> {t("Preview")}
+              </Link>
+            </Button>
+          </div>
         }
       />
       <Card>
