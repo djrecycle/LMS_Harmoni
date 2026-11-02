@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Eye, FileSpreadsheet, FileText } from "lucide-react";
+import { Eye, FileSpreadsheet, FileText, Trophy } from "lucide-react";
 import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 import { removeStudent } from "@/app/actions/classroom";
@@ -64,11 +64,18 @@ export default async function DetailClassroom({ params }: { params: Promise<{ id
         title={classroom.name}
         description={classroom.description ?? t("Manage the students, lessons, and quizzes of this class.")}
         action={
-          <form action={enterStudentView.bind(null, classroom.id)}>
-            <Button type="submit" variant="outline" title={t("Try the student pages of this class with a test student. It is not counted in grades or reports.")}>
-              <Eye /> {t("View as student")}
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href={`/teacher/classes/${classroom.id}/practice`}>
+                <Trophy /> {t("Practice recap")}
+              </Link>
             </Button>
-          </form>
+            <form action={enterStudentView.bind(null, classroom.id)}>
+              <Button type="submit" variant="outline" title={t("Try the student pages of this class with a test student. It is not counted in grades or reports.")}>
+                <Eye /> {t("View as student")}
+              </Button>
+            </form>
+          </div>
         }
       />
 
