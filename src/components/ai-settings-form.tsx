@@ -122,15 +122,24 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
   const err = (k: string) => (msg && !msg.ok ? msg.fields?.[k] : undefined);
 
+  /** Saves the form. Returns false (and shows the error at the top) when the server rejects it. */
+  async function persist(): Promise<boolean> {
+    const r = await saveAiSettings({ ...f, anthropicKey: f.anthropicKey || undefined, geminiKey: f.geminiKey || undefined });
+    if (!r.ok) {
+      setMsg({ ok: false, text: r.error ?? t("Could not save the settings."), fields: r.fieldErrors });
+      return false;
+    }
+    setF((s) => ({ ...s, anthropicKey: "", geminiKey: "" }));
+    setMsg({ ok: true, text: r.message ?? "" });
+    router.refresh();
+    loadAllModels();
+    return true;
+  }
+
   function save() {
     setMsg(null);
     start(async () => {
-      const r = await saveAiSettings({ ...f, anthropicKey: f.anthropicKey || undefined, geminiKey: f.geminiKey || undefined });
-      if (!r.ok) return setMsg({ ok: false, text: r.error ?? t("Could not save the settings."), fields: r.fieldErrors });
-      setF((s) => ({ ...s, anthropicKey: "", geminiKey: "" }));
-      setMsg({ ok: true, text: r.message ?? "" });
-      router.refresh();
-      loadAllModels();
+      await persist();
     });
   }
 
@@ -143,10 +152,22 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
     });
   }
 
+  /** The test runs on the SAVED settings, so a provider with unsaved edits is saved first. */
+  const unsaved: Record<Provider, boolean> = {
+    "claude-cli": f.cliModel !== view.saved.cliModel,
+    anthropic: f.anthropicKey !== "" || f.anthropicModel !== view.saved.anthropicModel || f.anthropicFallback !== view.saved.anthropicFallback,
+    gemini: f.geminiKey !== "" || f.geminiModel !== view.saved.geminiModel,
+    ollama: f.ollamaBaseUrl !== view.saved.ollamaBaseUrl || f.ollamaModel !== view.saved.ollamaModel,
+  };
+
   function test(p: Provider) {
     setTesting(p);
     setTests((s) => ({ ...s, [p]: undefined }));
     start(async () => {
+      if (unsaved[p]) {
+        setMsg(null);
+        if (!(await persist())) return setTesting("");
+      }
       const r = await testAiProvider(p);
       setTests((s) => ({ ...s, [p]: { ok: r.ok, text: (r.ok ? r.message : r.error) ?? "" } }));
       setTesting("");
@@ -157,9 +178,10 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
     <div className="grid gap-2">
       <div>
         <Button type="button" size="sm" variant="outline" onClick={() => test(p)} disabled={busy}>
-          {testing === p ? <LoaderCircle className="animate-spin" /> : <PlugZap />} {t("Test connection")}
+          {testing === p ? <LoaderCircle className="animate-spin" /> : unsaved[p] ? <Save /> : <PlugZap />} {unsaved[p] ? t("Save & test connection") : t("Test connection")}
         </Button>
       </div>
+      {unsaved[p] && !testing && <Alert kind="warning">{t("Not saved yet. The test and the model list use the saved settings.")}</Alert>}
       {tests[p] && <Alert kind={tests[p]!.ok ? "success" : "error"}>{tests[p]!.text}</Alert>}
     </div>
   );
@@ -323,7 +345,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
         <Button type="button" onClick={save} disabled={busy}>
           {busy && !testing ? <LoaderCircle className="animate-spin" /> : <Save />} {t("Save settings")}
         </Button>
-        <p className="text-xs text-muted-foreground">{t("\"Test connection\" uses the saved settings — save first.")}</p>
+        <p className="text-xs text-muted-foreground">{t("\"Test connection\" saves your changes first when needed.")}</p>
       </div>
     </div>
   );
