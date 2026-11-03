@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Download, Library, LoaderCircle, Sparkles } from "lucide-react";
+import { CircleCheck, Download, Library, LoaderCircle, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { saveMaterialFromDoc } from "@/app/actions/perangkat";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/misc";
 import { PROVIDER_LABEL } from "@/lib/perangkat/view";
 import { useT } from "@/i18n/client";
 
-export type PerangkatMaterialRow = { id: string; kind: "materi_guru" | "materi_siswa"; title: string; provider: string | null; kelas: string; createdAt: string };
+export type PerangkatMaterialRow = { id: string; kind: "materi_guru" | "materi_siswa"; title: string; provider: string | null; kelas: string; inLessons: boolean; createdAt: string };
 
 const KIND_LABEL = { materi_guru: "Teacher material", materi_siswa: "Student material" } as const;
 const KIND_TONE = { materi_guru: "success", materi_siswa: "neutral" } as const;
@@ -64,9 +64,15 @@ export function MaterialsFromPerangkat({ rows }: { rows: PerangkatMaterialRow[] 
                   <Download /> {t("Download .docx")}
                 </a>
               </Button>
-              <Button size="sm" disabled={working} onClick={() => add(r.id)}>
-                {working && workingId === r.id ? <LoaderCircle className="animate-spin" /> : <Library />} {t("Add to Lessons")}
-              </Button>
+              {r.inLessons ? (
+                <Badge tone="success">
+                  <CircleCheck className="size-3.5" /> {t("In Lessons")}
+                </Badge>
+              ) : (
+                <Button size="sm" disabled={working} onClick={() => add(r.id)}>
+                  {working && workingId === r.id ? <LoaderCircle className="animate-spin" /> : <Library />} {t("Add to Lessons")}
+                </Button>
+              )}
             </li>
           ))}
         </ul>

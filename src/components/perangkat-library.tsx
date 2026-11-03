@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { BookOpenCheck, Download, Eye, FilePlus2, Library, LoaderCircle, Search } from "lucide-react";
+import { BookOpenCheck, CircleCheck, Download, Eye, FilePlus2, Library, LoaderCircle, Search, TriangleAlert } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { deleteDoc, importQuestionsToBank, saveMaterialFromDoc, setDocKelas, startDerived } from "@/app/actions/perangkat";
 import { DeleteButton } from "@/components/delete-button";
@@ -21,6 +22,14 @@ const KIND_LABEL = {
 } as const;
 
 const KIND_TONE = { cp_tp_atp: "primary", modul_ajar: "warning", materi_guru: "success", materi_siswa: "neutral" } as const;
+
+/** How the new material is added to the Lessons library once it is written. */
+type LessonFormat = "text" | "interactive" | "both";
+const LESSON_CHOICES: [LessonFormat, string, string][] = [
+  ["text", "Text lesson", "A reading lesson with the material's text."],
+  ["interactive", "Interactive lesson", "A page-by-page lesson with checks, a quiz and a task. Uses 1 more AI use."],
+  ["both", "Both", "A text lesson and an interactive lesson. Uses 1 more AI use."],
+];
 
 export function PerangkatLibrary({
   provider,
@@ -42,12 +51,15 @@ export function PerangkatLibrary({
   onUseCp: (cpId: string) => void;
 }) {
   const t = useT();
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<"" | LibraryRow["kind"]>("");
   const [kelas, setKelas] = useState("");
   const [tplFor, setTplFor] = useState<Record<string, string>>({});
   const [working, startWork] = useTransition();
   const [workingId, setWorkingId] = useState("");
+  /** The "Create teacher/student material" choice that is open: which document, and which format is picked. */
+  const [choosing, setChoosing] = useState<{ sourceId: string; to: "materi_guru" | "materi_siswa"; format: LessonFormat } | null>(null);
 
   const kelasOptions = useMemo(() => [...new Set(rows.map((r) => r.kelas).filter(Boolean))].sort(), [rows]);
 
@@ -58,13 +70,18 @@ export function PerangkatLibrary({
 
   const hasCp = (id: string) => cpGroups.some((g) => g.cpId === id);
 
-  function derive(sourceId: string, to: "materi_guru" | "materi_siswa") {
+  function derive(sourceId: string, to: "materi_guru" | "materi_siswa", lesson: LessonFormat) {
     setWorkingId(sourceId + to);
     startWork(async () => {
-      const r = await startDerived({ sourceId, kind: to, provider });
+      const r = await startDerived({ sourceId, kind: to, provider, lesson });
       if (!r.ok || !r.data) return void toast.error(r.error ?? t("Could not start the generation."));
+      setChoosing(null);
       onStarted(r.data.id);
     });
+  }
+
+  function openChoice(sourceId: string, to: "materi_guru" | "materi_siswa") {
+    setChoosing((c) => (c?.sourceId === sourceId ? null : { sourceId, to, format: c?.format ?? "text" }));
   }
 
   function toBank(id: string) {
@@ -82,6 +99,7 @@ export function PerangkatLibrary({
       const r = await saveMaterialFromDoc(id);
       if (!r.ok) return void toast.error(r.error ?? t("Could not add to Lessons."));
       toast.success(r.message ?? t("Added to Lessons."));
+      router.refresh();
     });
   }
 
@@ -173,12 +191,12 @@ export function PerangkatLibrary({
                     </Button>
                   )}
                   {done && r.kind === "modul_ajar" && (
-                    <Button variant="secondary" size="sm" disabled={busy || working} onClick={() => derive(r.id, "materi_guru")}>
+                    <Button variant="secondary" size="sm" disabled={busy || working} onClick={() => openChoice(r.id, "materi_guru")} aria-expanded={choosing?.sourceId === r.id}>
                       {isWorking("materi_guru") ? <LoaderCircle className="animate-spin" /> : <FilePlus2 />} {t("Create teacher material")}
                     </Button>
                   )}
                   {done && r.kind === "materi_guru" && (
-                    <Button variant="secondary" size="sm" disabled={busy || working} onClick={() => derive(r.id, "materi_siswa")}>
+                    <Button variant="secondary" size="sm" disabled={busy || working} onClick={() => openChoice(r.id, "materi_siswa")} aria-expanded={choosing?.sourceId === r.id}>
                       {isWorking("materi_siswa") ? <LoaderCircle className="animate-spin" /> : <FilePlus2 />} {t("Create student material")}
                     </Button>
                   )}
@@ -187,7 +205,12 @@ export function PerangkatLibrary({
                       {isWorking("bank") ? <LoaderCircle className="animate-spin" /> : <BookOpenCheck />} {t("Save questions to the question bank")}
                     </Button>
                   )}
-                  {done && (r.kind === "materi_guru" || r.kind === "materi_siswa") && (
+                  {done && (r.kind === "materi_guru" || r.kind === "materi_siswa") && r.lessonCount > 0 && (
+                    <Badge tone="success">
+                      <CircleCheck className="size-3.5" /> {t("In Lessons")}
+                    </Badge>
+                  )}
+                  {done && (r.kind === "materi_guru" || r.kind === "materi_siswa") && r.lessonCount === 0 && (
                     <Button variant="ghost" size="sm" disabled={working} onClick={() => toLessons(r.id)}>
                       {isWorking("lessons") ? <LoaderCircle className="animate-spin" /> : <Library />} {t("Add to Lessons library")}
                     </Button>
@@ -196,6 +219,42 @@ export function PerangkatLibrary({
                     <DeleteButton action={deleteDoc} id={r.id} />
                   </span>
                 </div>
+
+                {done && r.lessonError && (
+                  <p className="flex items-start gap-1.5 rounded-md bg-warning-soft p-2 text-sm">
+                    <TriangleAlert className="mt-0.5 size-4 shrink-0" /> {t("The interactive lesson was not made:")} {t(r.lessonError)}
+                  </p>
+                )}
+
+                {choosing?.sourceId === r.id && (
+                  <div className="grid gap-3 rounded-lg bg-muted/50 p-3">
+                    <p className="text-sm font-semibold">{t("How should this material go into Lessons?")}</p>
+                    <div role="radiogroup" aria-label={t("Lesson format")} className="grid gap-2 sm:grid-cols-3">
+                      {LESSON_CHOICES.map(([value, label, desc]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={choosing.format === value}
+                          onClick={() => setChoosing({ ...choosing, format: value })}
+                          className={`rounded-lg border-2 bg-card p-3 text-left transition-colors ${choosing.format === value ? "border-primary bg-primary-soft" : "border-border hover:bg-muted/50"}`}
+                        >
+                          <span className="block font-bold">{t(label)}</span>
+                          <span className="block text-sm text-muted-foreground">{t(desc)}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-sm text-muted-foreground">{t("When it is ready, the lesson is added to Lessons automatically.")}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" disabled={busy || working} onClick={() => derive(r.id, choosing.to, choosing.format)}>
+                        {isWorking(choosing.to) ? <LoaderCircle className="animate-spin" /> : <FilePlus2 />} {choosing.to === "materi_guru" ? t("Create teacher material") : t("Create student material")}
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={working} onClick={() => setChoosing(null)}>
+                        {t("Cancel")}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </li>
             );
           })}

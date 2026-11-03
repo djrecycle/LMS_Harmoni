@@ -34,7 +34,8 @@ import { BATAS_IMPOR, SISTEM } from "@/lib/perangkat/prompts";
 import { docContext, getOwnedDoc, getSetting, getTemplate, listCpDocs, saveSetting, type PerangkatSetting } from "@/lib/perangkat/store";
 import { isObj, obj, objs, str, type Obj } from "@/lib/perangkat/util";
 import { saveQuestionMany } from "./question";
-import { getT } from "@/i18n/server";
+import { buildInteractiveLesson } from "@/lib/interactive-ai";
+import { getLocale, getT } from "@/i18n/server";
 
 const S = schema;
 const refresh = () => revalidatePath("/teacher/perangkat-ajar");
@@ -94,9 +95,11 @@ const settingFrom = (v: Omit<GenerationInput, "kind">): PerangkatSetting => ({
 
 /* ------------------------------------------------------------------ job runner */
 type Work = (run: RunPrompt) => Promise<Obj>;
+/** Runs once the document is written, before it is marked done; returns the context to save (e.g. with the lessons it made). */
+type Finish = (data: Obj, context: PerangkatKonteks, title: string) => Promise<PerangkatKonteks>;
 
 /** Runs after the response is sent: the AI can take minutes, so the page polls the row for the result. */
-async function runJob(docId: string, teacherId: string, kind: DocKind, context: PerangkatKonteks, work: Work, choice: ProviderChoice) {
+async function runJob(docId: string, teacherId: string, kind: DocKind, context: PerangkatKonteks, work: Work, choice: ProviderChoice, finish?: Finish) {
   let provider: string | null = null;
   const run: RunPrompt = async (prompt) => {
     const r = await generateText({ system: SISTEM, prompt, provider: choice });
@@ -126,9 +129,12 @@ async function runJob(docId: string, teacherId: string, kind: DocKind, context: 
       if (context.impor && !extracted.kelas) delete finalContext.kelas;
     }
 
+    const title = judulPerangkat(kind, data, finalContext);
+    if (finish) finalContext = await finish(data, finalContext, title);
+
     await db
       .update(S.teachingDoc)
-      .set({ data, title: judulPerangkat(kind, data, finalContext), context: finalContext, status: "done", error: null, provider })
+      .set({ data, title, context: finalContext, status: "done", error: null, provider })
       .where(and(eq(S.teachingDoc.id, docId), eq(S.teachingDoc.status, "pending")));
   } catch (e) {
     console.error("[perangkat] generation failed", kind, e);
@@ -143,7 +149,7 @@ async function runJob(docId: string, teacherId: string, kind: DocKind, context: 
   }
 }
 
-async function launch(args: { teacherId: string; kind: DocKind; context: PerangkatKonteks; sourceId?: string; work: Work; provider: ProviderChoice }): Promise<ActionResult<{ id: string }>> {
+async function launch(args: { teacherId: string; kind: DocKind; context: PerangkatKonteks; sourceId?: string; work: Work; provider: ProviderChoice; finish?: Finish }): Promise<ActionResult<{ id: string }>> {
   const t = await getT();
   if (!(await isPerangkatAiAvailable(args.provider))) return fail(t(providerUnavailableMessage(args.provider)));
   if (!(await takeAllowance(args.teacherId))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
@@ -151,7 +157,7 @@ async function launch(args: { teacherId: string; kind: DocKind; context: Perangk
     .insert(S.teachingDoc)
     .values({ teacherId: args.teacherId, kind: args.kind, title: judulPerangkat(args.kind, null, args.context), context: args.context, sourceId: args.sourceId ?? null, status: "pending" })
     .returning({ id: S.teachingDoc.id });
-  after(() => runJob(row.id, args.teacherId, args.kind, args.context, args.work, args.provider));
+  after(() => runJob(row.id, args.teacherId, args.kind, args.context, args.work, args.provider, args.finish));
   refresh();
   return succeed(undefined, { id: row.id });
 }
@@ -286,25 +292,40 @@ export async function startImportCp(formData: FormData): Promise<ActionResult<{ 
 }
 
 /* ------------------------------------------------------------------ Materi Guru / Siswa (derived) */
-const derivedSchema = z.object({ sourceId: z.uuid("Invalid document"), kind: z.enum(["materi_guru", "materi_siswa"]), provider: providerField });
+/** How a new teacher/student material goes into the Lessons library: as text, as an interactive lesson, both, or not at all. */
+const LESSON_FORMATS = ["none", "text", "interactive", "both"] as const;
+type LessonFormat = (typeof LESSON_FORMATS)[number];
+
+const derivedSchema = z.object({
+  sourceId: z.uuid("Invalid document"),
+  kind: z.enum(["materi_guru", "materi_siswa"]),
+  provider: providerField,
+  lesson: z.enum(LESSON_FORMATS).default("none"),
+});
 
 export async function startDerived(data: unknown): Promise<ActionResult<{ id: string }>> {
   const t = await getT();
   const teacher = await requireTeacher();
   const p = derivedSchema.safeParse(data);
   if (!p.success) return zodError(p.error);
-  const { sourceId, kind, provider } = p.data;
+  const { sourceId, kind, provider, lesson } = p.data;
 
   const source = await getOwnedDoc(teacher.id, sourceId);
   if (!source) return fail(t("Document not found."));
   const need: DocKind = kind === "materi_guru" ? "modul_ajar" : "materi_guru";
   if (source.kind !== need) return fail(t(kind === "materi_guru" ? "Teacher material can only be made from a Modul Ajar." : "Student material can only be made from the teacher material."));
   if (source.status !== "done" || !isObj(source.data)) return fail(t("The source document is not finished yet."));
+  // The interactive lesson is a second AI call, so it needs a second use of today's allowance.
+  const wantsInteractive = lesson === "interactive" || lesson === "both";
+  if (wantsInteractive && (await remainingAllowance(teacher.id)).remaining < 2) return fail(t("An interactive lesson needs 2 AI uses, and you don't have enough left today. Choose text only, or try again tomorrow."));
+  const locale = await getLocale();
 
   // Same context as the source, without the BAB line (that is only for the Modul Ajar prompt).
   const context: PerangkatKonteks = { ...docContext(source) };
   delete context.bab_nomor;
   delete context.jumlah_tp;
+  delete context.lesson_ids;
+  delete context.lesson_error;
   const sourceData = source.data;
   return launch({
     teacherId: teacher.id,
@@ -313,6 +334,13 @@ export async function startDerived(data: unknown): Promise<ActionResult<{ id: st
     sourceId,
     provider,
     work: kind === "materi_guru" ? (run) => buatMateriGuru(run, sourceData, context) : (run) => buatMateriSiswa(run, sourceData, context),
+    finish:
+      lesson === "none"
+        ? undefined
+        : async (data, ctx, title) => {
+            const r = await addLessons({ teacherId: teacher.id, kind, title, data, context: ctx, format: lesson, provider, locale });
+            return { ...ctx, lesson_ids: [...(ctx.lesson_ids ?? []), ...r.ids], ...(r.error ? { lesson_error: r.error } : {}) };
+          },
   });
 }
 
@@ -329,18 +357,65 @@ export async function saveMaterialFromDoc(docId: string): Promise<ActionResult<{
   if (!doc || doc.status !== "done") return fail(t("Document not found."));
   if (doc.kind !== "materi_guru" && doc.kind !== "materi_siswa") return fail(t("Only teacher or student material can be added to Lessons."));
 
-  const content = materiKeMarkdown(doc.kind, obj(doc.data)).slice(0, 50_000);
-  if (content.trim().length < 3) return fail(t("This document has no content to add."));
-
   const ctx = docContext(doc);
-  const topic = (str(ctx.bab_judul) || str(ctx.topik) || "").slice(0, 300) || null;
+  const r = await addLessons({ teacherId: teacher.id, kind: doc.kind, title: doc.title, data: obj(doc.data), context: ctx, format: "text", provider: "auto", locale: "id" });
+  if (!r.ids.length) return fail(t(r.error ?? "This document has no content to add."));
+  await db
+    .update(S.teachingDoc)
+    .set({ context: { ...ctx, lesson_ids: [...(ctx.lesson_ids ?? []), ...r.ids] } })
+    .where(eq(S.teachingDoc.id, doc.id));
+  refresh();
+  return succeed(t("Added to Lessons."), { id: r.ids[0] });
+}
 
-  const [m] = await db
-    .insert(S.material)
-    .values({ teacherId: teacher.id, title: doc.title.slice(0, 150), topic, content, typeMedia: "text", kelas: ctx.kelas || null })
-    .returning({ id: S.material.id });
-  revalidatePath("/teacher/materials");
-  return succeed(t("Added to Lessons."), { id: m.id });
+/**
+ * Insert the material as lessons: a text lesson, an interactive lesson built from the same text by AI, or both.
+ * Never throws: why a lesson could not be made is reported in `error` (an English message, translated when shown),
+ * so a failed interactive lesson never fails the document itself.
+ */
+async function addLessons(v: {
+  teacherId: string;
+  kind: "materi_guru" | "materi_siswa";
+  title: string;
+  data: Obj;
+  context: PerangkatKonteks;
+  format: Exclude<LessonFormat, "none">;
+  provider: ProviderChoice;
+  locale: string;
+}): Promise<{ ids: string[]; error?: string }> {
+  const content = materiKeMarkdown(v.kind, v.data).slice(0, 50_000);
+  if (content.trim().length < 3) return { ids: [], error: "This document has no content to add." };
+  const base = {
+    teacherId: v.teacherId,
+    title: v.title.slice(0, 150),
+    topic: (str(v.context.bab_judul) || str(v.context.topik) || "").slice(0, 300) || null,
+    content,
+    kelas: v.context.kelas || null,
+  };
+  const ids: string[] = [];
+  let error: string | undefined;
+
+  if (v.format === "text" || v.format === "both") {
+    const [m] = await db.insert(S.material).values({ ...base, typeMedia: "text" }).returning({ id: S.material.id });
+    ids.push(m.id);
+  }
+  if (v.format === "interactive" || v.format === "both") {
+    if (!(await takeAllowance(v.teacherId))) error = "You have reached today's AI usage limit. Try again tomorrow.";
+    else {
+      try {
+        const lesson = await buildInteractiveLesson({ title: v.title, content, provider: v.provider, locale: v.locale });
+        if (!lesson) throw new AiError("The AI did not produce a valid interactive lesson. Try again, or adjust the lesson content first.");
+        const [m] = await db.insert(S.material).values({ ...base, typeMedia: "interactive", interactiveData: lesson }).returning({ id: S.material.id });
+        ids.push(m.id);
+      } catch (e) {
+        console.error("[perangkat] interactive lesson failed", e);
+        await refundAllowance(v.teacherId).catch(() => undefined);
+        error = aiErrorMessage(e);
+      }
+    }
+  }
+  if (ids.length) revalidatePath("/teacher/materials");
+  return { ids, error };
 }
 
 /* ------------------------------------------------------------------ used from the teaching journal */

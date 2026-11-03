@@ -26,6 +26,10 @@ export type PerangkatKonteks = Konteks & {
   template_nama?: string;
   bab_judul?: string;
   impor?: boolean;
+  /** Lessons (material ids) made from this teacher/student material. */
+  lesson_ids?: string[];
+  /** Why the interactive lesson asked for with this material could not be made. */
+  lesson_error?: string;
 };
 
 /** Sends one prompt to the AI and returns its raw text. */

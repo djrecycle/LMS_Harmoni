@@ -67,6 +67,7 @@ export default async function MaterialList({ searchParams }: { searchParams: Pro
     title: d.title,
     provider: d.provider,
     kelas: docContext(d).kelas ?? "",
+    inLessons: (docContext(d).lesson_ids?.length ?? 0) > 0,
     createdAt: d.createdAt.toISOString(),
   }));
 

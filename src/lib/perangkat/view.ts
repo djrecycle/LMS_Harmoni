@@ -12,6 +12,10 @@ export type LibraryRow = {
   templateName: string;
   /** Grade level (7/8/9) this document was generated for, from its context — empty when not set. */
   kelas: string;
+  /** How many lessons were made from this material (Lessons library). */
+  lessonCount: number;
+  /** Why an interactive lesson asked for could not be made — empty when fine. */
+  lessonError: string;
   createdAt: string; // ISO
 };
 

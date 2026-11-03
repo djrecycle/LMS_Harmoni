@@ -17,7 +17,7 @@ import { useT } from "@/i18n/client";
 
 type Form = PerangkatSetting & { topik: string; tujuan_pembelajaran: string; catatan: string; jumlah_tp: string };
 
-type Active = { id: string; kind: string; title: string; status: "pending" | "done" | "error"; error: string | null; provider: string | null; summary: string };
+type Active = { id: string; kind: string; title: string; status: "pending" | "done" | "error"; error: string | null; provider: string | null; summary: string; lessonCount: number; lessonError: string | null };
 
 const POLL_MS = 2000;
 
@@ -82,7 +82,8 @@ export function PerangkatWorkspace({
         setActive(json);
         if (json.status === "pending") timer = setTimeout(tick, POLL_MS);
         else {
-          if (json.status === "done") toast.success(t("Document ready."));
+          if (json.status === "done") toast.success(json.lessonCount > 0 ? t("Document ready and added to Lessons.") : t("Document ready."));
+          if (json.status === "done" && json.lessonError) toast.warning(`${t("The interactive lesson was not made:")} ${json.lessonError}`);
           router.refresh();
         }
       } catch {
@@ -469,6 +470,7 @@ export function PerangkatWorkspace({
 
 function ResultPanel({ active, generating, elapsed }: { active: Active | null; generating: boolean; elapsed: number }) {
   const t = useT();
+  const router = useRouter();
   const [saving, startSave] = useTransition();
   const [addingToLessons, startAddToLessons] = useTransition();
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
@@ -496,6 +498,11 @@ function ResultPanel({ active, generating, elapsed }: { active: Active | null; g
       {active?.status === "done" && (
         <>
           <p className="font-semibold">{active.title}</p>
+          {active.lessonError && (
+            <Alert kind="warning">
+              {t("The interactive lesson was not made:")} {active.lessonError}
+            </Alert>
+          )}
           <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-muted/60 p-3 text-sm leading-relaxed">{active.summary}</pre>
           <div className="flex flex-wrap gap-2">
             <Button asChild>
@@ -518,7 +525,14 @@ function ResultPanel({ active, generating, elapsed }: { active: Active | null; g
                 {saving ? <LoaderCircle className="animate-spin" /> : <BookOpenCheck />} {t("Save multiple-choice questions to the question bank")}
               </Button>
             )}
-            {(active.kind === "materi_guru" || active.kind === "materi_siswa") && (
+            {(active.kind === "materi_guru" || active.kind === "materi_siswa") && active.lessonCount > 0 && (
+              <Button variant="secondary" asChild>
+                <Link href="/teacher/materials">
+                  <Library /> {t("Open in Lessons")}
+                </Link>
+              </Button>
+            )}
+            {(active.kind === "materi_guru" || active.kind === "materi_siswa") && active.lessonCount === 0 && (
               <Button
                 variant="secondary"
                 disabled={addingToLessons}
@@ -527,6 +541,7 @@ function ResultPanel({ active, generating, elapsed }: { active: Active | null; g
                     const r = await saveMaterialFromDoc(active.id);
                     if (!r.ok) return void toast.error(r.error ?? t("Could not add to Lessons."));
                     toast.success(r.message ?? t("Added to Lessons."));
+                    router.refresh();
                   })
                 }
               >

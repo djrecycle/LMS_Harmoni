@@ -19,6 +19,7 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
   const doc = await getOwnedDoc(teacher.id, id);
   if (!doc) return NextResponse.json({ error: t("Document not found.") }, { status: 404, headers: noStore });
 
+  const k = docContext(doc);
   return NextResponse.json(
     {
       id: doc.id,
@@ -27,7 +28,9 @@ export async function GET(_: Request, ctx: { params: Promise<{ id: string }> }) 
       status: doc.status,
       error: doc.error ? t(doc.error) : null,
       provider: doc.provider,
-      summary: doc.status === "done" ? ringkas(doc.kind, doc.data, docContext(doc)) : "",
+      summary: doc.status === "done" ? ringkas(doc.kind, doc.data, k) : "",
+      lessonCount: k.lesson_ids?.length ?? 0,
+      lessonError: k.lesson_error ? t(k.lesson_error) : null,
     },
     { headers: noStore },
   );

@@ -39,6 +39,8 @@ export default async function PerangkatAjarPage() {
       templateId: k.template_id ?? "bawaan",
       templateName: (k.template_id && templateName.get(k.template_id)) || k.template_nama || "",
       kelas: k.kelas ?? "",
+      lessonCount: k.lesson_ids?.length ?? 0,
+      lessonError: k.lesson_error ?? "",
       createdAt: d.createdAt.toISOString(),
     };
   });
