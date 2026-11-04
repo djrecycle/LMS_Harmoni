@@ -43,6 +43,18 @@ Tampilan berbahasa **Indonesia** secara bawaan dan bisa diganti ke **Inggris** k
 
 <p align="center"><img src="docs/screenshots/siswa-hp.png" alt="Beranda siswa di HP" width="320" /></p>
 
+**Status Server** (khusus Super Admin): CPU, RAM, disk, dan ukuran database VPS, diperbarui otomatis tiap 10 detik.
+
+<img src="docs/screenshots/status-server.png" alt="Halaman Status Server" />
+
+**Pengunjung** (khusus Super Admin): siapa yang sedang online, halaman yang dibuka per menit, dan halaman terpopuler.
+
+<img src="docs/screenshots/pengunjung.png" alt="Halaman Pengunjung" />
+
+**Kelola Guru** (khusus Super Admin): setujui guru baru, batasi pendaftaran, dan atur ruang upload per guru.
+
+<img src="docs/screenshots/kelola-guru.png" alt="Halaman Kelola Guru" />
+
 ## Fitur
 
 ### Untuk siswa

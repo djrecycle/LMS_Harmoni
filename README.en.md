@@ -8,6 +8,17 @@ The interface is in **Bahasa Indonesia by default** and can be switched to **Eng
 
 📖 **User guide** (sign-up, sign-in, roles, and every feature, in Indonesian): see the **[Wiki](https://github.com/djrecycle/LMS_Harmoni/wiki)**.
 
+## Screenshots
+
+| | |
+|---|---|
+| <img src="docs/screenshots/dashboard-guru.png" alt="Teacher dashboard" /><br>**Teacher dashboard** | <img src="docs/screenshots/kuis-midi.png" alt="Quiz answered on the piano" /><br>**Quiz answered on the piano / MIDI keyboard** |
+| <img src="docs/screenshots/perangkat-ajar.png" alt="Teaching documents with AI" /><br>**Teaching documents (AI)** | <img src="docs/screenshots/piano-virtual-gelap.png" alt="Virtual piano in dark mode" /><br>**Virtual piano + metronome (dark mode)** |
+| <img src="docs/screenshots/status-server.png" alt="Server Status page" /><br>**Server Status** (Super Admin) | <img src="docs/screenshots/pengunjung.png" alt="Visitors page" /><br>**Visitors** (Super Admin) |
+| <img src="docs/screenshots/kelola-guru.png" alt="Manage Teachers page" /><br>**Manage Teachers** (Super Admin) | <img src="docs/screenshots/siswa-hp.png" alt="Student home on a phone" width="200" /><br>**Student home on a phone** |
+
+The screenshots show the Indonesian interface.
+
 ## Contents
 
 1. [Tech stack](#tech-stack)
