@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { Brand } from "@/components/brand";
+import { Copyright } from "@/components/copyright";
 import { LocaleSwitcher } from "@/components/locale-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { dashboardPathFor, getCurrentUser } from "@/lib/session";
@@ -20,6 +21,7 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
           <Brand />
         </div>
         <div className="rounded-2xl border bg-card p-6 shadow-lg sm:p-8">{children}</div>
+        <Copyright className="mt-4 text-center text-xs text-muted-foreground" />
       </div>
     </div>
   );

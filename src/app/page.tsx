@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Copyright } from "@/components/copyright";
 import { Bot, ClipboardList, Headphones, Library, Mic, Piano, Trophy } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { LocaleSwitcher } from "@/components/locale-switcher";
@@ -96,12 +97,7 @@ export default async function Home() {
         <Link href="/privacy" className="hover:underline">
           {t("Privacy Policy")}
         </Link>
-        <p className="mt-1 text-xs">
-          © 2026 Rangga (djrecycle) ·{" "}
-          <a href="https://github.com/djrecycle/LMS_Harmoni/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="hover:underline">
-            {t("MIT License")}
-          </a>
-        </p>
+        <Copyright className="mt-1 text-xs" />
       </footer>
     </div>
   );
