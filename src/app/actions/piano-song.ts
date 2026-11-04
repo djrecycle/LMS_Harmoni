@@ -8,7 +8,7 @@ import { db, schema } from "@/db";
 import { getOwnedPianoSong } from "@/lib/access";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
-import { AiError, aiErrorMessage, generateJson, isPerangkatAiAvailable, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, remainingAllowance, takeAllowance } from "@/lib/ai";
+import { AiError, aiErrorMessage, generateJson, canUseAi, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, remainingAllowance, takeAllowance } from "@/lib/ai";
 import { noteToMidi, midiToNote } from "@/lib/music";
 import { detectDoMidi, notesToRoll, parseSongNotation, SONG_FORMATS, songFromRow, songParseMessage, type SongFormat } from "@/lib/songs";
 import { requireTeacher } from "@/lib/session";
@@ -166,7 +166,7 @@ export async function generateSongDraft(fd: FormData): Promise<ActionResult<{ dr
   }
   if (!v.prompt && !image && !v.midiText) return fail(t("Write a prompt, add a photo, or add a MIDI file."));
 
-  if (!(await isPerangkatAiAvailable(v.provider))) return fail(t(providerUnavailableMessage(v.provider)));
+  if (!(await canUseAi(teacher.id, v.provider))) return fail(t(providerUnavailableMessage(v.provider)));
   if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
   try {
     const user = [
@@ -176,7 +176,7 @@ export async function generateSongDraft(fd: FormData): Promise<ActionResult<{ dr
     ]
       .filter(Boolean)
       .join("\n\n");
-    const { data } = await generateJson<SongDraft>({ system: SONG_SYSTEM, user, schema: SONG_AI_SCHEMA, image, provider: v.provider, maxTokens: 12000, effort: "medium" });
+    const { data } = await generateJson<SongDraft>({ system: SONG_SYSTEM, user, schema: SONG_AI_SCHEMA, image, provider: v.provider, maxTokens: 12000, effort: "medium", owner: teacher.id });
     if (!data.notation?.trim()) throw new AiError("The AI did not write a melody. Try again.");
     const draft: SongDraft = {
       title: (data.title ?? "").trim().slice(0, 150),

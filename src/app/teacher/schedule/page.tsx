@@ -27,7 +27,7 @@ export default async function SchedulePage() {
     <>
       <PageHeader title={t("Teaching Schedule")} description={t("Your weekly timetable: which class, subject, and time.")} />
       <div className="grid gap-5">
-        <ScheduleImportForm providers={await providerOptions()} />
+        <ScheduleImportForm providers={await providerOptions(teacher.id)} />
         <ScheduleManager classrooms={classrooms} rows={rows} initialNow={nowWib()} />
       </div>
     </>

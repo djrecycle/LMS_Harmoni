@@ -25,7 +25,7 @@ export default async function CalendarListPage() {
     <>
       <PageHeader title={t("Academic Calendar")} description={t("Upload your school's official Kalender Pendidikan and browse it here.")} />
       <div className="grid gap-5">
-        <CalendarUploadForm providers={await providerOptions()} />
+        <CalendarUploadForm providers={await providerOptions(teacher.id)} />
 
         {calendars.length === 0 ? (
           <EmptyState icon={<CalendarDays />} title={t("No calendar yet")}>

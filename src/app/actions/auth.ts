@@ -9,6 +9,7 @@ import { db, schema } from "@/db";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, formValues, type ActionResult } from "@/lib/action-result";
 import { auth, signupContext } from "@/lib/auth";
+import { teacherSignupBlocked } from "@/lib/platform";
 import { rateLimit } from "@/lib/ratelimit";
 import { dashboardPathFor, requireUser, STUDENT_VIEW_COOKIE } from "@/lib/session";
 import { getT } from "@/i18n/server";
@@ -52,6 +53,11 @@ export async function list(_: ActionResult, fd: FormData): Promise<ActionResult>
   const requireCode = process.env.TEACHER_SIGNUP_CODE?.trim();
   if (v.role === "teacher" && requireCode && v.teacherCode?.trim() !== requireCode) {
     return { ok: false, error: t("Incorrect teacher registration code."), fieldErrors: { teacherCode: t("Incorrect teacher registration code") }, values: formValues(fd) };
+  }
+
+  if (v.role === "teacher") {
+    const blocked = await teacherSignupBlocked();
+    if (blocked) return { ok: false, error: t(blocked.message), values: formValues(fd) };
   }
 
   const rate = rateLimit(`register:${(await headers()).get("x-forwarded-for") ?? "local"}`, 10, 60 * 60 * 1000);
@@ -98,7 +104,8 @@ export async function login(_: ActionResult, fd: FormData): Promise<ActionResult
 export async function signInWithGoogle() {
   const { isGoogleSignInEnabled } = await import("@/lib/auth");
   if (!isGoogleSignInEnabled()) redirect("/login");
-  const res = await auth.api.signInSocial({ body: { provider: "google", callbackURL: "/student" } });
+  // Teachers only (see lib/auth.ts): a new Google account becomes a teacher waiting for approval; errors come back to /login.
+  const res = await auth.api.signInSocial({ body: { provider: "google", callbackURL: "/teacher", errorCallbackURL: "/login" } });
   if (res.url) redirect(res.url);
   redirect("/login");
 }

@@ -18,7 +18,7 @@ export default async function GeneratorAiPage() {
   return (
     <>
       <PageHeader title={t("AI Generator")} description={t("The AI drafts questions and lessons. You review, edit, and save them.")} />
-      <AiGenerator providers={await providerOptions()} remainingInitial={remaining} limit={await dailyLimit()} topicSuggestions={topics} />
+      <AiGenerator providers={await providerOptions(teacher.id)} remainingInitial={remaining} limit={await dailyLimit(teacher.id)} topicSuggestions={topics} />
     </>
   );
 }

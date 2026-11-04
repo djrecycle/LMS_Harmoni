@@ -21,7 +21,8 @@ import {
   NotebookPen,
   CalendarClock,
   CalendarDays,
-  ShieldCheck,
+  Sparkles,
+  Users,
   X,
   Library,
 } from "lucide-react";
@@ -47,6 +48,7 @@ const NAV: Record<"teacher" | "student", Item[]> = {
     { href: "/teacher/calendar", label: "Academic Calendar", Icon: CalendarDays },
     { href: "/teacher/grades", label: "Grades & Reports", Icon: ChartColumn },
     { href: "/teacher/profile", label: "Profile", Icon: User },
+    { href: "/teacher/ai-settings", label: "AI Settings", Icon: Sparkles },
   ],
   student: [
     { href: "/student", label: "Home", Icon: LayoutDashboard, exact: true },
@@ -58,8 +60,8 @@ const NAV: Record<"teacher" | "student", Item[]> = {
   ],
 };
 
-/** Only the admin (first teacher) gets this; the page and its actions enforce it again on the server. */
-const ADMIN_ITEMS: Item[] = [{ href: "/teacher/admin/ai", label: "AI Settings", Icon: ShieldCheck }];
+/** Only the Super Admin (first teacher) gets these; the pages and their actions enforce it again on the server. */
+const ADMIN_ITEMS: Item[] = [{ href: "/teacher/admin/teachers", label: "Manage Teachers", Icon: Users }];
 const itemsFor = (role: "teacher" | "student", isAdmin?: boolean) => (role === "teacher" && isAdmin ? [...NAV.teacher, ...ADMIN_ITEMS] : NAV[role]);
 
 function active(path: string, i: Item) {

@@ -13,6 +13,7 @@ import { Alert, Badge } from "@/components/ui/misc";
 import { ProviderSelect, providerReady, useProviderPick, type ProviderOption } from "@/components/provider-select";
 import type { PerangkatSetting } from "@/lib/perangkat/store";
 import { PROVIDER_LABEL, type CpGroup, type LibraryRow, type TemplateOption } from "@/lib/perangkat/view";
+import { AiSetupNotice } from "@/components/ai-setup-notice";
 import { useT } from "@/i18n/client";
 
 type Form = PerangkatSetting & { topik: string; tujuan_pembelajaran: string; catatan: string; jumlah_tp: string };
@@ -214,9 +215,7 @@ export function PerangkatWorkspace({
   return (
     <div className="grid gap-5">
       {!anyProvider && (
-        <Alert kind="warning" title={t("AI is not enabled yet")}>
-          {t("Install Claude Code on the server and log in, or set")} <code className="rounded bg-muted px-1">ANTHROPIC_API_KEY</code> {t("or")} <code className="rounded bg-muted px-1">GEMINI_API_KEY</code> {t("in the server settings (see the README), then restart the app.")}
-        </Alert>
+        <AiSetupNotice />
       )}
 
       {anyProvider && noProvider && <Alert kind="warning">{t("The chosen AI provider is not available on this server. Pick another one.")}</Alert>}

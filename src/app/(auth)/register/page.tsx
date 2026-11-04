@@ -21,10 +21,11 @@ export default async function RegisterPage() {
         <>
           <div className="my-4 flex items-center gap-3 text-xs font-semibold text-muted-foreground">
             <span className="h-px flex-1 bg-border" />
-            {t("or, as a student")}
+            {t("or, as a teacher")}
             <span className="h-px flex-1 bg-border" />
           </div>
-          <GoogleButton />
+          <GoogleButton label={t("Sign up as a teacher with Google")} />
+          <p className="mt-2 text-center text-xs text-muted-foreground">{t("Google is for teachers only. New teacher accounts wait for the admin's approval.")}</p>
         </>
       )}
       <p className="mt-6 text-center text-sm text-muted-foreground">

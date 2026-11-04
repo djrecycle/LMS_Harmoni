@@ -3,12 +3,24 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { admin, username } from "better-auth/plugins";
+import { APIError } from "better-auth/api";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { getT } from "@/i18n/server";
 import { sendEmail } from "./email";
+import { teacherSignupBlocked } from "./platform";
 
-/** Google sign-in is only offered when both are set (see the README). Students only: teacher registration needs the sign-up code. */
+/** The account is being created / signed in through an OAuth callback (Google), not the email form. */
+const viaOAuth = (ctx: unknown) => {
+  const path = (ctx as { path?: unknown } | null | undefined)?.path;
+  return typeof path === "string" && path.startsWith("/callback");
+};
+
+/**
+ * Google sign-in is only offered when both are set (see the README). It is for TEACHERS only: a new Google account
+ * becomes a teacher waiting for the Super Admin's approval (and counts against the teacher limit); a student
+ * account can't sign in with Google.
+ */
 const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim());
 export const isGoogleSignInEnabled = () => googleConfigured;
 
@@ -54,19 +66,38 @@ export const auth = betterAuth({
       // input:false -> the client cannot fill it in through the public endpoint
       role: { type: "string", required: false, defaultValue: "student", input: false },
       isAdmin: { type: "boolean", required: false, defaultValue: false, input: false },
+      teacherStatus: { type: "string", required: false, defaultValue: "active", input: false },
     },
   },
   databaseHooks: {
     user: {
       create: {
-        before: async (u) => {
-          const role = signupContext.getStore()?.role ?? "student";
+        before: async (u, ctx) => {
+          const google = viaOAuth(ctx);
+          const role = google ? "teacher" : (signupContext.getStore()?.role ?? "student");
+          if (google) {
+            const blocked = await teacherSignupBlocked();
+            if (blocked) throw new APIError("FORBIDDEN", { code: blocked.code, message: blocked.message });
+          }
           let isAdmin = false;
           if (role === "teacher") {
-            const exists = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.role, "teacher")).limit(1);
-            isAdmin = exists.length === 0; // first teacher = main admin
+            // The very first teacher becomes the Super Admin; after that nobody can get it (a unique index also enforces one).
+            const admin = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.isAdmin, true)).limit(1);
+            isAdmin = admin.length === 0;
           }
-          return { data: { ...u, role, isAdmin } };
+          // Every later teacher waits for the Super Admin's approval.
+          const teacherStatus = role === "teacher" && !isAdmin ? "pending" : "active";
+          return { data: { ...u, role, isAdmin, teacherStatus } };
+        },
+      },
+    },
+    session: {
+      create: {
+        // Google is for teachers: a student account (e.g. one whose email matches) can't sign in with it.
+        before: async (s, ctx) => {
+          if (!viaOAuth(ctx)) return;
+          const [u] = await db.select({ role: schema.user.role }).from(schema.user).where(eq(schema.user.id, s.userId)).limit(1);
+          if (u?.role !== "teacher") throw new APIError("FORBIDDEN", { code: "google_teachers_only", message: "Google sign-in is for teachers only." });
         },
       },
     },

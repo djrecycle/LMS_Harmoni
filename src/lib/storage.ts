@@ -3,7 +3,9 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import {
   DeleteObjectCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -104,4 +106,50 @@ export async function openLocalFile(key: string, range?: { start: number; end: n
   const stat = await fsp.stat(location);
   const stream = fs.createReadStream(location, range ? { start: range.start, end: range.end } : undefined);
   return { size: stat.size, stream };
+}
+
+/** Total size in bytes of the files under `prefix` (e.g. "media/<teacherId>/"). */
+export async function usedBytes(prefix: string): Promise<number> {
+  if (useS3()) {
+    let total = 0;
+    let token: string | undefined;
+    do {
+      const r = await clientS3().send(new ListObjectsV2Command({ Bucket: process.env.S3_BUCKET, Prefix: prefix, ContinuationToken: token }));
+      for (const o of r.Contents ?? []) total += o.Size ?? 0;
+      token = r.IsTruncated ? r.NextContinuationToken : undefined;
+    } while (token);
+    return total;
+  }
+  const walk = async (dir: string): Promise<number> => {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true });
+    } catch {
+      return 0; // nothing uploaded yet
+    }
+    let total = 0;
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) total += await walk(full);
+      else if (e.isFile()) total += (await fsp.stat(full)).size;
+    }
+    return total;
+  };
+  return walk(path.join(/*turbopackIgnore: true*/ ROOT, prefix));
+}
+
+/** Delete every file under `prefix` (a deleted teacher's uploads). `prefix` must be "media/<id>/" or "recording/<id>/". */
+export async function deleteFolder(prefix: string) {
+  if (!/^(media|recording)\/[A-Za-z0-9_-]+\/$/.test(prefix)) return;
+  if (useS3()) {
+    let token: string | undefined;
+    do {
+      const r = await clientS3().send(new ListObjectsV2Command({ Bucket: process.env.S3_BUCKET, Prefix: prefix, ContinuationToken: token }));
+      const keys = (r.Contents ?? []).flatMap((o) => (o.Key ? [{ Key: o.Key }] : []));
+      if (keys.length) await clientS3().send(new DeleteObjectsCommand({ Bucket: process.env.S3_BUCKET, Delete: { Objects: keys } }));
+      token = r.IsTruncated ? r.NextContinuationToken : undefined;
+    } while (token);
+    return;
+  }
+  await fsp.rm(path.join(/*turbopackIgnore: true*/ ROOT, prefix), { recursive: true, force: true });
 }

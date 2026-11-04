@@ -7,7 +7,7 @@ import { db, schema } from "@/db";
 import { getOwnedClassroom, getOwnedSchedule, isUuid } from "@/lib/access";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
 import { zodError } from "@/lib/action-result-server";
-import { aiErrorMessage, generateJson, isPerangkatAiAvailable, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, remainingAllowance, takeAllowance, type ProviderChoice } from "@/lib/ai";
+import { aiErrorMessage, generateJson, canUseAi, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, remainingAllowance, takeAllowance, type ProviderChoice } from "@/lib/ai";
 import { AiError } from "@/lib/ai-error";
 import { DAYS } from "@/lib/days";
 import { extractScheduleSource } from "@/lib/schedule-import/extract";
@@ -112,11 +112,12 @@ export async function extractScheduleDraft(formData: FormData): Promise<ActionRe
     return fail(t(e instanceof AiError ? e.message : "The file could not be read."));
   }
 
-  if (!(await isPerangkatAiAvailable(provider))) return fail(t(providerUnavailableMessage(provider)));
+  if (!(await canUseAi(teacher.id, provider))) return fail(t(providerUnavailableMessage(provider)));
   if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
 
   try {
     const { data: result } = await generateJson<{ entries: unknown[] }>({
+      owner: teacher.id,
       system: SYSTEM,
       user: buildPrompt(source.kind === "text" ? source.text : ""),
       image: source.kind === "image" ? { data: source.data, mediaType: source.mediaType } : undefined,

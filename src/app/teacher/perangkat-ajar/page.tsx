@@ -80,8 +80,8 @@ export default async function PerangkatAjarPage() {
         cpGroups={cpGroups}
         rows={rows}
         remaining={remaining}
-        limit={await dailyLimit()}
-        providers={await providerOptions()}
+        limit={await dailyLimit(teacher.id)}
+        providers={await providerOptions(teacher.id)}
       />
     </>
   );

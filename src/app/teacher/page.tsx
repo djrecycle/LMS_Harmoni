@@ -8,6 +8,7 @@ import { LiveClassBanner } from "@/components/live/live-class-banner";
 import { providerOptions } from "@/lib/ai";
 import { todayLiveSchedules } from "@/lib/live-class";
 import { recentActivity, studentsPendingQuiz, teacherQuizList, teacherSummary } from "@/lib/data";
+import { countPendingTeachers } from "@/lib/platform";
 import { requireTeacher } from "@/lib/session";
 import { formatDateTime } from "@/lib/utils";
 import { getT } from "@/i18n/server";
@@ -22,13 +23,14 @@ const ACTIVITY_ICONS = { quiz: Trophy, material: BookOpenCheck, recording: Mic, 
 export default async function TeacherDashboard() {
   const t = await getT();
   const teacher = await requireTeacher();
-  const [short, newQuiz, activity, pending, aiProviders, live] = await Promise.all([
+  const [short, newQuiz, activity, pending, aiProviders, live, waitingTeachers] = await Promise.all([
     teacherSummary(teacher.id),
     teacherQuizList(teacher.id, 5),
     recentActivity(teacher.id, 10),
     studentsPendingQuiz(teacher.id),
-    teacher.isAdmin ? providerOptions() : Promise.resolve(null), // only the admin is told about AI setup
+    providerOptions(teacher.id),
     todayLiveSchedules(teacher.id),
+    teacher.isAdmin ? countPendingTeachers() : Promise.resolve(0),
   ]);
 
   return (
@@ -37,10 +39,18 @@ export default async function TeacherDashboard() {
 
       <LiveClassBanner live={live.live} next={live.next} />
 
+      {waitingTeachers > 0 && (
+        <Alert kind="info" className="mb-6" title={t("{0} teachers are waiting for your approval", waitingTeachers)}>
+          <Link href="/teacher/admin/teachers" className="font-semibold text-primary underline">
+            {t("Open Manage Teachers")}
+          </Link>
+        </Alert>
+      )}
+
       {aiProviders && !aiProviders.some((p) => p.available) && (
         <Alert kind="warning" className="mb-6" title={t("No AI provider is set up yet")}>
-          {t("The AI generators cannot be used until a provider is configured.")}{" "}
-          <Link href="/teacher/admin/ai" className="font-semibold text-primary underline">
+          {teacher.isAdmin ? t("The AI generators cannot be used until a provider is configured.") : t("To use the AI features, add your own Gemini or Anthropic API key first.")}{" "}
+          <Link href="/teacher/ai-settings" className="font-semibold text-primary underline">
             {t("Open AI Settings")}
           </Link>
         </Alert>

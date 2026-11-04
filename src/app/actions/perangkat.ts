@@ -7,7 +7,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
-import { aiErrorMessage, generateText, isPerangkatAiAvailable, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, remainingAllowance, takeAllowance, type ProviderChoice } from "@/lib/ai";
+import { aiErrorMessage, generateText, canUseAi, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, remainingAllowance, takeAllowance, type ProviderChoice } from "@/lib/ai";
 import { AiError } from "@/lib/ai-error";
 import { toQuestionInput, type AiQuestionItem } from "@/lib/ai-questions";
 import { requireTeacher } from "@/lib/session";
@@ -102,7 +102,7 @@ type Finish = (data: Obj, context: PerangkatKonteks, title: string) => Promise<P
 async function runJob(docId: string, teacherId: string, kind: DocKind, context: PerangkatKonteks, work: Work, choice: ProviderChoice, finish?: Finish) {
   let provider: string | null = null;
   const run: RunPrompt = async (prompt) => {
-    const r = await generateText({ system: SISTEM, prompt, provider: choice });
+    const r = await generateText({ system: SISTEM, prompt, provider: choice, owner: teacherId });
     provider = r.provider;
     return r.text;
   };
@@ -151,7 +151,7 @@ async function runJob(docId: string, teacherId: string, kind: DocKind, context: 
 
 async function launch(args: { teacherId: string; kind: DocKind; context: PerangkatKonteks; sourceId?: string; work: Work; provider: ProviderChoice; finish?: Finish }): Promise<ActionResult<{ id: string }>> {
   const t = await getT();
-  if (!(await isPerangkatAiAvailable(args.provider))) return fail(t(providerUnavailableMessage(args.provider)));
+  if (!(await canUseAi(args.teacherId, args.provider))) return fail(t(providerUnavailableMessage(args.provider)));
   if (!(await takeAllowance(args.teacherId))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
   const [row] = await db
     .insert(S.teachingDoc)
@@ -248,11 +248,12 @@ export async function suggestTopik(data: unknown): Promise<ActionResult<{ topik:
   if (!p.success) return zodError(p.error);
   const { tujuan_pembelajaran, mata_pelajaran, provider } = p.data;
 
-  if (!(await isPerangkatAiAvailable(provider))) return fail(t(providerUnavailableMessage(provider)));
+  if (!(await canUseAi(teacher.id, provider))) return fail(t(providerUnavailableMessage(provider)));
   if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
 
   try {
     const { text } = await generateText({
+      owner: teacher.id,
       system:
         "Anda membantu guru merangkum satu Tujuan Pembelajaran (TP) menjadi judul topik pelajaran yang singkat, jelas, dan menarik untuk siswa. Balas HANYA judul topiknya dalam Bahasa Indonesia — tanpa tanda kutip, tanpa penjelasan, tanpa nomor TP, maksimal 8 kata.",
       prompt: `Mata pelajaran: ${mata_pelajaran || "-"}\nTujuan Pembelajaran: ${tujuan_pembelajaran}\n\nBuat SATU judul topik singkat yang mewakili isi TP ini.`,
@@ -403,7 +404,7 @@ async function addLessons(v: {
     if (!(await takeAllowance(v.teacherId))) error = "You have reached today's AI usage limit. Try again tomorrow.";
     else {
       try {
-        const lesson = await buildInteractiveLesson({ title: v.title, content, provider: v.provider, locale: v.locale });
+        const lesson = await buildInteractiveLesson({ title: v.title, content, provider: v.provider, locale: v.locale, owner: v.teacherId });
         if (!lesson) throw new AiError("The AI did not produce a valid interactive lesson. Try again, or adjust the lesson content first.");
         const [m] = await db.insert(S.material).values({ ...base, typeMedia: "interactive", interactiveData: lesson }).returning({ id: S.material.id });
         ids.push(m.id);

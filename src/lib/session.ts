@@ -13,7 +13,10 @@ export type CurrentUser = {
   name: string;
   email: string;
   role: "teacher" | "student";
+  /** The Super Admin (only one account). */
   isAdmin: boolean;
+  /** Teachers: "pending" until the Super Admin approves, "suspended" when blocked. Always "active" for students. */
+  teacherStatus: "pending" | "active" | "suspended";
   /** Set while a teacher uses Student view: this user is then the teacher's test student. */
   studentView?: { teacherId: string; teacherName: string };
 };
@@ -33,20 +36,21 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     .where(and(eq(schema.user.id, demoId), eq(schema.user.demoOwnerId, real.id)))
     .limit(1);
   if (!demo) return real;
-  return { ...demo, role: "student", isAdmin: false, studentView: { teacherId: real.id, teacherName: real.name } };
+  return { ...demo, role: "student", isAdmin: false, teacherStatus: "active", studentView: { teacherId: real.id, teacherName: real.name } };
 });
 
 /** The account that is actually signed in, ignoring Student view. */
 export const getRealUser = cache(async (): Promise<CurrentUser | null> => {
   const s = await auth.api.getSession({ headers: await headers() });
   if (!s) return null;
-  const u = s.user as typeof s.user & { role?: string; isAdmin?: boolean };
+  const u = s.user as typeof s.user & { role?: string; isAdmin?: boolean; teacherStatus?: string };
   return {
     id: u.id,
     name: u.name,
     email: u.email,
     role: u.role === "teacher" ? "teacher" : "student",
     isAdmin: Boolean(u.isAdmin),
+    teacherStatus: u.teacherStatus === "pending" || u.teacherStatus === "suspended" ? u.teacherStatus : "active",
   };
 });
 
@@ -60,14 +64,18 @@ export async function requireUser(): Promise<CurrentUser> {
   return p;
 }
 
-/** Teacher-only pages & actions. Students are redirected to their own dashboard. */
+/** A teacher who may use the app: approved and not suspended (the Super Admin always). */
+export const isActiveTeacher = (u: Pick<CurrentUser, "role" | "isAdmin" | "teacherStatus"> | null) => Boolean(u && u.role === "teacher" && (u.isAdmin || u.teacherStatus === "active"));
+
+/** Teacher-only pages & actions. Students are redirected to their own dashboard; a teacher not yet approved (or suspended) to the waiting page. */
 export async function requireTeacher(): Promise<CurrentUser> {
   const p = await requireUser();
   if (p.role !== "teacher") redirect("/student");
+  if (!isActiveTeacher(p)) redirect("/account-status");
   return p;
 }
 
-/** Admin-only pages & actions (the first teacher to register). Any other teacher goes back to their dashboard. */
+/** Super Admin-only pages & actions (the first teacher to register). Any other teacher goes back to their dashboard. */
 export async function requireAdmin(): Promise<CurrentUser> {
   const p = await requireTeacher();
   if (!p.isAdmin) redirect("/teacher");

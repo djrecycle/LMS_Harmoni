@@ -23,6 +23,8 @@ import type { AnswerKey, QuestionSound } from "@/lib/questions";
 /* ------------------------------------------------------------------ */
 
 export const roleEnum = pgEnum("role", ["teacher", "student"]);
+/** A teacher account's standing: new sign-ups wait for the Super Admin's approval; a suspended teacher can't use the app. */
+export const teacherStatusEnum = pgEnum("teacher_status", ["pending", "active", "suspended"]);
 export const questionTypeEnum = pgEnum("question_type", [
   "multiple_choice",
   "fill_in",
@@ -62,8 +64,12 @@ export const user = pgTable(
     username: text("username").unique(),
     image: text("image"),
     role: roleEnum("role").notNull().default("student"),
-    /** The first teacher to register becomes the main admin. */
+    /** The Super Admin: the first teacher to register. Only one account can ever have it (unique index below). */
     isAdmin: boolean("is_admin").notNull().default(false),
+    /** Teachers only. Existing teachers are active; new sign-ups start as "pending" (see lib/auth.ts). */
+    teacherStatus: teacherStatusEnum("teacher_status").notNull().default("active"),
+    /** Teachers only: upload space in MB set by the Super Admin; null = the platform default. */
+    storageQuotaMb: integer("storage_quota_mb"),
     // Required by Better Auth's `admin` plugin schema (used only for admin.createUser, which lets a teacher
     // create a student account without a session switch; this app never bans anyone).
     banned: boolean("banned").default(false),
@@ -74,7 +80,7 @@ export const user = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("user_role_idx").on(t.role)],
+  (t) => [index("user_role_idx").on(t.role), uniqueIndex("user_single_admin_idx").on(t.isAdmin).where(sql`${t.isAdmin} = true`)],
 );
 
 export const session = pgTable(

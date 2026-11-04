@@ -42,7 +42,10 @@ export const PROVIDER_CHOICES: readonly ProviderChoice[] = ["auto", "claude-cli"
 const PROVIDER_LABEL: Record<AiProvider, string> = { "claude-cli": "Claude Code", anthropic: "Anthropic API", gemini: "Gemini API", ollama: "Ollama (local)" };
 /** Async because Ollama has no key to look for: it is available when its server answers. */
 const isAvailable = async (p: AiProvider, cfg: AiConfig): Promise<boolean> =>
-  p === "claude-cli" ? isClaudeCliAvailable() : p === "anthropic" ? cfg.anthropic.key !== "" : p === "gemini" ? cfg.gemini.key !== "" : isOllamaReachable(cfg.ollama.baseUrl);
+  // Claude Code and Ollama run on the server itself: only for the Super Admin.
+  cfg.scope === "teacher" && (p === "claude-cli" || p === "ollama")
+    ? false
+    : p === "claude-cli" ? isClaudeCliAvailable() : p === "anthropic" ? cfg.anthropic.key !== "" : p === "gemini" ? cfg.gemini.key !== "" : isOllamaReachable(cfg.ollama.baseUrl);
 /** "auto" prefers the account already logged in on the server, then the paid keys, then the local model. */
 const AUTO_ORDER: readonly AiProvider[] = ["claude-cli", "anthropic", "gemini", "ollama"];
 async function firstAvailable(cfg: AiConfig, accept: (p: AiProvider) => Promise<boolean> = async () => true): Promise<AiProvider | null> {
@@ -50,18 +53,20 @@ async function firstAvailable(cfg: AiConfig, accept: (p: AiProvider) => Promise<
   return null;
 }
 
-/** Providers this server can use right now, for the provider picker. */
-export async function providerOptions(): Promise<{ id: AiProvider; label: string; available: boolean }[]> {
-  const cfg = await getAiConfig();
-  return Promise.all(AUTO_ORDER.map(async (id) => ({ id, label: PROVIDER_LABEL[id], available: await isAvailable(id, cfg) })));
+/** Providers `userId` can use right now, for the provider picker (a teacher only sees the API providers). */
+export async function providerOptions(userId: string): Promise<{ id: AiProvider; label: string; available: boolean }[]> {
+  const cfg = await getAiConfig(userId);
+  const ids = cfg.scope === "teacher" ? AUTO_ORDER.filter((p) => p === "anthropic" || p === "gemini") : AUTO_ORDER;
+  return Promise.all(ids.map(async (id) => ({ id, label: PROVIDER_LABEL[id], available: await isAvailable(id, cfg) })));
 }
 
 /** Claude Code accepts these aliases (and full model ids); there is no way to ask it for a list. */
 const CLI_MODELS = ["opus", "sonnet", "haiku"];
 
 /** The models a provider offers, for the model pickers in AI Settings. Uses the SAVED settings. Throws AiError when the provider cannot be asked. */
-export async function listModels(provider: AiProvider): Promise<string[]> {
-  const cfg = await getAiConfig();
+export async function listModels(provider: AiProvider, userId: string): Promise<string[]> {
+  const cfg = await getAiConfig(userId);
+  if (!(provider === "anthropic" || provider === "gemini") && cfg.scope === "teacher") return [];
   if (provider === "claude-cli") return CLI_MODELS;
   if (provider === "ollama") return listOllamaModels(cfg.ollama.baseUrl);
   if (provider === "gemini") return listGeminiModels(cfg.gemini.key);
@@ -78,26 +83,26 @@ export async function listModels(provider: AiProvider): Promise<string[]> {
  * The provider to use, or null when none is usable. An explicit choice is honoured only if that provider is available;
  * "auto" follows the default provider setting (auto | claude-cli | anthropic | gemini | ollama) and otherwise takes the first available in AUTO_ORDER.
  */
-export async function resolveProvider(choice: ProviderChoice = "auto", cfg?: AiConfig): Promise<AiProvider | null> {
-  const c = cfg ?? (await getAiConfig());
+export async function resolveProvider(choice: ProviderChoice, c: AiConfig): Promise<AiProvider | null> {
   if (choice !== "auto") return (await isAvailable(choice, c)) ? choice : null;
   if (c.provider !== "auto") return (await isAvailable(c.provider, c)) ? c.provider : null;
   return firstAvailable(c);
 }
 
-export const isPerangkatAiAvailable = async (choice: ProviderChoice = "auto") => (await resolveProvider(choice)) !== null;
+/** Whether `userId` can use the AI with this provider choice right now. */
+export const canUseAi = async (userId: string, choice: ProviderChoice = "auto") => (await resolveProvider(choice, await getAiConfig(userId))) !== null;
 
 /** Message for "the chosen provider cannot be used". */
 export const providerUnavailableMessage = (choice: ProviderChoice) =>
   choice === "claude-cli"
     ? "Claude Code is not installed or not logged in on the server."
     : choice === "anthropic"
-      ? "The Anthropic API key is not set. Ask an admin to add it in AI Settings."
+      ? "The Anthropic API key is not set. Add your key in AI Settings."
       : choice === "gemini"
-        ? "The Gemini API key is not set. Ask an admin to add it in AI Settings."
+        ? "The Gemini API key is not set. Add your key in AI Settings."
         : choice === "ollama"
           ? "Ollama is not running or cannot be reached. Start Ollama on the server, or check its address in AI Settings."
-          : "The AI feature is not enabled. Install Claude Code on the server, start Ollama, or ask an admin to add an API key in AI Settings.";
+          : "AI is not set up yet. Add your own Gemini or Anthropic API key in AI Settings first.";
 
 /**
  * One free-text generation. The JSON shape is requested in the prompt itself and parsed by the caller (ambilJson),
@@ -108,13 +113,16 @@ export async function generateText({
   prompt,
   maxTokens = 32000,
   provider: choice = "auto",
+  owner,
 }: {
   system: string;
   prompt: string;
   maxTokens?: number;
   provider?: ProviderChoice;
+  /** The teacher using the AI: their own settings and keys apply. */
+  owner: string;
 }): Promise<{ text: string; provider: AiProvider }> {
-  const cfg = await getAiConfig();
+  const cfg = await getAiConfig(owner);
   const provider = await resolveProvider(choice, cfg);
   if (!provider) throw new AiError(providerUnavailableMessage(choice));
 
@@ -172,16 +180,15 @@ type Options = {
   /** JSON Schema for structured output. When present, the result is parsed as JSON. */
   schema?: Record<string, unknown>;
   effort?: "low" | "medium" | "high";
-  /** Settings already loaded by the caller (saves a query). */
-  cfg?: AiConfig;
+  /** The settings of the teacher using the AI. */
+  cfg: AiConfig;
 };
 
 /**
  * One call to Claude. The API key is only read on the server.
  *  Uses server-side fallback so a model refusal does not fail a legitimate request (can be turned off in AI Settings / AI_FALLBACK=off).
  */
-export async function callAi({ system, message, maxTokens = 8000, schema, effort = "medium", cfg: given }: Options): Promise<string> {
-  const cfg = given ?? (await getAiConfig());
+export async function callAi({ system, message, maxTokens = 8000, schema, effort = "medium", cfg }: Options): Promise<string> {
   const c = getClient(cfg);
   const useFallback = cfg.anthropic.fallback;
 
@@ -232,6 +239,7 @@ export async function generateJson<T>({
   effort = "medium",
   provider: choice = "auto",
   image,
+  owner,
 }: {
   system: string;
   user: string;
@@ -241,8 +249,10 @@ export async function generateJson<T>({
   provider?: ProviderChoice;
   /** A photo to read alongside (or instead of) `user`. Claude Code (CLI) cannot see images; Ollama only with a vision model (e.g. llava, granite3.2-vision). */
   image?: { data: Uint8Array; mediaType: "image/jpeg" | "image/png" };
+  /** The teacher using the AI: their own settings and keys apply. */
+  owner: string;
 }): Promise<{ data: T; provider: AiProvider }> {
-  const cfg = await getAiConfig();
+  const cfg = await getAiConfig(owner);
   let provider = await resolveProvider(choice, cfg);
   if (!provider) throw new AiError(providerUnavailableMessage(choice));
   const canSeeImages = async (p: AiProvider) => p === "anthropic" || p === "gemini" || (p === "ollama" && (await ollamaSupportsVision(cfg.ollama.baseUrl, cfg.ollama.model)));
@@ -280,14 +290,14 @@ export async function generateJson<T>({
 /* Daily quota per user (cost control)                                 */
 /* ------------------------------------------------------------------ */
 
-export async function dailyLimit(): Promise<number> {
-  return (await getAiConfig()).dailyLimit;
+export async function dailyLimit(userId: string): Promise<number> {
+  return (await getAiConfig(userId)).dailyLimit;
 }
 
 /** Take one allowance atomically. false = today's allowance is used up. */
 export async function takeAllowance(userId: string): Promise<boolean> {
   const t = schema.aiUsage;
-  const limit = await dailyLimit();
+  const limit = await dailyLimit(userId);
   const row = await db
     .insert(t)
     .values({ userId, date: today(), count: 1 })
@@ -310,6 +320,6 @@ export async function remainingAllowance(userId: string) {
     .select({ count: schema.aiUsage.count })
     .from(schema.aiUsage)
     .where(and(eq(schema.aiUsage.userId, userId), eq(schema.aiUsage.date, today())));
-  const limit = await dailyLimit();
+  const limit = await dailyLimit(userId);
   return { limit, remaining: Math.max(0, limit - (r?.count ?? 0)) };
 }

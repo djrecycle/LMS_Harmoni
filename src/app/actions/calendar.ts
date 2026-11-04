@@ -6,7 +6,7 @@ import { revalidatePath } from "next/cache";
 import { db, schema } from "@/db";
 import { getOwnedCalendar } from "@/lib/access";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
-import { aiErrorMessage, generateJson, isPerangkatAiAvailable, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, takeAllowance, type ProviderChoice } from "@/lib/ai";
+import { aiErrorMessage, generateJson, canUseAi, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, takeAllowance, type ProviderChoice } from "@/lib/ai";
 import { AiError } from "@/lib/ai-error";
 import { extractKaldikText } from "@/lib/kaldik/extract";
 import { buildPrompt, SCHEMA, SYSTEM } from "@/lib/kaldik/prompt";
@@ -21,7 +21,7 @@ const refresh = () => revalidatePath("/teacher/calendar");
 async function runJob(id: string, teacherId: string, sourceText: string, choice: ProviderChoice) {
   let provider: string | null = null;
   try {
-    const res = await generateJson<KaldikData>({ system: SYSTEM, user: buildPrompt(sourceText), schema: SCHEMA, provider: choice, maxTokens: 16000, effort: "medium" });
+    const res = await generateJson<KaldikData>({ system: SYSTEM, user: buildPrompt(sourceText), schema: SCHEMA, provider: choice, maxTokens: 16000, effort: "medium", owner: teacherId });
     provider = res.provider;
     const data = res.data;
     if (!data || !Array.isArray(data.semester)) throw new AiError("The AI result was incomplete.");
@@ -58,7 +58,7 @@ export async function uploadCalendar(formData: FormData): Promise<ActionResult<{
     return fail(t(e instanceof AiError ? e.message : "The file could not be read."));
   }
 
-  if (!(await isPerangkatAiAvailable(provider))) return fail(t(providerUnavailableMessage(provider)));
+  if (!(await canUseAi(teacher.id, provider))) return fail(t(providerUnavailableMessage(provider)));
   if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
 
   const [row] = await db

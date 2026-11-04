@@ -24,6 +24,9 @@ x-app-env: &app-env
   GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
   AI_GEMINI_MODEL: ${AI_GEMINI_MODEL:-}
   TEACHER_SIGNUP_CODE: ${TEACHER_SIGNUP_CODE:-}
+  # Google sign-in for teachers (optional): both must be set, see .env.example.
+  GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+  GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
   SMTP_HOST: ${SMTP_HOST:-}
   SMTP_PORT: ${SMTP_PORT:-587}
   SMTP_USER: ${SMTP_USER:-}

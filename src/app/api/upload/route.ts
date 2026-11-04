@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getCurrentUser } from "@/lib/session";
-import { ALLOWED_MIME, saveFile } from "@/lib/storage";
+import { storageQuotaBytes } from "@/lib/platform";
+import { getCurrentUser, isActiveTeacher } from "@/lib/session";
+import { ALLOWED_MIME, saveFile, usedBytes } from "@/lib/storage";
 import { getT } from "@/i18n/server";
 
 export const runtime = "nodejs";
@@ -18,6 +19,7 @@ export async function POST(req: Request) {
   const t = await getT();
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: t("Please sign in first.") }, { status: 401 });
+  if (user.role === "teacher" && !isActiveTeacher(user)) return NextResponse.json({ error: t("Not allowed") }, { status: 403 });
 
   let form: FormData;
   try {
@@ -55,6 +57,14 @@ export async function POST(req: Request) {
   }
   if (category === "recording" && !mime.startsWith("audio/") && mime !== "video/webm") {
     return NextResponse.json({ error: t("Students may only upload audio recordings.") }, { status: 415 });
+  }
+
+  // Each teacher has a limited upload space (the Super Admin has none).
+  if (category === "media") {
+    const quota = await storageQuotaBytes(user.id);
+    if (quota !== null && (await usedBytes(`media/${user.id}/`)) + file.size > quota) {
+      return NextResponse.json({ error: t("Your upload space is full ({0} MB). Delete unused files or ask the admin for more space.", Math.round(quota / 1024 / 1024)) }, { status: 413 });
+    }
   }
 
   const key =

@@ -11,9 +11,17 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t("Sign in") };
 }
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ password?: string }> }) {
+/** Errors Google sign-in sends back here (see lib/auth.ts); anything else gets the generic message. */
+const GOOGLE_ERRORS: Record<string, string> = {
+  google_teachers_only: "Google sign-in is for teachers only. Students, please sign in with your email or username and password.",
+  teacher_registration_closed: "Teacher registration is closed for now.",
+  teacher_registration_full: "Teacher registration is full for now.",
+  access_denied: "Google sign-in was cancelled.",
+};
+
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ password?: string; error?: string }> }) {
   const t = await getT();
-  const { password } = await searchParams;
+  const { password, error } = await searchParams;
   return (
     <>
       <h1 className="text-2xl font-extrabold tracking-tight">{t("Welcome back")}</h1>
@@ -21,6 +29,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       {password === "changed" && (
         <Alert kind="success" className="mb-4">
           {t("Your password was changed. Please sign in.")}
+        </Alert>
+      )}
+      {error && (
+        <Alert kind="error" className="mb-4">
+          {t(GOOGLE_ERRORS[error] ?? "Google sign-in failed. Try again, or sign in with your email and password.")}
         </Alert>
       )}
       <LoginForm />

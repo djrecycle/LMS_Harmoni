@@ -6,7 +6,7 @@ import { db, schema } from "@/db";
 import { getOwnedMaterial } from "@/lib/access";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
-import { aiErrorMessage, generateJson, isPerangkatAiAvailable, providerUnavailableMessage, refundAllowance, takeAllowance } from "@/lib/ai";
+import { aiErrorMessage, generateJson, canUseAi, providerUnavailableMessage, refundAllowance, takeAllowance } from "@/lib/ai";
 import { ruleAnalysis } from "@/lib/practice-analysis";
 import { loadPracticeRecap } from "@/lib/practice-recap";
 import { requireTeacher } from "@/lib/session";
@@ -58,7 +58,7 @@ export async function generatePracticeAnalysis(data: unknown): Promise<ActionRes
 
   const aiWritten = new Set<string>();
   if (source === "ai") {
-    if (!(await isPerangkatAiAvailable())) return fail(t(providerUnavailableMessage("auto")));
+    if (!(await canUseAi(teacher.id))) return fail(t(providerUnavailableMessage("auto")));
     if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
     const language = (await getLocale()) === "id" ? "Indonesian" : "English";
     try {
@@ -66,6 +66,7 @@ export async function generatePracticeAnalysis(data: unknown): Promise<ActionRes
         const batch = targets.slice(i, i + AI_BATCH);
         const code = (j: number) => `S${i + j + 1}`;
         const { data: out } = await generateJson<{ analyses?: { id?: string; text?: string }[] }>({
+          owner: teacher.id,
           system: `You help a Music (Seni Musik) teacher in an Indonesian school write short feedback on students' practice results. Write in ${language}.
 For each student, write 2-3 sentences for the teacher's recap: what the student does well, the main problem (be specific: early/late, rushing/dragging, wrong pitch, which solfège syllables), and one concrete next step for practice. Use only the facts given; never invent scores or problems. Do not use the student's code in the text; do not greet. Plain text, no Markdown.`,
           user: `Lesson: ${material.title}\n\n${batch.map((r, j) => `${code(j)}: ${texts.get(r.studentId)}`).join("\n")}\n\nReturn one analysis per student code.`,

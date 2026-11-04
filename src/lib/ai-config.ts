@@ -4,9 +4,13 @@ import { db, schema } from "@/db";
 import { decryptSecret, encryptSecret } from "./secret-box";
 
 /**
- * The AI settings in effect. An admin can change them in the dashboard (stored in `app_setting`, keys encrypted);
- * anything the dashboard leaves empty falls back to the environment variable, then to a built-in default.
- * Read on every use (one tiny query) so a change applies immediately, also to background jobs.
+ * The AI settings in effect for one teacher. Read on every use (tiny queries) so a change applies immediately,
+ * also to background jobs.
+ *  - The Super Admin uses the server's settings (`app_setting` key "ai", keys encrypted): anything left empty falls
+ *    back to the environment variable, then to a built-in default. Only they can use Claude Code and Ollama, which
+ *    run on the server itself.
+ *  - Every other teacher brings their own Anthropic or Gemini API key (key "ai:teacher:<id>"), with no fallback to
+ *    the server's keys: until they add one, AI features are off for them.
  */
 
 export type ProviderPref = "auto" | "claude-cli" | "anthropic" | "gemini" | "ollama";
@@ -35,6 +39,8 @@ type Stored = {
 };
 
 export type AiConfig = {
+  /** "server": the Super Admin's settings; "teacher": a teacher's own keys (only the Anthropic and Gemini APIs). */
+  scope: "server" | "teacher";
   provider: ProviderPref;
   anthropic: { key: string; model: string; fallback: boolean };
   gemini: { key: string; model: string };
@@ -47,9 +53,20 @@ export type AiConfig = {
   unreadableKeys: ("anthropic" | "gemini")[];
 };
 
-async function readStored(): Promise<Stored> {
+/** The providers a teacher (not the Super Admin) may use: their own API keys only. */
+export const TEACHER_PROVIDERS = ["anthropic", "gemini"] as const;
+
+const settingKey = (ownerId: string | null) => (ownerId ? `${SETTING_KEY}:teacher:${ownerId}` : SETTING_KEY);
+
+/** Null for the Super Admin (they use the server settings), else the teacher's own id. */
+async function personalOwner(userId: string): Promise<string | null> {
+  const [u] = await db.select({ isAdmin: schema.user.isAdmin }).from(schema.user).where(eq(schema.user.id, userId)).limit(1);
+  return u?.isAdmin ? null : userId;
+}
+
+async function readStored(ownerId: string | null = null): Promise<Stored> {
   try {
-    const [row] = await db.select({ value: schema.appSetting.value }).from(schema.appSetting).where(eq(schema.appSetting.key, SETTING_KEY)).limit(1);
+    const [row] = await db.select({ value: schema.appSetting.value }).from(schema.appSetting).where(eq(schema.appSetting.key, settingKey(ownerId))).limit(1);
     return (row?.value ?? {}) as Stored;
   } catch (e) {
     // e.g. the migration has not run yet: keep AI working from the environment instead of failing every request.
@@ -60,7 +77,47 @@ async function readStored(): Promise<Stored> {
 
 const env = (name: string) => process.env[name]?.trim() || "";
 
-export async function getAiConfig(): Promise<AiConfig> {
+/** The AI settings that apply to `userId` (the teacher using the AI). */
+export async function getAiConfig(userId: string): Promise<AiConfig> {
+  const owner = await personalOwner(userId);
+  return owner ? teacherConfig(owner) : serverConfig();
+}
+
+/** A teacher's own settings: only what they saved, nothing from the server or its environment. */
+async function teacherConfig(ownerId: string): Promise<AiConfig> {
+  const s = await readStored(ownerId);
+  const unreadableKeys: AiConfig["unreadableKeys"] = [];
+  const anthropicKey = decryptSecret(s.anthropicKeyEnc);
+  if (s.anthropicKeyEnc && anthropicKey === null) unreadableKeys.push("anthropic");
+  const geminiKey = decryptSecret(s.geminiKeyEnc);
+  if (s.geminiKeyEnc && geminiKey === null) unreadableKeys.push("gemini");
+  const src = (v: unknown): Source => (v === undefined || v === "" ? "default" : "dashboard");
+  const provider: ProviderPref = s.provider === "anthropic" || s.provider === "gemini" ? s.provider : "auto";
+  return {
+    scope: "teacher",
+    provider,
+    anthropic: { key: anthropicKey ?? "", model: s.anthropicModel || DEFAULT_ANTHROPIC_MODEL, fallback: s.anthropicFallback ?? true },
+    gemini: { key: geminiKey ?? "", model: s.geminiModel || DEFAULT_GEMINI_MODEL },
+    ollama: { baseUrl: "", model: "" },
+    cliModel: undefined,
+    dailyLimit: s.dailyLimit ?? DEFAULT_DAILY_LIMIT,
+    sources: {
+      provider: src(s.provider),
+      anthropicKey: src(s.anthropicKeyEnc),
+      anthropicModel: src(s.anthropicModel),
+      anthropicFallback: src(s.anthropicFallback),
+      geminiKey: src(s.geminiKeyEnc),
+      geminiModel: src(s.geminiModel),
+      ollamaBaseUrl: "default",
+      ollamaModel: "default",
+      cliModel: "default",
+      dailyLimit: src(s.dailyLimit),
+    },
+    unreadableKeys,
+  };
+}
+
+async function serverConfig(): Promise<AiConfig> {
   const s = await readStored();
   const unreadableKeys: AiConfig["unreadableKeys"] = [];
   const pick = <T>(saved: T | undefined | "", fromEnv: T | undefined | "", fallback: T): [T, Source] =>
@@ -85,6 +142,7 @@ export async function getAiConfig(): Promise<AiConfig> {
   const [dailyLimit, dailyLimit_src] = pick<number>(s.dailyLimit, Number.isFinite(envLimit) && envLimit > 0 ? Math.floor(envLimit) : undefined, DEFAULT_DAILY_LIMIT);
 
   return {
+    scope: "server",
     provider,
     anthropic: { key: anthropicKey, model: anthropicModel, fallback: anthropicFallback },
     gemini: { key: geminiKey, model: geminiModel },
@@ -114,6 +172,7 @@ export async function getAiConfig(): Promise<AiConfig> {
 const keyHint = (k: string) => (k.length >= 12 ? `…${k.slice(-4)}` : "");
 
 export type AiConfigView = {
+  scope: AiConfig["scope"];
   provider: ProviderPref;
   /** What is saved in the dashboard itself ("" = not set, follow the server default). */
   saved: { provider: string; anthropicModel: string; anthropicFallback: "" | "on" | "off"; geminiModel: string; ollamaBaseUrl: string; ollamaModel: string; cliModel: string; dailyLimit: string };
@@ -126,9 +185,11 @@ export type AiConfigView = {
   unreadableKeys: AiConfig["unreadableKeys"];
 };
 
-export async function getAiConfigView(): Promise<AiConfigView> {
-  const [c, s] = await Promise.all([getAiConfig(), readStored()]);
+export async function getAiConfigView(userId: string): Promise<AiConfigView> {
+  const owner = await personalOwner(userId);
+  const [c, s] = await Promise.all([owner ? teacherConfig(owner) : serverConfig(), readStored(owner)]);
   return {
+    scope: c.scope,
     provider: c.provider,
     saved: {
       provider: s.provider ?? "",
@@ -151,7 +212,7 @@ export async function getAiConfigView(): Promise<AiConfigView> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Saving (admin only — the caller must have checked requireAdmin)     */
+/* Saving (each teacher their own; the Super Admin the server's)       */
 /* ------------------------------------------------------------------ */
 
 const optionalKey = z.string().trim().max(400, "The API key is too long").refine((v) => v === "" || (v.length >= 10 && !/\s/.test(v)), "That does not look like an API key");
@@ -174,8 +235,14 @@ export const aiSettingsSchema = z.object({
 });
 export type AiSettingsInput = z.infer<typeof aiSettingsSchema>;
 
-export async function saveAiConfig(input: AiSettingsInput, adminId: string): Promise<void> {
-  const cur = await readStored();
+export async function saveAiConfig(input: AiSettingsInput, userId: string): Promise<void> {
+  const owner = await personalOwner(userId);
+  const cur = await readStored(owner);
+  // A teacher can't point the server at Claude Code or an Ollama address: those settings are the Super Admin's.
+  if (owner) {
+    if (input.provider === "claude-cli" || input.provider === "ollama") input = { ...input, provider: "auto" };
+    input = { ...input, ollamaBaseUrl: "", ollamaModel: "", cliModel: "" };
+  }
   const next: Stored = {
     provider: input.provider === "" ? undefined : input.provider,
     anthropicModel: input.anthropicModel || undefined,
@@ -189,21 +256,22 @@ export async function saveAiConfig(input: AiSettingsInput, adminId: string): Pro
     anthropicKeyEnc: input.anthropicKey ? encryptSecret(input.anthropicKey) : cur.anthropicKeyEnc,
     geminiKeyEnc: input.geminiKey ? encryptSecret(input.geminiKey) : cur.geminiKeyEnc,
   };
-  await writeStored(next, adminId);
+  await writeStored(owner, next, userId);
 }
 
-/** Forget a saved key (that provider goes back to its environment variable, if any). */
-export async function clearAiKey(provider: "anthropic" | "gemini", adminId: string): Promise<void> {
-  const cur = await readStored();
+/** Forget a saved key (for the Super Admin, that provider goes back to its environment variable, if any). */
+export async function clearAiKey(provider: "anthropic" | "gemini", userId: string): Promise<void> {
+  const owner = await personalOwner(userId);
+  const cur = await readStored(owner);
   if (provider === "anthropic") delete cur.anthropicKeyEnc;
   else delete cur.geminiKeyEnc;
-  await writeStored(cur, adminId);
+  await writeStored(owner, cur, userId);
 }
 
-async function writeStored(s: Stored, adminId: string) {
+async function writeStored(ownerId: string | null, s: Stored, userId: string) {
   const value = Object.fromEntries(Object.entries(s).filter(([, v]) => v !== undefined)) as Record<string, unknown>;
   await db
     .insert(schema.appSetting)
-    .values({ key: SETTING_KEY, value, updatedBy: adminId })
-    .onConflictDoUpdate({ target: schema.appSetting.key, set: { value, updatedAt: new Date(), updatedBy: adminId } });
+    .values({ key: settingKey(ownerId), value, updatedBy: userId })
+    .onConflictDoUpdate({ target: schema.appSetting.key, set: { value, updatedAt: new Date(), updatedBy: userId } });
 }

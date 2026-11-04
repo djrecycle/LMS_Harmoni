@@ -91,6 +91,9 @@ function Section({ title, badges, children }: { title: string; badges?: React.Re
 export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: AiConfigView; cliAvailable: boolean; ollamaAvailable: boolean }) {
   const t = useT();
   const router = useRouter();
+  /** A teacher's own settings: only their Anthropic / Gemini keys (Claude Code and Ollama run on the server, Super Admin only). */
+  const personal = view.scope === "teacher";
+  const defaultWord = personal ? t("Default") : t("Server default");
   const [busy, start] = useTransition();
   const [testing, setTesting] = useState<Provider | "">("");
   const [f, setF] = useState({
@@ -113,10 +116,10 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
     setLists((s) => ({ ...s, [p]: r.ok ? { models: r.data?.models ?? [] } : { error: r.error } }));
   }, []);
   const loadAllModels = useCallback(() => {
-    for (const p of ["claude-cli", "ollama"] as const) void loadModels(p);
+    if (!personal) for (const p of ["claude-cli", "ollama"] as const) void loadModels(p);
     if (view.anthropic.keySet) void loadModels("anthropic");
     if (view.gemini.keySet) void loadModels("gemini");
-  }, [loadModels, view.anthropic.keySet, view.gemini.keySet]);
+  }, [loadModels, personal, view.anthropic.keySet, view.gemini.keySet]);
   useEffect(loadAllModels, [loadAllModels]);
   const [tests, setTests] = useState<Partial<Record<Provider, { ok: boolean; text: string }>>>({});
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
@@ -212,42 +215,60 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
     <div className="grid gap-4">
       {msg && <Alert kind={msg.ok ? "success" : "error"}>{msg.text}</Alert>}
 
-      <Section title={t("Default provider")} badges={<SourceBadge source={view.sources.provider} />}>
-        <Field label={t("Provider used when a teacher picks \"Automatic\"")} htmlFor="ai-provider" error={err("provider")}>
+      {personal && (
+        <Alert kind="info" title={t("Use your own AI key")}>
+          {t("The AI features use your own Gemini or Anthropic API key, so the usage is billed to your account with that provider. Gemini has a free tier: create a key at aistudio.google.com/apikey. Your key is stored encrypted and is never shown again.")}
+        </Alert>
+      )}
+
+      <Section title={t("Default provider")} badges={!personal && <SourceBadge source={view.sources.provider} />}>
+        <Field label={personal ? t("Provider used when you pick \"Automatic\"") : t("Provider used when a teacher picks \"Automatic\"")} htmlFor="ai-provider" error={err("provider")}>
           <Select id="ai-provider" value={f.provider} onChange={set("provider")}>
-            <option value="">{t("Follow the server default")}</option>
-            <option value="auto">{t("Automatic (Claude Code first)")}</option>
-            <option value="claude-cli">Claude Code</option>
-            <option value="anthropic">Anthropic API</option>
-            <option value="gemini">Gemini API</option>
-            <option value="ollama">Ollama (local)</option>
+            {personal ? (
+              <>
+                <option value="">{t("Automatic (the one with a key)")}</option>
+                <option value="anthropic">Anthropic API</option>
+                <option value="gemini">Gemini API</option>
+              </>
+            ) : (
+              <>
+                <option value="">{t("Follow the server default")}</option>
+                <option value="auto">{t("Automatic (Claude Code first)")}</option>
+                <option value="claude-cli">Claude Code</option>
+                <option value="anthropic">Anthropic API</option>
+                <option value="gemini">Gemini API</option>
+                <option value="ollama">Ollama (local)</option>
+              </>
+            )}
           </Select>
         </Field>
       </Section>
 
-      <Section
-        title="Claude Code"
-        badges={
-          <>
-            <Badge tone={cliAvailable ? "success" : "warning"}>{cliAvailable ? t("Installed on the server") : t("Not installed on the server")}</Badge>
-            <SourceBadge source={view.sources.cliModel} />
-          </>
-        }
-      >
-        <ModelField
-          id="ai-cli-model"
-          label={t("Model (optional)")}
-          hint={t("Empty = the Claude Code default. It uses the account logged in on the server, so it has no API key here.")}
-          error={err("cliModel")}
-          value={f.cliModel}
-          onChange={(v) => setF((s) => ({ ...s, cliModel: v }))}
-          defaultLabel={view.cliModel ? `${t("Server default")} (${view.cliModel})` : t("Claude Code default")}
-          list={lists["claude-cli"]}
-          onReload={() => void loadModels("claude-cli")}
-          disabled={busy}
-        />
-        {testButton("claude-cli")}
-      </Section>
+      {!personal && (
+        <Section
+          title="Claude Code"
+          badges={
+            <>
+              <Badge tone={cliAvailable ? "success" : "warning"}>{cliAvailable ? t("Installed on the server") : t("Not installed on the server")}</Badge>
+              <SourceBadge source={view.sources.cliModel} />
+            </>
+          }
+        >
+          <ModelField
+            id="ai-cli-model"
+            label={t("Model (optional)")}
+            hint={t("Empty = the Claude Code default. It uses the account logged in on the server, so it has no API key here.")}
+            error={err("cliModel")}
+            value={f.cliModel}
+            onChange={(v) => setF((s) => ({ ...s, cliModel: v }))}
+            defaultLabel={view.cliModel ? `${t("Server default")} (${view.cliModel})` : t("Claude Code default")}
+            list={lists["claude-cli"]}
+            onReload={() => void loadModels("claude-cli")}
+            disabled={busy}
+          />
+          {testButton("claude-cli")}
+        </Section>
+      )}
 
       <Section title="Anthropic API" badges={keyStatus("anthropic")}>
         <Field label={t("API key")} htmlFor="ai-anthropic-key" hint={keyHintText("anthropic")} error={err("anthropicKey")}>
@@ -260,14 +281,14 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
             error={err("anthropicModel")}
             value={f.anthropicModel}
             onChange={(v) => setF((s) => ({ ...s, anthropicModel: v }))}
-            defaultLabel={`${t("Server default")} (${view.anthropic.model})`}
+            defaultLabel={`${defaultWord} (${view.anthropic.model})`}
             list={lists.anthropic}
             onReload={() => void loadModels("anthropic")}
             disabled={busy}
           />
           <Field label={t("Fall back when the model refuses")} htmlFor="ai-anthropic-fallback">
             <Select id="ai-anthropic-fallback" value={f.anthropicFallback} onChange={set("anthropicFallback")}>
-              <option value="">{view.anthropic.fallback ? t("Server default (on)") : t("Server default (off)")}</option>
+              <option value="">{personal ? t("Default (on)") : view.anthropic.fallback ? t("Server default (on)") : t("Server default (off)")}</option>
               <option value="on">{t("On")}</option>
               <option value="off">{t("Off (needed behind a proxy, Bedrock or Vertex)")}</option>
             </Select>
@@ -293,7 +314,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
           error={err("geminiModel")}
           value={f.geminiModel}
           onChange={(v) => setF((s) => ({ ...s, geminiModel: v }))}
-          defaultLabel={`${t("Server default")} (${view.gemini.model})`}
+          defaultLabel={`${defaultWord} (${view.gemini.model})`}
           list={lists.gemini}
           onReload={() => void loadModels("gemini")}
           disabled={busy}
@@ -308,35 +329,37 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
         </div>
       </Section>
 
-      <Section
-        title="Ollama"
-        badges={
-          <>
-            <Badge tone={ollamaAvailable ? "success" : "warning"}>{ollamaAvailable ? t("Running") : t("Not reachable")}</Badge>
-            <SourceBadge source={view.sources.ollamaBaseUrl} />
-          </>
-        }
-      >
-        <Field label={t("Server address")} htmlFor="ai-ollama-url" hint={t("Ollama runs on this machine by default. In Docker use http://host.docker.internal:11434. It has no API key.")} error={err("ollamaBaseUrl")}>
-          <Input id="ai-ollama-url" value={f.ollamaBaseUrl} onChange={set("ollamaBaseUrl")} maxLength={200} placeholder={view.ollama.baseUrl} spellCheck={false} />
-        </Field>
-        <ModelField
-          id="ai-ollama-model"
-          label={t("Model")}
-          hint={t("Must already be installed (ollama pull <model>). A photo can only be read by a vision model, e.g. granite3.2-vision.")}
-          error={err("ollamaModel")}
-          value={f.ollamaModel}
-          onChange={(v) => setF((s) => ({ ...s, ollamaModel: v }))}
-          defaultLabel={`${t("Server default")} (${view.ollama.model})`}
-          list={lists.ollama}
-          onReload={() => void loadModels("ollama")}
-          disabled={busy}
-        />
-        {testButton("ollama")}
-      </Section>
+      {!personal && (
+        <Section
+          title="Ollama"
+          badges={
+            <>
+              <Badge tone={ollamaAvailable ? "success" : "warning"}>{ollamaAvailable ? t("Running") : t("Not reachable")}</Badge>
+              <SourceBadge source={view.sources.ollamaBaseUrl} />
+            </>
+          }
+        >
+          <Field label={t("Server address")} htmlFor="ai-ollama-url" hint={t("Ollama runs on this machine by default. In Docker use http://host.docker.internal:11434. It has no API key.")} error={err("ollamaBaseUrl")}>
+            <Input id="ai-ollama-url" value={f.ollamaBaseUrl} onChange={set("ollamaBaseUrl")} maxLength={200} placeholder={view.ollama.baseUrl} spellCheck={false} />
+          </Field>
+          <ModelField
+            id="ai-ollama-model"
+            label={t("Model")}
+            hint={t("Must already be installed (ollama pull <model>). A photo can only be read by a vision model, e.g. granite3.2-vision.")}
+            error={err("ollamaModel")}
+            value={f.ollamaModel}
+            onChange={(v) => setF((s) => ({ ...s, ollamaModel: v }))}
+            defaultLabel={`${t("Server default")} (${view.ollama.model})`}
+            list={lists.ollama}
+            onReload={() => void loadModels("ollama")}
+            disabled={busy}
+          />
+          {testButton("ollama")}
+        </Section>
+      )}
 
-      <Section title={t("Usage limit")} badges={<SourceBadge source={view.sources.dailyLimit} />}>
-        <Field label={t("AI requests per teacher per day")} htmlFor="ai-limit" hint={t("Empty = the server default.")} error={err("dailyLimit")}>
+      <Section title={t("Usage limit")} badges={!personal && <SourceBadge source={view.sources.dailyLimit} />}>
+        <Field label={t("My AI requests per day")} htmlFor="ai-limit" hint={personal ? t("Protects your API bill. Empty = {0}.", 50) : t("Empty = the server default.")} error={err("dailyLimit")}>
           <Input id="ai-limit" inputMode="numeric" value={f.dailyLimit} onChange={set("dailyLimit")} maxLength={5} placeholder={String(view.dailyLimit)} className="max-w-40" />
         </Field>
       </Section>

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
-import { takeAllowance, AiError, refundAllowance, generateJson, aiErrorMessage, remainingAllowance, isPerangkatAiAvailable, providerUnavailableMessage, PROVIDER_CHOICES } from "@/lib/ai";
+import { takeAllowance, AiError, refundAllowance, generateJson, aiErrorMessage, remainingAllowance, canUseAi, providerUnavailableMessage, PROVIDER_CHOICES } from "@/lib/ai";
 import { AI_QUESTION_TYPES, toQuestionInput, type AiQuestionItem } from "@/lib/ai-questions";
 import { getOwnedMaterial } from "@/lib/access";
 import { buildInteractiveLesson, languageName, teacherSystemPrompt } from "@/lib/interactive-ai";
@@ -93,10 +93,11 @@ export async function generateQuestionDraft(data: unknown): Promise<ActionResult
   if (!p.success) return zodError(p.error);
   const v = p.data;
 
-  if (!(await isPerangkatAiAvailable(v.provider))) return fail(t(providerUnavailableMessage(v.provider)));
+  if (!(await canUseAi(teacher.id, v.provider))) return fail(t(providerUnavailableMessage(v.provider)));
   if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
   try {
     const { data: result } = await generateJson<{ questions: AiQuestionItem[] }>({
+      owner: teacher.id,
       system: `${teacherSystemPrompt(languageName(await getLocale()))}
 Task: create Music practice questions. Rules per type:
 - multiple_choice: exactly 4 choices, one correct answer (indexCorrect starts at 0), plausible distractors.
@@ -195,7 +196,7 @@ export async function generateMaterialDraft(data: unknown): Promise<ActionResult
     }
   }
 
-  if (!(await isPerangkatAiAvailable(v.provider))) return fail(t(providerUnavailableMessage(v.provider)));
+  if (!(await canUseAi(teacher.id, v.provider))) return fail(t(providerUnavailableMessage(v.provider)));
   if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
   try {
     const sourceRule = !source
@@ -204,6 +205,7 @@ export async function generateMaterialDraft(data: unknown): Promise<ActionResult
         ? "\nA source document is given below: summarize it faithfully, without inventing facts beyond it."
         : `\nA source document is given below (from Perangkat Ajar / Lessons): use its topic, facts, and flow as the basis. You may add clarifying explanation and examples to write a complete ${v.kind === "material" ? "teaching material" : "summary"}, but do not contradict it.`;
     const { data: result } = await generateJson<{ title: string; content: string }>({
+      owner: teacher.id,
       system: `${teacherSystemPrompt(languageName(await getLocale()))}
 Task: write ${v.kind === "material" ? "teaching material" : "a study summary"} in Markdown, using the same structure as the school's Teaching Documents (Perangkat Ajar) generator so every lesson in the library reads the same way:
 - Start with one short introductory paragraph, no heading.
@@ -278,10 +280,11 @@ export async function generatePracticeMaterialDraft(data: unknown): Promise<Acti
     source = { title: m.title, text: m.content };
   }
 
-  if (!(await isPerangkatAiAvailable(v.provider))) return fail(t(providerUnavailableMessage(v.provider)));
+  if (!(await canUseAi(teacher.id, v.provider))) return fail(t(providerUnavailableMessage(v.provider)));
   if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
   try {
     const { data: result } = await generateJson<{ title: string; description: string; content: string }>({
+      owner: teacher.id,
       system: `${teacherSystemPrompt(languageName(await getLocale()))}
 Task: write a practice material that students do on their own (at home or in class) from the app's Practice page. It is an exercise, not a lesson: keep explanation short and focus on what to do.
 Fields:
@@ -346,10 +349,10 @@ export async function generateInteractiveLessonDraft(data: unknown): Promise<Act
   if (!p.success) return zodError(p.error);
   const v = p.data;
 
-  if (!(await isPerangkatAiAvailable(v.provider))) return fail(t(providerUnavailableMessage(v.provider)));
+  if (!(await canUseAi(teacher.id, v.provider))) return fail(t(providerUnavailableMessage(v.provider)));
   if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
   try {
-    const lesson = await buildInteractiveLesson({ title: v.title, content: v.content, note: v.note, provider: v.provider, locale: await getLocale() });
+    const lesson = await buildInteractiveLesson({ title: v.title, content: v.content, note: v.note, provider: v.provider, locale: await getLocale(), owner: teacher.id });
     if (!lesson) {
       await refundAllowance(teacher.id);
       return fail(t("The AI did not produce a valid interactive lesson. Try again, or adjust the lesson content first."));

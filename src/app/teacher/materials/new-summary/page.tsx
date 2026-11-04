@@ -31,7 +31,7 @@ export default async function NewSummaryPage() {
       .from(S.teachingDoc)
       .where(and(eq(S.teachingDoc.teacherId, teacher.id), inArray(S.teachingDoc.kind, ["materi_guru", "materi_siswa"]), eq(S.teachingDoc.status, "done")))
       .orderBy(desc(S.teachingDoc.createdAt)),
-    providerOptions(),
+    providerOptions(teacher.id),
     remainingAllowance(teacher.id),
   ]);
 
@@ -43,7 +43,7 @@ export default async function NewSummaryPage() {
   return (
     <>
       <PageHeader title={t("Short Lesson / Summary")} description={t("Write a short summary by hand, or let the AI condense one of your existing lessons.")} />
-      <SummaryForm {...form} sources={sources} providers={providers} remaining={remaining} limit={await dailyLimit()} />
+      <SummaryForm {...form} sources={sources} providers={providers} remaining={remaining} limit={await dailyLimit(teacher.id)} />
     </>
   );
 }

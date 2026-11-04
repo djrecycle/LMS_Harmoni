@@ -103,10 +103,10 @@ export async function materialFormData(teacherId: string) {
       .from(schema.teachingDoc)
       .where(and(eq(schema.teachingDoc.teacherId, teacherId), eq(schema.teachingDoc.kind, "modul_ajar"), eq(schema.teachingDoc.status, "done")))
       .orderBy(desc(schema.teachingDoc.createdAt)),
-    providerOptions(),
+    providerOptions(teacherId),
     remainingAllowance(teacherId),
   ]);
-  return { classroom, topicSuggestions: topics, today: today(), modulAjarDocs, providers, remaining: allowance.remaining, limit: await dailyLimit() };
+  return { classroom, topicSuggestions: topics, today: today(), modulAjarDocs, providers, remaining: allowance.remaining, limit: await dailyLimit(teacherId) };
 }
 
 /** Everything the practice material form needs: the teacher's classes, lessons usable as an AI source, and AI settings. */
@@ -118,18 +118,18 @@ export async function practiceMaterialFormData(teacherId: string) {
       .from(schema.material)
       .where(and(eq(schema.material.teacherId, teacherId), ne(schema.material.content, "")))
       .orderBy(desc(schema.material.updatedAt)),
-    providerOptions(),
+    providerOptions(teacherId),
     remainingAllowance(teacherId),
   ]);
-  return { classroom, lessons, providers, remaining: allowance.remaining, limit: await dailyLimit() };
+  return { classroom, lessons, providers, remaining: allowance.remaining, limit: await dailyLimit(teacherId) };
 }
 
 /** Data for the piano song form: the teacher's classes and the AI allowance. */
 export async function pianoSongFormData(teacherId: string) {
   const [classroom, providers, allowance] = await Promise.all([
     db.select({ id: schema.classroom.id, name: schema.classroom.name }).from(schema.classroom).where(eq(schema.classroom.teacherId, teacherId)).orderBy(schema.classroom.name),
-    providerOptions(),
+    providerOptions(teacherId),
     remainingAllowance(teacherId),
   ]);
-  return { classroom, providers, remaining: allowance.remaining, limit: await dailyLimit() };
+  return { classroom, providers, remaining: allowance.remaining, limit: await dailyLimit(teacherId) };
 }

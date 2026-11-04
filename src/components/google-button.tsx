@@ -2,8 +2,8 @@ import { signInWithGoogle } from "@/app/actions/auth";
 import { Button } from "@/components/ui/button";
 import { getT } from "@/i18n/server";
 
-/** "Continue with Google" — for students only (self-registered accounts). Only rendered when Google sign-in is configured. */
-export async function GoogleButton() {
+/** "Continue with Google" — for teachers only (see lib/auth.ts). Only rendered when Google sign-in is configured. */
+export async function GoogleButton({ label }: { label?: string }) {
   const t = await getT();
   return (
     <form action={signInWithGoogle}>
@@ -14,7 +14,7 @@ export async function GoogleButton() {
           <path fill="#FBBC05" d="M5.27 14.27a7.2 7.2 0 0 1 0-4.54V6.62H1.28a12 12 0 0 0 0 10.76l3.99-3.11Z" />
           <path fill="#EA4335" d="M12 4.75c1.76 0 3.34.6 4.58 1.79l3.44-3.44C17.94 1.19 15.24 0 12 0A12 12 0 0 0 1.28 6.62l3.99 3.11C6.22 6.87 8.87 4.75 12 4.75Z" />
         </svg>
-        {t("Continue with Google")}
+        {label ?? t("Teachers: continue with Google")}
       </Button>
     </form>
   );

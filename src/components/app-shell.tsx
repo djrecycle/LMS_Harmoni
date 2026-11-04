@@ -27,7 +27,7 @@ export async function AppShell({ user, children }: { user: CurrentUser; children
             <div className="min-w-0">
               <p className="truncate text-sm font-bold">{user.name}</p>
               <Badge tone="primary" className="mt-0.5">
-                {user.role === "teacher" ? (user.isAdmin ? t("Teacher · Admin") : t("Teacher")) : t("Student")}
+                {user.role === "teacher" ? (user.isAdmin ? t("Super Admin") : t("Teacher")) : t("Student")}
               </Badge>
             </div>
           </div>

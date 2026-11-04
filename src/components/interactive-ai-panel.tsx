@@ -8,6 +8,7 @@ import { Alert, Badge } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import { ProviderSelect, providerReady, useProviderPick, type ProviderOption } from "@/components/provider-select";
 import type { InteractiveLessonData } from "@/lib/interactive-lessons";
+import { AiSetupNotice } from "@/components/ai-setup-notice";
 import { useT } from "@/i18n/client";
 
 /**
@@ -59,10 +60,7 @@ export function InteractiveAiPanel({
   return (
     <div className="grid gap-4 rounded-lg border p-3.5">
       {!anyProvider && (
-        <Alert kind="warning" title={t("AI is not enabled yet")}>
-          {t("Install Claude Code on the server and log in, or set")} <code className="rounded bg-muted px-1">ANTHROPIC_API_KEY</code> {t("or")} <code className="rounded bg-muted px-1">GEMINI_API_KEY</code>{" "}
-          {t("in the server settings (see the README), then restart the app.")}
-        </Alert>
+        <AiSetupNotice />
       )}
       {anyProvider && !available && <Alert kind="warning">{t("The chosen AI provider is not available on this server. Pick another one.")}</Alert>}
       {!hasContent && <Alert kind="warning">{t("Write or generate the lesson content below first — the interactive version is built from it.")}</Alert>}

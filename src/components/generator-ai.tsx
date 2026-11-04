@@ -18,6 +18,7 @@ import { ProviderSelect, providerReady, useProviderPick, type ProviderOption, ty
 import type { TopicSuggestions } from "@/lib/form-data";
 import { QUESTION_TYPE_LABELS, formatAnswerKey, type QuestionInput } from "@/lib/questions";
 import { cn } from "@/lib/utils";
+import { AiSetupNotice } from "@/components/ai-setup-notice";
 import { useT } from "@/i18n/client";
 
 const LEVELS = ["Upper elementary", "Junior high", "SMA/SMK"] as const;
@@ -45,9 +46,7 @@ export function AiGenerator({ providers, remainingInitial, limit, topicSuggestio
   return (
     <div className="grid gap-5">
       {!anyProvider && (
-        <Alert kind="warning" title={t("AI is not enabled yet")}>
-          {t("Install Claude Code on the server and log in, or set")} <code className="rounded bg-muted px-1">ANTHROPIC_API_KEY</code> {t("or")} <code className="rounded bg-muted px-1">GEMINI_API_KEY</code> {t("in the server settings (see the README), then restart the app.")}
-        </Alert>
+        <AiSetupNotice />
       )}
       {anyProvider && !available && <Alert kind="warning">{t("The chosen AI provider is not available on this server. Pick another one.")}</Alert>}
       <div className="flex flex-wrap items-center justify-between gap-3">
