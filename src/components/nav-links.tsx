@@ -14,6 +14,7 @@ import {
   LogOut,
   Music,
   Piano,
+  Radio,
   School,
   Trophy,
   User,
@@ -65,6 +66,7 @@ const NAV: Record<"teacher" | "student", Item[]> = {
 const ADMIN_ITEMS: Item[] = [
   { href: "/teacher/admin/teachers", label: "Manage Teachers", Icon: Users },
   { href: "/teacher/admin/server", label: "Server Status", Icon: Activity },
+  { href: "/teacher/admin/traffic", label: "Visitors", Icon: Radio },
 ];
 const itemsFor = (role: "teacher" | "student", isAdmin?: boolean) => (role === "teacher" && isAdmin ? [...NAV.teacher, ...ADMIN_ITEMS] : NAV[role]);
 

@@ -1,9 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
+import { headers } from "next/headers";
+import { getSessionCookie } from "better-auth/cookies";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { I18nProvider } from "@/i18n/client";
 import { dictFor, getLocale, getT } from "@/i18n/server";
+import { recordVisit } from "@/lib/traffic";
 import "./globals.css";
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakarta", display: "swap" });
@@ -27,6 +30,8 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const locale = await getLocale();
+  // Guests (no session cookie) are counted here; signed-in users are counted when their session is read.
+  if (!getSessionCookie(await headers())) await recordVisit(null);
   return (
     <html lang={locale} data-scroll-behavior="smooth" suppressHydrationWarning className={jakarta.variable}>
       <body className="min-h-dvh">

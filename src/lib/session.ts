@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { db, schema } from "@/db";
 import { auth } from "./auth";
+import { recordVisit } from "./traffic";
 
 /** Cookie holding the id of the teacher's test student while "Student view" is on. */
 export const STUDENT_VIEW_COOKIE = "harmoni_student_view";
@@ -46,7 +47,7 @@ export const getRealUser = cache(async (): Promise<CurrentUser | null> => {
   const s = await auth.api.getSession({ headers: await headers() });
   if (!s) return null;
   const u = s.user as typeof s.user & { role?: string; isAdmin?: boolean; teacherStatus?: string; schoolName?: string | null };
-  return {
+  const user: CurrentUser = {
     id: u.id,
     name: u.name,
     email: u.email,
@@ -55,6 +56,8 @@ export const getRealUser = cache(async (): Promise<CurrentUser | null> => {
     teacherStatus: u.teacherStatus === "pending" || u.teacherStatus === "suspended" ? u.teacherStatus : "active",
     schoolName: u.schoolName?.trim() || null,
   };
+  await recordVisit(user);
+  return user;
 });
 
 export function dashboardPathFor(role: CurrentUser["role"]) {
