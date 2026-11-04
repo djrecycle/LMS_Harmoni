@@ -11,7 +11,7 @@ import { fail, succeed, formValues, type ActionResult } from "@/lib/action-resul
 import { auth, signupContext } from "@/lib/auth";
 import { teacherSignupBlocked } from "@/lib/platform";
 import { rateLimit } from "@/lib/ratelimit";
-import { dashboardPathFor, requireUser, STUDENT_VIEW_COOKIE } from "@/lib/session";
+import { dashboardPathFor, getRealUser, requireUser, STUDENT_VIEW_COOKIE } from "@/lib/session";
 import { getT } from "@/i18n/server";
 import type { Translate } from "@/i18n";
 
@@ -41,8 +41,12 @@ const registerSchema = z
     confirmText: z.string(),
     role: z.enum(["teacher", "student"], { error: "Choose a role" }),
     teacherCode: z.string().optional(),
+    schoolName: z.string().trim().max(160, "Too long").optional(),
+    agree: z.string().optional(),
   })
-  .refine((v) => v.password === v.confirmText, { path: ["confirmText"], message: "Passwords do not match" });
+  .refine((v) => v.password === v.confirmText, { path: ["confirmText"], message: "Passwords do not match" })
+  .refine((v) => v.role !== "teacher" || (v.schoolName?.length ?? 0) >= 3, { path: ["schoolName"], message: "Enter the name of your school" })
+  .refine((v) => v.agree === "on", { path: ["agree"], message: "You must agree to the Terms and the Privacy Policy" });
 
 export async function list(_: ActionResult, fd: FormData): Promise<ActionResult> {
   const t = await getT();
@@ -64,13 +68,31 @@ export async function list(_: ActionResult, fd: FormData): Promise<ActionResult>
   if (!rate.boleh) return fail(t("Too many sign-up attempts. Try again later."));
 
   try {
-    await signupContext.run({ role: v.role }, () =>
+    await signupContext.run({ role: v.role, schoolName: v.role === "teacher" ? v.schoolName : undefined }, () =>
       auth.api.signUpEmail({ body: { name: v.name, email: v.email, password: v.password } }),
     );
   } catch (e) {
     return fail(apiErrorMessage(e, t("Registration failed. Try again."), t), fd);
   }
   redirect(dashboardPathFor(v.role));
+}
+
+/** A teacher's school, saved straight on the account (Better Auth's updateUser can't set an `input: false` field). */
+async function storeSchool(userId: string, schoolName: string) {
+  await db.update(schema.user).set({ schoolName, updatedAt: new Date() }).where(eq(schema.user.id, userId));
+}
+
+const schoolSchema = z.object({ schoolName: z.string().trim().min(3, "Enter the name of your school").max(160, "Too long") });
+
+/** Filled in on /account-status by a teacher who signed up with Google (the email form asks for it already). */
+export async function saveSchoolName(_: ActionResult, fd: FormData): Promise<ActionResult> {
+  const user = await getRealUser();
+  if (!user) redirect("/login");
+  if (user.role !== "teacher") redirect(dashboardPathFor(user.role));
+  const p = schoolSchema.safeParse(Object.fromEntries(fd));
+  if (!p.success) return zodError(p.error, fd);
+  await storeSchool(user.id, p.data.schoolName);
+  redirect("/teacher"); // goes on to the dashboard, or back to /account-status while waiting for approval
 }
 
 /* ----------------------------- Sign in ------------------------------ */
@@ -160,14 +182,19 @@ export async function resetPassword(_: ActionResult, fd: FormData): Promise<Acti
 export async function editProfile(_: ActionResult, fd: FormData): Promise<ActionResult> {
   const t = await getT();
   // In Student view the session belongs to the teacher: never change the teacher's account from here.
-  if ((await requireUser()).studentView) return fail(t("This is not available in Student view."));
-  const p = z.object({ name: z.string().trim().min(2, t("Name must be at least 2 characters")).max(80) }).safeParse(Object.fromEntries(fd));
+  const user = await requireUser();
+  if (user.studentView) return fail(t("This is not available in Student view."));
+  const p = z
+    .object({ name: z.string().trim().min(2, t("Name must be at least 2 characters")).max(80), schoolName: z.string().trim().max(160, "Too long").optional() })
+    .refine((v) => user.role !== "teacher" || user.isAdmin || (v.schoolName?.length ?? 0) >= 3, { path: ["schoolName"], message: "Enter the name of your school" })
+    .safeParse(Object.fromEntries(fd));
   if (!p.success) return zodError(p.error, fd);
   try {
     await auth.api.updateUser({ body: { name: p.data.name }, headers: await headers() });
   } catch (e) {
     return fail(apiErrorMessage(e, t("Could not save the profile."), t));
   }
+  if (user.role === "teacher" && p.data.schoolName !== undefined) await storeSchool(user.id, p.data.schoolName);
   return succeed(t("Profile saved."));
 }
 

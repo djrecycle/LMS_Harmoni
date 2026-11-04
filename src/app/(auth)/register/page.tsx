@@ -25,7 +25,17 @@ export default async function RegisterPage() {
             <span className="h-px flex-1 bg-border" />
           </div>
           <GoogleButton label={t("Sign up as a teacher with Google")} />
-          <p className="mt-2 text-center text-xs text-muted-foreground">{t("Google is for teachers only. New teacher accounts wait for the admin's approval.")}</p>
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            {t("Google is for teachers only. New teacher accounts wait for the admin's approval.")} {t("By signing up you agree to the")}{" "}
+            <Link href="/terms" className="underline">
+              {t("Terms and Conditions")}
+            </Link>{" "}
+            {t("and the")}{" "}
+            <Link href="/privacy" className="underline">
+              {t("Privacy Policy")}
+            </Link>
+            .
+          </p>
         </>
       )}
       <p className="mt-6 text-center text-sm text-muted-foreground">

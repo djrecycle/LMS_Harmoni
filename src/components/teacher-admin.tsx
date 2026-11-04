@@ -45,7 +45,7 @@ export function TeacherAdmin({ overview }: { overview: AdminOverview }) {
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return overview.teachers.filter((x) => (!filter || x.status === filter) && (!q || x.name.toLowerCase().includes(q) || x.email.toLowerCase().includes(q)));
+    return overview.teachers.filter((x) => (!filter || x.status === filter) && (!q || x.name.toLowerCase().includes(q) || x.email.toLowerCase().includes(q) || x.schoolName.toLowerCase().includes(q)));
   }, [overview.teachers, query, filter]);
 
   return (
@@ -82,7 +82,7 @@ export function TeacherAdmin({ overview }: { overview: AdminOverview }) {
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("Search name or email")} className="h-10 w-56 pl-9" aria-label={t("Search name or email")} />
+              <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("Search name, school or email")} className="h-10 w-56 pl-9" aria-label={t("Search name, school or email")} />
             </div>
             <Select value={filter} onChange={(e) => setFilter(e.target.value as typeof filter)} className="h-10 w-48" aria-label={t("Filter by status")}>
               <option value="">{t("All statuses")}</option>
@@ -150,6 +150,7 @@ function TeacherItem({ teacher: x, defaultMb }: { teacher: TeacherRow; defaultMb
       </div>
       <div className="min-w-0">
         <p className="font-semibold leading-snug break-words">{x.name}</p>
+        <p className="text-sm break-words">{x.schoolName || <span className="text-muted-foreground italic">{t("School not filled in yet")}</span>}</p>
         <p className="text-sm break-all text-muted-foreground">{x.email}</p>
       </div>
       <p className="text-sm text-muted-foreground">

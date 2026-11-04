@@ -89,6 +89,10 @@ export default async function Home() {
 
       <footer className="border-t py-6 text-center text-sm text-muted-foreground">
         {t("Harmoni Music Class · Made for Music class")} ·{" "}
+        <Link href="/terms" className="hover:underline">
+          {t("Terms and Conditions")}
+        </Link>{" "}
+        ·{" "}
         <Link href="/privacy" className="hover:underline">
           {t("Privacy Policy")}
         </Link>

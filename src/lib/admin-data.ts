@@ -11,6 +11,7 @@ export type TeacherRow = {
   id: string;
   name: string;
   email: string;
+  schoolName: string;
   isAdmin: boolean;
   status: "pending" | "active" | "suspended";
   createdAt: string;
@@ -42,7 +43,7 @@ export async function adminOverview(): Promise<AdminOverview> {
   const [settings, users] = await Promise.all([
     getPlatformSettings(),
     db
-      .select({ id: S.user.id, name: S.user.name, email: S.user.email, isAdmin: S.user.isAdmin, status: S.user.teacherStatus, quota: S.user.storageQuotaMb, createdAt: S.user.createdAt })
+      .select({ id: S.user.id, name: S.user.name, email: S.user.email, schoolName: S.user.schoolName, isAdmin: S.user.isAdmin, status: S.user.teacherStatus, quota: S.user.storageQuotaMb, createdAt: S.user.createdAt })
       .from(S.user)
       .where(eq(S.user.role, "teacher"))
       .orderBy(desc(S.user.isAdmin), desc(S.user.createdAt)),
@@ -74,6 +75,7 @@ export async function adminOverview(): Promise<AdminOverview> {
     id: u.id,
     name: u.name,
     email: u.email,
+    schoolName: u.schoolName ?? "",
     isAdmin: u.isAdmin,
     status: u.isAdmin ? "active" : u.status,
     createdAt: u.createdAt.toISOString(),

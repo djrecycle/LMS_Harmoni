@@ -78,6 +78,14 @@ export default async function PrivacyPage() {
         </p>
       </Section>
 
+      <p>
+        Lihat juga{" "}
+        <Link href="/terms" className="font-semibold text-primary underline">
+          Syarat dan Ketentuan
+        </Link>
+        .
+      </p>
+
       <Section title="Perubahan">
         <p>Kebijakan ini bisa diperbarui. Tanggal di atas menunjukkan versi terbaru.</p>
       </Section>

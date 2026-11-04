@@ -70,6 +70,8 @@ export const user = pgTable(
     teacherStatus: teacherStatusEnum("teacher_status").notNull().default("active"),
     /** Teachers only: upload space in MB set by the Super Admin; null = the platform default. */
     storageQuotaMb: integer("storage_quota_mb"),
+    /** Teachers only: the school they teach at. Required for every teacher except the Super Admin (asked at sign-up, or right after a Google sign-up). */
+    schoolName: text("school_name"),
     // Required by Better Auth's `admin` plugin schema (used only for admin.createUser, which lets a teacher
     // create a student account without a session switch; this app never bans anyone).
     banned: boolean("banned").default(false),

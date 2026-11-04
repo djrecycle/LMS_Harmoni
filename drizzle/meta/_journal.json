@@ -141,6 +141,13 @@
       "when": 1793764376184,
       "tag": "0019_teacher_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793772685156,
+      "tag": "0020_teacher_school",
+      "breakpoints": true
     }
   ]
 }

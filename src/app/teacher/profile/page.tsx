@@ -14,8 +14,8 @@ export default async function ProfilePage() {
   const p = await requireTeacher();
   return (
     <>
-      <PageHeader title={t("Profile")} description={t("Change your name and password.")} />
-      <ProfileForm name={p.name} email={p.email} />
+      <PageHeader title={t("Profile")} description={t("Change your name, school and password.")} />
+      <ProfileForm name={p.name} email={p.email} schoolName={p.schoolName ?? ""} />
     </>
   );
 }

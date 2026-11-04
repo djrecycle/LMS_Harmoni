@@ -28,7 +28,7 @@ export const isGoogleSignInEnabled = () => googleConfigured;
  * The role may only be set from the registration server action (which validates the teacher code).
  *  The /api/auth/sign-up/email endpoint called directly always produces a `student` account.
  */
-export const signupContext = new AsyncLocalStorage<{ role: "teacher" | "student" }>();
+export const signupContext = new AsyncLocalStorage<{ role: "teacher" | "student"; schoolName?: string }>();
 
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL,
@@ -67,6 +67,7 @@ export const auth = betterAuth({
       role: { type: "string", required: false, defaultValue: "student", input: false },
       isAdmin: { type: "boolean", required: false, defaultValue: false, input: false },
       teacherStatus: { type: "string", required: false, defaultValue: "active", input: false },
+      schoolName: { type: "string", required: false, input: false },
     },
   },
   databaseHooks: {
@@ -87,7 +88,9 @@ export const auth = betterAuth({
           }
           // Every later teacher waits for the Super Admin's approval.
           const teacherStatus = role === "teacher" && !isAdmin ? "pending" : "active";
-          return { data: { ...u, role, isAdmin, teacherStatus } };
+          // The email form asks for the school; a Google sign-up is asked right after (see /account-status).
+          const schoolName = role === "teacher" ? signupContext.getStore()?.schoolName?.trim() || null : null;
+          return { data: { ...u, role, isAdmin, teacherStatus, schoolName } };
         },
       },
     },

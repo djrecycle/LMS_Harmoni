@@ -9,7 +9,8 @@ import { SubmitButton } from "@/components/ui/submit";
 import { initialState } from "@/lib/action-result";
 import { useT } from "@/i18n/client";
 
-export function ProfileForm({ name, email }: { name: string; email: string }) {
+/** `schoolName` is given for teachers only (it is then shown and saved too). */
+export function ProfileForm({ name, email, schoolName }: { name: string; email: string; schoolName?: string }) {
   const t = useT();
   const [p, profileAction] = useActionState(editProfile, initialState);
   const [s, passwordAction] = useActionState(changePassword, initialState);
@@ -24,6 +25,11 @@ export function ProfileForm({ name, email }: { name: string; email: string }) {
             <Field label={t("Full name")} htmlFor="name" error={p.fieldErrors?.name}>
               <Input id="name" name="name" defaultValue={p.values?.name ?? name} required />
             </Field>
+            {schoolName !== undefined && (
+              <Field label={t("School name")} htmlFor="schoolName" error={p.fieldErrors?.schoolName}>
+                <Input id="schoolName" name="schoolName" defaultValue={p.values?.schoolName ?? schoolName} maxLength={160} />
+              </Field>
+            )}
             <Field label="Email" htmlFor="email" hint={t("Email cannot be changed")}>
               <Input id="email" value={email} disabled readOnly />
             </Field>

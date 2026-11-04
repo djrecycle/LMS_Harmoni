@@ -1,0 +1,1 @@
+ALTER TABLE "user" ADD COLUMN "school_name" text;

@@ -17,6 +17,8 @@ export type CurrentUser = {
   isAdmin: boolean;
   /** Teachers: "pending" until the Super Admin approves, "suspended" when blocked. Always "active" for students. */
   teacherStatus: "pending" | "active" | "suspended";
+  /** Teachers: the school they teach at (required for every teacher but the Super Admin). */
+  schoolName: string | null;
   /** Set while a teacher uses Student view: this user is then the teacher's test student. */
   studentView?: { teacherId: string; teacherName: string };
 };
@@ -36,14 +38,14 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     .where(and(eq(schema.user.id, demoId), eq(schema.user.demoOwnerId, real.id)))
     .limit(1);
   if (!demo) return real;
-  return { ...demo, role: "student", isAdmin: false, teacherStatus: "active", studentView: { teacherId: real.id, teacherName: real.name } };
+  return { ...demo, role: "student", isAdmin: false, teacherStatus: "active", schoolName: null, studentView: { teacherId: real.id, teacherName: real.name } };
 });
 
 /** The account that is actually signed in, ignoring Student view. */
 export const getRealUser = cache(async (): Promise<CurrentUser | null> => {
   const s = await auth.api.getSession({ headers: await headers() });
   if (!s) return null;
-  const u = s.user as typeof s.user & { role?: string; isAdmin?: boolean; teacherStatus?: string };
+  const u = s.user as typeof s.user & { role?: string; isAdmin?: boolean; teacherStatus?: string; schoolName?: string | null };
   return {
     id: u.id,
     name: u.name,
@@ -51,6 +53,7 @@ export const getRealUser = cache(async (): Promise<CurrentUser | null> => {
     role: u.role === "teacher" ? "teacher" : "student",
     isAdmin: Boolean(u.isAdmin),
     teacherStatus: u.teacherStatus === "pending" || u.teacherStatus === "suspended" ? u.teacherStatus : "active",
+    schoolName: u.schoolName?.trim() || null,
   };
 });
 
@@ -64,10 +67,11 @@ export async function requireUser(): Promise<CurrentUser> {
   return p;
 }
 
-/** A teacher who may use the app: approved and not suspended (the Super Admin always). */
-export const isActiveTeacher = (u: Pick<CurrentUser, "role" | "isAdmin" | "teacherStatus"> | null) => Boolean(u && u.role === "teacher" && (u.isAdmin || u.teacherStatus === "active"));
+/** A teacher who may use the app: approved, not suspended, and with their school filled in (the Super Admin always). */
+export const isActiveTeacher = (u: Pick<CurrentUser, "role" | "isAdmin" | "teacherStatus" | "schoolName"> | null) =>
+  Boolean(u && u.role === "teacher" && (u.isAdmin || (u.teacherStatus === "active" && u.schoolName)));
 
-/** Teacher-only pages & actions. Students are redirected to their own dashboard; a teacher not yet approved (or suspended) to the waiting page. */
+/** Teacher-only pages & actions. Students are redirected to their own dashboard; a teacher not yet approved (or suspended, or without a school) to /account-status. */
 export async function requireTeacher(): Promise<CurrentUser> {
   const p = await requireUser();
   if (p.role !== "teacher") redirect("/student");

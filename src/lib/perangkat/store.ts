@@ -50,6 +50,11 @@ export async function getSetting(teacherId: string): Promise<PerangkatSetting> {
   const data = isObj(row?.data) ? row.data : {};
   const out = { ...SETTING_DEFAULT };
   for (const k of Object.keys(out) as (keyof PerangkatSetting)[]) if (typeof data[k] === "string") out[k] = data[k] as string;
+  // The school from the teacher's account fills the signature block until they type another one.
+  if (!out.nama_sekolah) {
+    const [u] = await db.select({ school: S.user.schoolName }).from(S.user).where(eq(S.user.id, teacherId)).limit(1);
+    out.nama_sekolah = u?.school ?? "";
+  }
   return out;
 }
 

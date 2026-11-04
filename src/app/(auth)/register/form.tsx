@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
 import { GraduationCap, Music } from "lucide-react";
 import { list } from "@/app/actions/auth";
 import { FormMessage } from "@/components/form-message";
@@ -48,6 +49,11 @@ export function RegisterForm({ needsTeacherCode }: { needsTeacherCode: boolean }
       <Field label={t("Full name")} htmlFor="name" error={e.name}>
         <Input id="name" name="name" autoComplete="name" defaultValue={v.name} required />
       </Field>
+      {role === "teacher" && (
+        <Field label={t("School name")} htmlFor="schoolName" hint={t("Example: SMP Negeri 1 Surabaya")} error={e.schoolName}>
+          <Input id="schoolName" name="schoolName" autoComplete="organization" defaultValue={v.schoolName} maxLength={160} required />
+        </Field>
+      )}
       <Field label="Email" htmlFor="email" error={e.email}>
         <Input id="email" name="email" type="email" autoComplete="email" inputMode="email" defaultValue={v.email} required />
       </Field>
@@ -62,6 +68,24 @@ export function RegisterForm({ needsTeacherCode }: { needsTeacherCode: boolean }
           <Input id="teacherCode" name="teacherCode" defaultValue={v.teacherCode} required />
         </Field>
       )}
+
+      <div>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" name="agree" defaultChecked={v.agree === "on"} required className="mt-0.5 size-4 shrink-0 accent-primary" />
+          <span>
+            {t("I agree to the")}{" "}
+            <Link href="/terms" target="_blank" className="font-semibold text-primary hover:underline">
+              {t("Terms and Conditions")}
+            </Link>{" "}
+            {t("and the")}{" "}
+            <Link href="/privacy" target="_blank" className="font-semibold text-primary hover:underline">
+              {t("Privacy Policy")}
+            </Link>
+            .
+          </span>
+        </label>
+        {e.agree && <p className="mt-1 text-xs font-medium text-danger">{e.agree}</p>}
+      </div>
 
       <FormMessage state={state} />
       <SubmitButton size="lg" pendingText={t("Registering…")}>
