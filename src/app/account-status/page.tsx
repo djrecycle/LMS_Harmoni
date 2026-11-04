@@ -37,7 +37,7 @@ export default async function AccountStatusPage() {
               : t("Hello {0}. Your teacher account can't be used for now. Contact the admin of this site if you think this is a mistake.", user.name)}
           </p>
           <form action={signOut}>
-            <Button variant="outline" className="w-full">
+            <Button type="submit" variant="outline" className="w-full">
               <LogOut /> {t("Sign out")}
             </Button>
           </form>
