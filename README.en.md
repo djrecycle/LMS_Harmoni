@@ -2,15 +2,17 @@
 
 **English** · [Bahasa Indonesia](README.md)
 
-An interactive LMS for **Music** class: multimedia lessons, quizzes with text/image/audio/video/**MIDI piano** questions, instrument practice (virtual piano, pitch, rhythm, recording), and AI assistance for teachers. Two dashboards: **Teacher** (also the admin) and **Student**. Mobile-first, with light and dark mode.
+An interactive LMS for **Music** class: multimedia lessons, quizzes with text/image/audio/video/**MIDI piano** questions, instrument practice (virtual piano, pitch, rhythm, recording), and AI assistance for teachers. It is a platform for **many teachers**: one **Super Admin** approves new teachers and watches the server, each teacher runs their own classes, and students learn from their phones. Mobile-first, with light and dark mode.
 
 The interface is in **Bahasa Indonesia by default** and can be switched to **English** at any time with the `EN | ID` toggle (sidebar, sign-in pages, and home page). The choice is remembered in a cookie.
+
+📖 **User guide** (sign-up, sign-in, roles, and every feature, in Indonesian): see the **[Wiki](https://github.com/djrecycle/LMS_Harmoni/wiki)**.
 
 ## Contents
 
 1. [Tech stack](#tech-stack)
-2. [Quick start](#quick-start)
-3. [Signing in as a teacher](#signing-in-as-a-teacher)
+2. [Installation](#installation)
+3. [Accounts & roles](#accounts--roles)
 4. [Environment variables](#environment-variables)
 5. [Feature map](#feature-map)
 6. [Languages (i18n)](#languages-i18n)
@@ -28,26 +30,148 @@ The interface is in **Bahasa Indonesia by default** and can be switched to **Eng
 | Framework | **Next.js 16** (App Router) + React 19 + TypeScript | Server Actions for all mutations, Route Handlers for file upload/download |
 | UI | Tailwind CSS v4, shadcn/ui-style components (hand-written in `src/components/ui`) | Light/dark tokens in `globals.css` |
 | Database | **PostgreSQL** + **Drizzle ORM** | Without `DATABASE_URL`, development uses **PGlite** (real PostgreSQL running inside Node), so nothing needs to be installed |
-| Auth | **Better Auth** (email + password) | `teacher` / `student` role stored on the `user` table |
+| Auth | **Better Auth** (email/username + password, optional Google for teachers) | `teacher` / `student` role, `isAdmin` flag (one Super Admin) and teacher approval status on the `user` table |
 | Files | Local disk (`./uploads`) or **S3-compatible** storage (AWS S3, Cloudflare R2, MinIO, Supabase Storage) | Selected with `STORAGE_DRIVER` |
 | Audio | **Tone.js** (piano & metronome, lazy-loaded), Web Audio API, **Web MIDI API**, **MediaRecorder API** | Low latency: `lookAhead = 0`, `latencyHint: "interactive"` |
-| AI | **Claude** via `@anthropic-ai/sdk` (teachers only) | The key is only read on the server; default model `claude-opus-5` |
+| AI | **Gemini** or **Anthropic** API (each teacher's own key), plus **Claude Code** CLI and **Ollama** for the Super Admin | Teachers only; keys are stored encrypted and only read on the server |
 | Validation | Zod (every input is validated again on the server) | |
 
 **Why PGlite for development?** PGlite is real PostgreSQL (WASM): schema and queries are identical to production, but it needs no Docker or server install. For production just set `DATABASE_URL`.
 
-## Quick start
+## Installation
 
-Requirements: **Node.js 20.9+** (tested on Node 22) and npm.
+Pick one:
+
+| Option | Best for |
+|---|---|
+| [A. VPS with a domain (Docker + HTTPS)](#a-vps-with-a-domain-docker--https) | Real use by teachers and students over the internet |
+| [B. Local / school server (Docker)](#b-local--school-server-docker) | A school network (LAN) or a single computer |
+| [C. Development (Node.js)](#c-development-nodejs) | Trying the app or changing the code |
+
+### A. VPS with a domain (Docker + HTTPS)
+
+**You need:**
+- A Linux VPS (Ubuntu 22.04/24.04 or Debian 12) with at least **2 GB RAM** (4 GB recommended) and 20 GB disk.
+- A domain or subdomain, e.g. `music.myschool.edu`.
+- Ports 80 and 443 open in the VPS firewall.
+
+**1. Point the domain at the VPS.** In your DNS provider, add an **A record** with the VPS's IP address. Wait a few minutes until it resolves (`ping music.myschool.edu`).
+
+**2. Install Docker and Git on the VPS** (log in with SSH, then):
 
 ```bash
+curl -fsSL https://get.docker.com | sh
+apt-get install -y git
+```
+
+**3. Download the app:**
+
+```bash
+git clone https://github.com/djrecycle/LMS_Harmoni.git /opt/harmoni
+cd /opt/harmoni
+cp .env.docker.example .env.docker
+```
+
+**4. Fill in the configuration.** Generate two random secrets by running this twice:
+
+```bash
+openssl rand -base64 32
+```
+
+Then open `nano .env.docker` and set:
+
+```ini
+POSTGRES_PASSWORD=first-random-value
+BETTER_AUTH_SECRET=second-random-value
+BETTER_AUTH_URL=https://music.myschool.edu
+DOMAIN=music.myschool.edu
+```
+
+Keep a safe copy of `.env.docker`. If `BETTER_AUTH_SECRET` changes, everyone has to sign in again and saved AI keys must be entered again. Everything else (SMTP email, Google sign-in, AI) is optional, see [Optional configuration](#optional-configuration).
+
+**5. Start it:**
+
+```bash
+docker compose --env-file .env.docker --profile proxy up -d --build
+```
+
+The first build takes 5–15 minutes. `--profile proxy` starts **Caddy**, which gets a free HTTPS certificate (Let's Encrypt) automatically. HTTPS is required: browsers only allow audio recording and MIDI over HTTPS.
+
+**6. Create the Super Admin account.** Open `https://music.myschool.edu/register`, choose **Teacher**, and fill in the form. **The first teacher who registers becomes the Super Admin** and is active right away. Do this as soon as the app is up, before sharing the address.
+
+**Day-to-day commands** (run in `/opt/harmoni`):
+
+| Command | Purpose |
+|---|---|
+| `docker compose --env-file .env.docker ps` | Status of the services (db, app, caddy) |
+| `docker compose --env-file .env.docker logs -f app` | App logs (Ctrl+C to quit) |
+| `git pull && docker compose --env-file .env.docker --profile proxy up -d --build` | Update to the latest version |
+| `docker compose --env-file .env.docker --profile proxy down` | Stop (data is kept) |
+
+The database and uploads live in Docker volumes (`pgdata`, `uploads`), so they survive updates and restarts. **Never** run `down -v`: it deletes all data.
+
+**Manual database backup:**
+
+```bash
+docker compose --env-file .env.docker exec -T db pg_dump -U harmoni harmoni | gzip > /root/harmoni-$(date +%F).sql.gz
+```
+
+#### Deploying from your laptop (optional)
+
+If you change the code on your laptop, two helper scripts push it to the VPS without a `git pull` on the server. Copy `.deploy.env.example` to `.deploy.env` and set `VPS_HOST` (e.g. `root@203.0.113.10`) and `REMOTE_DIR` (e.g. `/opt/harmoni`). The laptop needs SSH key access to the VPS.
+
+| Script | Purpose |
+|---|---|
+| `./deploy.sh` | Refuses to run while there are uncommitted changes, syncs the code to the server (rsync, without `node_modules`, data, uploads or env files), rebuilds the stack there in the background, and tags the deployed commit as `deploy-YYYY-MM-DD-HHMM` |
+| `./backup.sh` | Dumps the database and copies the code folder on the server (keeps the newest 5), and downloads the dump to `~/harmoni-backups` |
+
+Make a habit of `./backup.sh && ./deploy.sh`.
+
+### B. Local / school server (Docker)
+
+For a computer or server at school (Windows, macOS or Linux).
+
+1. Install **Docker Desktop** (Windows/macOS) or Docker Engine (Linux), and **Git**.
+2. Download the app and prepare the configuration:
+
+   ```bash
+   git clone https://github.com/djrecycle/LMS_Harmoni.git
+   cd LMS_Harmoni
+   cp .env.docker.example .env.docker
+   ```
+
+3. Open `.env.docker` and set `POSTGRES_PASSWORD` and `BETTER_AUTH_SECRET` to random text (at least 32 characters). Keep `BETTER_AUTH_URL=http://localhost:3000` when it is only used on that computer.
+4. Start it:
+
+   ```bash
+   docker compose --env-file .env.docker up -d --build
+   ```
+
+5. Open http://localhost:3000 and register as a **Teacher**. This first account becomes the Super Admin.
+
+Sample data (classes, lessons, quizzes and test accounts) can be added with:
+
+```bash
+docker compose --env-file .env.docker --profile tools run --rm seed
+```
+
+**Using it from other computers on the school network.** By default the app is only reachable from the computer it runs on. Two options:
+
+- **Recommended:** use a domain and HTTPS as in [option A](#a-vps-with-a-domain-docker--https). Caddy can only get a certificate automatically when the server is reachable from the internet.
+- **Quick but limited:** in `docker-compose.yml`, change `"127.0.0.1:${APP_PORT:-3000}:3000"` to `"${APP_PORT:-3000}:3000"`, set `BETTER_AUTH_URL=http://SERVER-IP:3000`, and run step 4 again. Students open `http://SERVER-IP:3000`. Without HTTPS, **audio recording and MIDI do not work** on the other computers; everything else does.
+
+### C. Development (Node.js)
+
+Requirements: **Node.js 20.9+** (tested on Node 22) and npm. No PostgreSQL install needed: this mode uses the embedded database (PGlite) in `data/`.
+
+```bash
+git clone https://github.com/djrecycle/LMS_Harmoni.git
+cd LMS_Harmoni
 npm install
-cp .env.example .env.local      # then set BETTER_AUTH_SECRET (see below)
+cp .env.example .env.local      # then set BETTER_AUTH_SECRET: openssl rand -base64 32
 npm run db:seed                 # creates the schema + sample data (skipped if the DB already has data)
 npm run dev                     # http://localhost:3000
 ```
-
-Generate the session secret with `openssl rand -base64 32` and paste it into `BETTER_AUTH_SECRET` in `.env.local`.
 
 Other commands:
 
@@ -61,6 +185,18 @@ Other commands:
 | `npm run db:generate` | Generate a new migration after editing `src/db/schema.ts` |
 
 > PGlite can only be opened by one process at a time. **Stop `npm run dev` (Ctrl+C) before running `db:seed` / `db:reset`.** Killing the dev server with `kill -9` can corrupt the local data; if that happens run `npm run db:reset && npm run db:seed`.
+
+### Optional configuration
+
+Set these in `.env.docker` (Docker) or `.env.local` (development), then restart the app. The full list is in [Environment variables](#environment-variables).
+
+| Feature | Variables | Notes |
+|---|---|---|
+| Password-reset email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Without SMTP the reset link is only printed in the app log |
+| Google sign-in for teachers | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Cloud OAuth client (Web application). Redirect URI: `https://your-domain/api/auth/callback/google` |
+| Teacher sign-up code | `TEACHER_SIGNUP_CODE` | When set, teacher sign-up requires this code |
+| Server AI | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `AI_PROVIDER` | Used by the Super Admin only. Other teachers use their own key from AI Settings |
+| S3 storage | `STORAGE_DRIVER=s3` + `S3_*` | Keep uploads in AWS S3, Cloudflare R2, MinIO, … |
 
 ## Teaching documents (Perangkat Ajar)
 
@@ -79,18 +215,37 @@ Under **Teaching Documents** a teacher generates, in this order: **CP – TP –
 - **Teaching Journal** (`/teacher/journal`): one entry per class meeting, combining the teaching log (material taught, activities, obstacles, notes) with that meeting's attendance (Hadir/Sakit/Izin/Alpa per student, with an optional note). Opening "New entry" for a class/date that already has one edits it instead of creating a duplicate.
 - **Academic Calendar** (`/teacher/calendar`): upload a school's official Kalender Pendidikan (`.docx`, `.pdf`, `.xlsx`, or `.txt`); the AI (same provider choice as Teaching Documents) tidies it into semesters, effective weeks, and a list of events (libur / efektif / ujian / PTS / PAS / lainnya), shown as a month-by-month calendar and as tables. Generation runs in the background like Teaching Documents.
 
-## Signing in as a teacher
+## Accounts & roles
+
+| | Super Admin | Teacher | Student |
+|---|:---:|:---:|:---:|
+| How many | Exactly one | Many | Many |
+| How the account is made | The first teacher who registers | Registers (form or Google), then waits for the Super Admin's approval | Registers, or is created by a teacher (username + password) |
+| AI features | ✅ (may use the server's AI) | ✅ (with their own API key) | ❌ |
+| Upload space | No limit | Limited (default 500 MB, adjustable per teacher) | Practice recordings only |
+| Manage Teachers, Server Status, Visitors | ✅ | ❌ | ❌ |
+
+- **Super Admin**: the first teacher account on an installation is the Super Admin and is active at once. There is only one (enforced by a unique index) and the role cannot be handed over in the app.
+- **Teachers** must give a **school name** and stay **waiting for approval** (shown on `/account-status`) until the Super Admin approves them in **Manage Teachers**. The Super Admin can also suspend, reactivate or delete teachers, close teacher sign-up, cap the number of teachers, and set the upload space. Each teacher only sees their own classes, students, lessons and quizzes.
+- **Google sign-in** (when configured) is for teachers only and always creates a teacher account waiting for approval. Students use email/username + password.
+- **Students** register with the **Student** role and join a class with the teacher's invite code, or are created by the teacher. A teacher can also try the student pages with a **test student** (class page → *View as student*); its attempts never count in grades.
 
 **With the sample data** (after `npm run db:seed`), open http://localhost:3000/login and use:
 
 | Role | Email | Password |
 |---|---|---|
-| Teacher (main admin) | `teacher@harmoni.test` | `harmoni123` |
+| Teacher (Super Admin) | `teacher@harmoni.test` | `harmoni123` |
 | Students | `student1@harmoni.test` … `student5@harmoni.test` | `harmoni123` |
 
 You land on the Teacher Dashboard at `/teacher`. Students land on `/student`. The sample class is **Music Class 7A** (invite code `MUSIC7A`).
 
-**Creating your own teacher account:** open `/register`, choose **Teacher**, and fill in the form. The **first teacher who registers becomes the main admin**. If `TEACHER_SIGNUP_CODE` is set on the server, the form also asks for that code, so strangers cannot sign up as teachers. Students register with the **Student** role and join a class with the teacher's invite code.
+### Super Admin pages
+
+| Page | What it does |
+|---|---|
+| **Manage Teachers** (`/teacher/admin/teachers`) | Approve, suspend, reactivate or delete teachers; open/close teacher sign-up; maximum number of teachers; upload space per teacher |
+| **Server Status** (`/teacher/admin/server`) | Live CPU, RAM, disk, load, uptime, database size and app memory of the VPS (auto-refresh every 10 s); a *Clear app cache* button |
+| **Visitors** (`/teacher/admin/traffic`) | Who is online now (teachers, students, guests, bots), page views per minute for the last hour, most opened pages. Kept in memory only, so it starts empty after every deploy or restart |
 
 ## Environment variables
 
@@ -105,35 +260,37 @@ Copy `.env.example` to `.env.local` (development) or set them on your hosting pl
 | `STORAGE_DRIVER` | optional | `local` (default) or `s3` |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | with `s3` | Use a **private** bucket; files are served through short-lived signed URLs |
 | `MAX_UPLOAD_MB` | optional | Upload limit for teachers (default 50) |
-| `ANTHROPIC_API_KEY` | for AI | Can also be set by the admin in **AI Settings** (see below), which overrides this. Without any key the AI generator shows "AI is not enabled yet"; everything else works normally |
+| `ANTHROPIC_API_KEY` | optional | Server AI for the **Super Admin** (can also be set in their AI Settings, which overrides this). Other teachers always use their own key. Without any key the AI features show "AI is not enabled yet"; everything else works normally |
 | `AI_MODEL` | optional | Default `claude-opus-5`. Change (e.g. `claude-sonnet-5`) to reduce cost |
 | `AI_FALLBACK` | optional | `on` (default) or `off`. Server-side fallback when the model refuses a request; set `off` behind a proxy or Bedrock/Vertex |
 | `AI_DAILY_LIMIT` | optional | AI requests per teacher per day (default 50) |
 | `AI_PROVIDER` | optional | Which provider "auto" uses: `auto` (default), `claude-cli`, `anthropic`, `gemini` or `ollama`. `auto` takes Claude Code (`claude`, logged in on the server) when installed, then `ANTHROPIC_API_KEY`, then `GEMINI_API_KEY`, then Ollama when its server answers. Teachers can also pick a provider in the UI (AI Generator and Teaching Documents) |
-| `GEMINI_API_KEY` | for Gemini | Google AI Studio key (`GOOGLE_API_KEY` also works). Read only on the server |
+| `GEMINI_API_KEY` | optional | Server Gemini key for the Super Admin (`GOOGLE_API_KEY` also works). Read only on the server |
 | `AI_GEMINI_MODEL` | optional | Default `gemini-2.5-flash` |
 | `AI_GEMINI_BASE_URL` | optional | Only for a proxy or a test double |
 | `OLLAMA_BASE_URL` | optional | Ollama server address, default `http://localhost:11434` (from Docker: `http://host.docker.internal:11434`) |
 | `AI_OLLAMA_MODEL` | optional | Default `qwen2.5:3b`. Must already be pulled (`ollama pull <model>`). Reading a photo needs a vision model (e.g. `granite3.2-vision`) |
 | `AI_CLI_MODEL` | optional | Model passed to the Claude Code CLI (empty = its default) |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | for Google sign-in | From a Google Cloud OAuth client (Web application). Without both, "Continue with Google" is hidden and self-registration stays email/password only. Set the authorized redirect URI to `<BETTER_AUTH_URL>/api/auth/callback/google` |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | for Google sign-in | From a Google Cloud OAuth client (Web application). Teachers only: a Google sign-up always creates a teacher waiting for approval. Without both, the Google button is hidden. Set the authorized redirect URI to `<BETTER_AUTH_URL>/api/auth/callback/google` |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | optional | For the password-reset email. Without SMTP the reset link is **printed in the server log** |
-| `TEACHER_SIGNUP_CODE` | recommended in production | When set, registering a teacher account requires this code |
+| `TEACHER_SIGNUP_CODE` | optional | When set, registering a teacher account also requires this code (on top of the Super Admin's approval) |
 
-### AI Settings (admin only)
+### AI Settings
 
-The admin (the first teacher who registered, shown as "Teacher · Admin") has an extra **AI Settings** menu (`/teacher/admin/ai`) for the default provider, the Anthropic and Gemini API keys, the Ollama address and model, model names, the fallback switch, the Claude Code model and the daily limit per teacher, with a **Test connection** button per provider. No other teacher or student can open it: the page and every action re-check the admin flag on the server.
+Every teacher has an **AI Settings** page (`/teacher/ai-settings`):
 
-- A value saved there **overrides** the matching variable above; a field left empty falls back to the variable, then to the built-in default. Existing `.env`-only setups keep working unchanged.
+- **Teachers** enter their **own Gemini or Anthropic API key** (Gemini has a free tier), so AI usage is billed to their own account. They can pick the provider and model and run **Test connection**. The server's keys are never used for them.
+- **The Super Admin** configures the server's AI instead: the default provider (including **Claude Code** and **Ollama** when installed on the server), the Anthropic and Gemini keys, the Ollama address and model, model names, the fallback switch and the daily limit. A value saved there **overrides** the matching variable above; an empty field falls back to the variable, then to the built-in default.
 - API keys are stored **encrypted** (AES-256-GCM, key derived from `BETTER_AUTH_SECRET`) in the `app_setting` table and are never sent back to the browser (only "set …1234"). If you change `BETTER_AUTH_SECRET`, saved keys become unreadable and must be entered again.
-- The dashboard shows the admin a notice while no provider is available.
+- There is a daily AI allowance per teacher, refunded when an AI call fails. The dashboard shows a notice while no provider is available.
 
 ## Feature map
 
 | Feature | Where |
 |---|---|
-| **Accounts**: register (choose role), sign in/out, forgot password, edit profile & password | `/register`, `/login`, `/forgot-password`, `/teacher/profile`, `/student/profile` |
-| **AI provider settings** (admin only): default provider, API keys (encrypted), models, daily limit, connection test | `/teacher/admin/ai` |
+| **Accounts**: register (choose role), sign in/out, Google sign-in for teachers, forgot password, teacher approval status, edit profile & password | `/register`, `/login`, `/forgot-password`, `/account-status`, `/teacher/profile`, `/student/profile` |
+| **AI Settings**: own API key per teacher (encrypted), provider, model, connection test; server AI for the Super Admin | `/teacher/ai-settings` |
+| **Super Admin**: approve/suspend teachers, sign-up limits, upload space, server status, visitors | `/teacher/admin/teachers`, `/teacher/admin/server`, `/teacher/admin/traffic` |
 | **Student learning space**: Today's Lessons, audio/video/image player, progress, grade history | `/student`, `/student/materials`, `/student/grades` |
 | **Interactive questions**: multiple choice, fill-in, true/false (+ image), audio, video, **MIDI piano**; automatic grading; instant feedback | `/teacher/question-bank`, `/teacher/quizzes`, `/student/quizzes` |
 | **Instrument practice**: virtual piano + MIDI keyboard, pitch practice, rhythm practice, ear training (intervals, chords, scales), record & play back, metronome | `/student/practice/*` |
@@ -194,12 +351,7 @@ For production behind HTTPS, set `BETTER_AUTH_URL=https://your-domain` in `.env.
 
 ### Deploying to your own VPS
 
-`docker-compose.yml` has a `proxy` profile that adds **Caddy** with automatic HTTPS (set `DOMAIN` in `.env.docker` and point the DNS at the server). Two helper scripts run from your computer:
-
-- `./deploy.sh`: refuses to run while there are uncommitted changes, syncs the code to the server (rsync, without `node_modules`, data, uploads or env files), rebuilds the stack there, and tags the deployed commit as `deploy-YYYY-MM-DD-HHMM`.
-- `./backup.sh`: dumps the database and copies the code folder on the server (keeps the newest 5), and downloads the dump to `~/harmoni-backups`. Run it before a deploy that changes the database.
-
-Both read the server address from `.deploy.env` (not committed): `cp .deploy.env.example .deploy.env`, then set `VPS_HOST` and `REMOTE_DIR`.
+See [Installation → A. VPS with a domain](#a-vps-with-a-domain-docker--https), including the `deploy.sh` / `backup.sh` helper scripts.
 
 ### Only the database in Docker, the app with `npm run dev`
 
@@ -219,13 +371,13 @@ and run `npm run db:migrate && npm run db:seed && npm run dev`. The database por
 
 ## Security
 
-- **Roles** are checked in three layers: `proxy.ts` (fast cookie check), the `/teacher` and `/student` layouts (role check on the server), and **every server action** (`requireTeacher()` / `requireStudent()` plus ownership checks).
-- Accounts created through the public Better Auth endpoint are **always `student`**. The `teacher` role can only be set from the registration form, which validates `TEACHER_SIGNUP_CODE`. The first teacher becomes the main admin.
+- **Roles** are checked in three layers: `proxy.ts` (fast cookie check), the `/teacher` and `/student` layouts (role check on the server), and **every server action** (`requireTeacher()` / `requireStudent()` / `requireAdmin()` plus ownership checks). `requireTeacher()` also rejects teachers who are not approved, are suspended, or have no school name.
+- Accounts created through the public Better Auth endpoint are **always `student`**. The `teacher` role can only be set from the registration form (which validates `TEACHER_SIGNUP_CODE` and the sign-up limits) or Google sign-in. New teachers wait for the Super Admin's approval; only the very first teacher becomes the Super Admin.
 - **Answer keys are never sent to students** before a question is answered; grading happens on the server. With instant feedback an answer locks once it is checked. The full explanation only opens after the quiz is submitted. The timer is enforced on the server.
 - Students only see their own data: lessons **already published** in their class, their class's quizzes, and their own attempts.
 - **Student recordings are private**: only the owner and the teacher of that student can play them.
 - Uploads are checked for MIME type and size; SVG is not allowed; files are served with `nosniff` and a `sandbox` CSP.
-- The AI key only exists on the server. AI is available to teachers only, with a daily allowance per teacher that is refunded when an AI call fails.
+- AI keys only exist on the server (encrypted). AI is available to teachers only, each with their own key and a daily allowance that is refunded when an AI call fails.
 - Login/register/forgot-password rate limits are **in memory per process**. For several instances, replace them with shared storage (Redis).
 - CSV cells starting with `= + - @` are neutralized (prevents formula injection).
 
@@ -252,7 +404,8 @@ Where the PRD is silent, the simplest option was chosen:
 - The piano uses **synthesis** (Tone.js), not real piano samples, to stay light and avoid large downloads.
 - Rate limits are per process (see Security). There are no automated tests yet; verification was done manually (see the flow below).
 - Uploads go through the server (not direct-to-S3 presigned uploads); see the Vercel note.
-- The time zone is fixed to WIB; there is no per-school time zone setting (multi-tenant is out of scope).
+- The time zone is fixed to WIB; there is no per-school time zone setting.
+- The Visitors page keeps its numbers in memory, so they start from zero after every deploy or restart.
 
 ## Manual test flow
 
