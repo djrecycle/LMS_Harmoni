@@ -2259,4 +2259,5 @@ export const id: Record<string, string> = {
   "just now": "baru saja",
   "{0} min ago": "{0} mnt lalu",
   "Nobody online right now": "Belum ada yang online",
+  "MIT License": "Lisensi MIT",
 };

@@ -96,6 +96,12 @@ export default async function Home() {
         <Link href="/privacy" className="hover:underline">
           {t("Privacy Policy")}
         </Link>
+        <p className="mt-1 text-xs">
+          © 2026 Rangga (djrecycle) ·{" "}
+          <a href="https://github.com/djrecycle/LMS_Harmoni/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="hover:underline">
+            {t("MIT License")}
+          </a>
+        </p>
       </footer>
     </div>
   );
