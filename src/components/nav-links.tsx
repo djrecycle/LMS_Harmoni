@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Activity,
   ChartColumn,
   ClipboardList,
   Ellipsis,
@@ -61,7 +62,10 @@ const NAV: Record<"teacher" | "student", Item[]> = {
 };
 
 /** Only the Super Admin (first teacher) gets these; the pages and their actions enforce it again on the server. */
-const ADMIN_ITEMS: Item[] = [{ href: "/teacher/admin/teachers", label: "Manage Teachers", Icon: Users }];
+const ADMIN_ITEMS: Item[] = [
+  { href: "/teacher/admin/teachers", label: "Manage Teachers", Icon: Users },
+  { href: "/teacher/admin/server", label: "Server Status", Icon: Activity },
+];
 const itemsFor = (role: "teacher" | "student", isAdmin?: boolean) => (role === "teacher" && isAdmin ? [...NAV.teacher, ...ADMIN_ITEMS] : NAV[role]);
 
 function active(path: string, i: Item) {
