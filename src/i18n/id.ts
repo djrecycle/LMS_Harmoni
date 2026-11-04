@@ -1222,6 +1222,8 @@ export const id: Record<string, string> = {
   "Continue with Google": "Lanjut dengan Google",
   "or, as a teacher": "atau, khusus guru",
   "Privacy Policy": "Kebijakan Privasi",
+  "newest Gemini Flash": "Gemini Flash terbaru",
+  "No Gemini text model is available for this API key.": "Tidak ada model teks Gemini yang tersedia untuk API key ini.",
   "The Gemini API key is not set. Add your key in AI Settings.": "API key Gemini belum diisi. Isi key Anda di Pengaturan AI.",
   "The Gemini API key is invalid. Check the key in AI Settings.": "API key Gemini tidak valid. Periksa key di Pengaturan AI.",
   "The Gemini API key is invalid or lacks permission. Check the key in AI Settings.": "API key Gemini tidak valid atau tidak punya izin. Periksa key di Pengaturan AI.",

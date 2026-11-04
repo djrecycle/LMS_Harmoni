@@ -314,7 +314,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
           error={err("geminiModel")}
           value={f.geminiModel}
           onChange={(v) => setF((s) => ({ ...s, geminiModel: v }))}
-          defaultLabel={`${defaultWord} (${view.gemini.model})`}
+          defaultLabel={view.gemini.model ? `${defaultWord} (${view.gemini.model})` : `${defaultWord} (${t("newest Gemini Flash")})`}
           list={lists.gemini}
           onReload={() => void loadModels("gemini")}
           disabled={busy}

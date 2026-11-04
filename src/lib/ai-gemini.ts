@@ -23,6 +23,29 @@ export async function listGeminiModels(apiKey: string): Promise<string[]> {
     .sort();
 }
 
+/** The automatic model per key, remembered for a few hours so it isn't looked up on every request. */
+const autoCache = new Map<string, { model: string; at: number }>();
+const AUTO_TTL_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * The model used when none is chosen: the newest stable "gemini-<version>-flash" this key can use (Google retires
+ * older ones for new keys), else any other Flash or Gemini text model.
+ */
+export async function autoGeminiModel(apiKey: string): Promise<string> {
+  const hit = autoCache.get(apiKey);
+  if (hit && Date.now() - hit.at < AUTO_TTL_MS) return hit.model;
+  const models = await listGeminiModels(apiKey);
+  const version = (m: string) => Number(/^gemini-(\d+(?:\.\d+)?)-flash$/.exec(m)?.[1] ?? -1);
+  const notText = /image|tts|audio|live|embedding|robotics|computer-use/i;
+  const model =
+    models.filter((m) => version(m) >= 0).sort((a, b) => version(b) - version(a))[0] ??
+    models.find((m) => /^gemini-.*flash/i.test(m) && !notText.test(m) && !/lite/i.test(m)) ??
+    models.find((m) => /^gemini-/i.test(m) && !notText.test(m));
+  if (!model) throw new AiError("No Gemini text model is available for this API key.");
+  autoCache.set(apiKey, { model, at: Date.now() });
+  return model;
+}
+
 type GeminiResponse = {
   candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
   promptFeedback?: unknown;
@@ -91,7 +114,10 @@ export async function runGemini({
     const reason = (data.error?.message ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
     if (res.status === 400 && /api key/i.test(reason)) throw new AiError("The Gemini API key is invalid. Check the key in AI Settings.");
     if (res.status === 401 || res.status === 403) throw new AiError("The Gemini API key is invalid or lacks permission. Check the key in AI Settings.");
-    if (res.status === 404) throw new AiError(`The Gemini model “${model}” was not found. Check the model name in AI Settings.`);
+    if (res.status === 404) {
+      autoCache.clear(); // the automatic choice may have been retired: look it up again next time
+      throw new AiError(`The Gemini model “${model}” can't be used with this key${reason ? ` (${reason})` : ""}. Choose another model in AI Settings, or leave it on Default.`);
+    }
     if (res.status === 429) throw new AiError("Gemini is busy or the quota is used up. Wait a moment and try again.");
     // Show Gemini's own reason (e.g. the model doesn't support something), so the teacher knows what to change.
     throw new AiError(reason ? `Gemini rejected the request (${model}): ${reason}` : "Gemini rejected the request. Try again in a little while.");

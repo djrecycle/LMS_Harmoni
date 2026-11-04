@@ -18,7 +18,8 @@ export type Source = "dashboard" | "env" | "default";
 
 const SETTING_KEY = "ai";
 const DEFAULT_ANTHROPIC_MODEL = "claude-opus-5";
-const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+/** "" = pick the newest Gemini Flash model the key can use (see autoGeminiModel): fixed names get retired over time. */
+const DEFAULT_GEMINI_MODEL = "";
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 const DEFAULT_OLLAMA_MODEL = "qwen2.5:3b";
 const DEFAULT_DAILY_LIMIT = 50;

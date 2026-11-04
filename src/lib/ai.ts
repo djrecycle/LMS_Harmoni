@@ -5,7 +5,7 @@ import { today } from "./utils";
 import { AiError } from "./ai-error";
 import { isClaudeCliAvailable, runClaudeCli } from "./ai-cli";
 import { ambilJson } from "./ai-json";
-import { listGeminiModels, runGemini } from "./ai-gemini";
+import { autoGeminiModel, listGeminiModels, runGemini } from "./ai-gemini";
 import { isOllamaReachable, listOllamaModels, ollamaSupportsVision, runOllama } from "./ai-ollama";
 import { getAiConfig, type AiConfig } from "./ai-config";
 
@@ -127,7 +127,7 @@ export async function generateText({
   if (!provider) throw new AiError(providerUnavailableMessage(choice));
 
   if (provider === "claude-cli") return { text: await runClaudeCli({ prompt, system, model: cfg.cliModel }), provider };
-  if (provider === "gemini") return { text: await runGemini({ prompt, system, apiKey: cfg.gemini.key, model: cfg.gemini.model }), provider };
+  if (provider === "gemini") return { text: await runGemini({ prompt, system, apiKey: cfg.gemini.key, model: cfg.gemini.model || (await autoGeminiModel(cfg.gemini.key)) }), provider };
   if (provider === "ollama") return { text: await runOllama({ prompt, system, maxTokens, baseUrl: cfg.ollama.baseUrl, model: cfg.ollama.model }), provider };
 
   // Long documents: stream so the SDK accepts a large max_tokens.
@@ -273,7 +273,7 @@ export async function generateJson<T>({
   for (let attempt = 1; ; attempt++) {
     const text =
       provider === "gemini"
-        ? await runGemini({ prompt, system, json: true, image, apiKey: cfg.gemini.key, model: cfg.gemini.model })
+        ? await runGemini({ prompt, system, json: true, image, apiKey: cfg.gemini.key, model: cfg.gemini.model || (await autoGeminiModel(cfg.gemini.key)) })
         : provider === "ollama"
           ? await runOllama({ prompt, system, maxTokens, json: true, image, baseUrl: cfg.ollama.baseUrl, model: cfg.ollama.model })
           : await runClaudeCli({ prompt, system, model: cfg.cliModel });
