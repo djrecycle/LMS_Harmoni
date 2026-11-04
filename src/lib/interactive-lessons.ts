@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { midiToNote, noteToMidi } from "@/lib/music";
-import { isRestGlyph, NOTE_GLYPH_BEATS, NOTE_GLYPH_KINDS } from "@/lib/music-blocks";
+import { isRestGlyph, MELODY_UNITS_PER_BAR, NOTE_GLYPH_BEATS, NOTE_GLYPH_KINDS, type MelodyBlockData, type MelodyNote } from "@/lib/music-blocks";
 
 /**
  * Registry of interactive lesson components available for the "interactive" material type.
@@ -58,20 +58,72 @@ const rhythmExampleShape = z
   })
   .refine((e) => e.pattern.some((c) => !isRestGlyph(c)) && e.pattern.reduce((beats, c) => beats + NOTE_GLYPH_BEATS[c], 0) <= 16, "Invalid rhythm example");
 
-const isExampleNote = (step: string) => {
-  const midi = noteToMidi(step);
-  return midi !== null && midi >= MELODY_EXAMPLE_LOW && midi <= MELODY_EXAMPLE_HIGH;
-};
+/** Lengths a melody example step can have, in beats (eighth, quarter, half, whole). */
+const STEP_BEATS = [0.5, 1, 2, 4];
+/** Longest melody example: 4 bars of 4/4. */
+export const MELODY_EXAMPLE_MAX_BEATS = 16;
 
-/** Each step is one quarter note: a note name from C4 to C5 (e.g. "E4", "F#4") or "-" for a rest. */
+/**
+ * One step of a melody example: a note from C4 to C5 ("E4", "F#4") or "-" for a rest, optionally followed by its
+ * length in beats ("E4:2" is a half note, "-:0.5" an eighth rest). Without a length it is a quarter note, which is
+ * what the AI writes. Null when the step can't be read.
+ */
+export function parseMelodyStep(step: string): { midi: number | null; beats: number } | null {
+  const [name, len, extra] = step.split(":");
+  if (extra !== undefined) return null;
+  const beats = len === undefined ? 1 : Number(len);
+  if (!STEP_BEATS.includes(beats)) return null;
+  if (name === "-") return { midi: null, beats };
+  const midi = noteToMidi(name);
+  if (midi === null || midi < MELODY_EXAMPLE_LOW || midi > MELODY_EXAMPLE_HIGH) return null;
+  return { midi, beats };
+}
+
+const stepBeats = (steps: string[]) => steps.reduce((sum, s) => sum + (parseMelodyStep(s)?.beats ?? 0), 0);
+
 const melodyExampleShape = z
   .object({
     kind: z.literal("melody"),
     title: z.string().trim(),
     caption: z.string().trim(),
-    notes: z.array(z.string().refine((s) => s === "-" || isExampleNote(s))).min(2).max(16),
+    notes: z.array(z.string().refine((s) => parseMelodyStep(s) !== null)).min(2).max(64),
   })
-  .refine((e) => e.notes.filter((n) => n !== "-").length >= 2, "Invalid melody example");
+  .refine((e) => e.notes.filter((n) => parseMelodyStep(n)?.midi != null).length >= 2 && stepBeats(e.notes) <= MELODY_EXAMPLE_MAX_BEATS, "Invalid melody example");
+
+/** A melody example's steps laid out for the piano roll / staff, rounded up to whole bars. */
+export function melodyFromExample(steps: string[]): MelodyBlockData {
+  const notes: MelodyNote[] = [];
+  let unit = 0;
+  for (const s of steps) {
+    const p = parseMelodyStep(s);
+    if (!p) continue;
+    const units = p.beats * 2;
+    if (p.midi !== null) notes.push({ start: unit, midi: p.midi, units });
+    unit += units;
+  }
+  return { length: Math.max(MELODY_UNITS_PER_BAR, Math.ceil(unit / MELODY_UNITS_PER_BAR) * MELODY_UNITS_PER_BAR), notes };
+}
+
+/** The other way: piano-roll notes back to steps, with rests for the gaps, up to the end of the last bar. */
+export function exampleFromMelody(data: MelodyBlockData): string[] {
+  const out: string[] = [];
+  const rests = (gap: number) => {
+    while (gap > 0) {
+      const u = [8, 4, 2, 1].find((x) => x <= gap)!;
+      out.push(u === 2 ? "-" : `-:${u / 2}`);
+      gap -= u;
+    }
+  };
+  let pos = 0;
+  for (const n of [...data.notes].sort((a, b) => a.start - b.start)) {
+    if (n.start < pos) continue; // overlapping note: the roll is monophonic, keep the first
+    rests(n.start - pos);
+    out.push(n.units === 2 ? midiToNote(n.midi) : `${midiToNote(n.midi)}:${n.units / 2}`);
+    pos = n.start + n.units;
+  }
+  rests(data.length - pos);
+  return out;
+}
 
 export const exampleShape = z.union([rhythmExampleShape, melodyExampleShape]);
 
@@ -128,12 +180,15 @@ function valid<T>(shape: z.ZodType<T>, v: unknown): T | undefined {
 }
 const validList = <T>(shape: z.ZodType<T>, v: unknown, max: number) => orNone(list(v).flatMap((x) => valid(shape, x) ?? []).slice(0, max));
 
-/** "e4" -> "E4", "Db4" -> "C#4", "rest"/"" -> "-"; anything unreadable is kept as-is so validation rejects it. */
+/** "e4" -> "E4", "Db4:2" -> "C#4:2", "rest"/"" -> "-"; anything unreadable is kept as-is so validation rejects it. */
 export function melodyStep(v: unknown): string {
   const s = str(v);
-  if (!s || /^(-|rest|r|x)$/i.test(s)) return "-";
-  const midi = noteToMidi(s);
-  return midi === null ? s : midiToNote(midi);
+  const i = s.indexOf(":");
+  const name = i < 0 ? s : s.slice(0, i).trim();
+  const len = i < 0 ? "" : `:${s.slice(i + 1).trim()}`;
+  if (!name || /^(-|rest|r|x)$/i.test(name)) return `-${len}`;
+  const midi = noteToMidi(name);
+  return midi === null ? s : `${midiToNote(midi)}${len}`;
 }
 
 function normalizeExample(e: Record<string, unknown>): InteractiveExample | undefined {

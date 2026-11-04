@@ -13,9 +13,8 @@ import { TempoPractice } from "@/components/tempo-practice";
 import { StaffNotation } from "@/components/staff-notation";
 import { Button } from "@/components/ui/button";
 import { audioTime, scheduleClick, unlockAudio, type ClickVoice } from "@/lib/audio";
-import type { InteractiveCaseStudy, InteractiveCheck, InteractiveExample, InteractiveLessonData, InteractiveSection, InteractiveTask } from "@/lib/interactive-lessons";
-import { noteToMidi } from "@/lib/music";
-import { isRestGlyph, melodyFromSteps, NOTE_GLYPH_BEATS } from "@/lib/music-blocks";
+import { melodyFromExample, type InteractiveCaseStudy, type InteractiveCheck, type InteractiveExample, type InteractiveLessonData, type InteractiveSection, type InteractiveTask } from "@/lib/interactive-lessons";
+import { isRestGlyph, NOTE_GLYPH_BEATS } from "@/lib/music-blocks";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 import { NoteGlyph, type NoteGlyphKind } from "./note-glyph";
@@ -257,7 +256,7 @@ function Finish({
   // Melody practice rewrites the lesson's first melody example (graded); without one it is free writing.
   const melodyTarget = useMemo(() => {
     const example = sections.find((s) => s.example?.kind === "melody")?.example;
-    return example?.kind === "melody" ? melodyFromSteps(example.notes.map((n) => (n === "-" ? null : noteToMidi(n))), "quarter") : null;
+    return example?.kind === "melody" ? melodyFromExample(example.notes) : null;
   }, [sections]);
 
   function mark(value: boolean) {
@@ -435,7 +434,7 @@ function RhythmExample({ pattern }: { pattern: NoteGlyphKind[] }) {
 
 /** A melody on the read-only piano roll (which has its own Listen button) with its staff notation underneath. */
 function MelodyExample({ notes }: { notes: string[] }) {
-  const melody = useMemo(() => melodyFromSteps(notes.map((n) => (n === "-" ? null : noteToMidi(n))), "quarter"), [notes]);
+  const melody = useMemo(() => melodyFromExample(notes), [notes]);
   return (
     <>
       <PianoRoll length={melody.length} notes={melody.notes} />

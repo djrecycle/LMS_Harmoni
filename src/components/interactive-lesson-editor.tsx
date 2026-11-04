@@ -11,8 +11,12 @@ import {
   caseStudyShape,
   checkShape,
   conceptShape,
+  exampleFromMelody,
   exampleShape,
-  melodyStep,
+  MELODY_EXAMPLE_HIGH,
+  MELODY_EXAMPLE_LOW,
+  MELODY_EXAMPLE_MAX_BEATS,
+  melodyFromExample,
   normalizeInteractiveLesson,
   taskShape,
   type InteractiveCaseStudy,
@@ -22,7 +26,9 @@ import {
   type InteractiveSection,
   type InteractiveTask,
 } from "@/lib/interactive-lessons";
-import { NOTE_GLYPH_BEATS, NOTE_GLYPH_KINDS } from "@/lib/music-blocks";
+import { PianoRoll } from "@/components/piano-roll";
+import { StaffNotation } from "@/components/staff-notation";
+import { MELODY_UNITS_PER_BAR, NOTE_GLYPH_BEATS, NOTE_GLYPH_KINDS } from "@/lib/music-blocks";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 
@@ -421,8 +427,7 @@ function ExampleEditor({ example, onChange }: { example: InteractiveExample; onC
       {example.kind === "rhythm" ? (
         <RhythmPatternEditor pattern={example.pattern} onChange={(pattern) => onChange({ ...example, pattern })} />
       ) : (
-        // Keyed by the notes so the text resyncs when the example changes from outside (e.g. parts reordered).
-        <MelodyNotesInput key={example.notes.join(" ")} notes={example.notes} onChange={(notes) => onChange({ ...example, notes })} />
+        <MelodyRollInput notes={example.notes} onChange={(notes) => onChange({ ...example, notes })} />
       )}
     </>
   );
@@ -479,19 +484,42 @@ function RhythmPatternEditor({ pattern, onChange }: { pattern: BasicGlyph[]; onC
   );
 }
 
-/** Notes typed as text ("C4 D4 E4 - G4"); committed on blur. */
-function MelodyNotesInput({ notes, onChange }: { notes: string[]; onChange: (notes: string[]) => void }) {
+const MAX_BARS = MELODY_EXAMPLE_MAX_BEATS / 4;
+
+/** The melody example written in the piano roll (C4–C5, any note length), with its staff notation above. */
+function MelodyRollInput({ notes, onChange }: { notes: string[]; onChange: (notes: string[]) => void }) {
   const t = useT();
-  const [text, setText] = useState(notes.join(" "));
+  const melody = useMemo(() => melodyFromExample(notes), [notes]);
+  const bars = Math.min(MAX_BARS, melody.length / MELODY_UNITS_PER_BAR);
+  const length = bars * MELODY_UNITS_PER_BAR;
+  const shown = melody.notes.filter((n) => n.start + n.units <= length);
+
+  function resize(next: number) {
+    const len = next * MELODY_UNITS_PER_BAR;
+    onChange(exampleFromMelody({ length: len, notes: shown.filter((n) => n.start + n.units <= len) }));
+  }
+
   return (
-    <Field label={t("Notes")} hint={t("One quarter note each, from C4 to C5, separated by spaces. Use - for a rest. Example: C4 D4 E4 - G4")}>
-      <Input
-        className="h-10 font-mono"
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={() => onChange(text.split(/[\s,]+/).filter(Boolean).map(melodyStep))}
-      />
-    </Field>
+    <div className="grid gap-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+          {t("Number of bars")}
+          <Select className="h-8 w-auto text-xs" value={String(bars)} onChange={(e) => resize(Number(e.target.value))}>
+            {Array.from({ length: MAX_BARS }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <span className="text-xs text-muted-foreground">{t("Click the roll to write a note; click a note to lengthen, shorten or delete it.")}</span>
+      </div>
+      <div className="rounded-md border bg-card p-2">
+        <StaffNotation length={length} notes={shown} />
+      </div>
+      <PianoRoll length={length} notes={shown} lowMidi={MELODY_EXAMPLE_LOW} highMidi={MELODY_EXAMPLE_HIGH} onChange={(next) => onChange(exampleFromMelody({ length, notes: next }))} />
+      {shown.length < 2 && <p className="text-xs text-danger">{t("Write at least 2 notes.")}</p>}
+    </div>
   );
 }
 
