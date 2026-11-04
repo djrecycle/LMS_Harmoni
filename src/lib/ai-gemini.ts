@@ -8,7 +8,7 @@ const endpoint = (model: string) => `${BASE_URL}/models/${encodeURIComponent(mod
 
 /** Models that can generate text with this key. */
 export async function listGeminiModels(apiKey: string): Promise<string[]> {
-  if (!apiKey) throw new AiError("The Gemini API key is not set on the server.");
+  if (!apiKey) throw new AiError("The Gemini API key is not set. Add your key in AI Settings.");
   let res: Response;
   try {
     res = await fetch(`${BASE_URL}/models?pageSize=1000`, { headers: { "x-goog-api-key": apiKey }, signal: AbortSignal.timeout(15_000) });
@@ -52,13 +52,17 @@ export async function runGemini({
   json?: boolean;
   image?: { data: Uint8Array; mediaType: "image/jpeg" | "image/png" };
 }): Promise<string> {
-  if (!key) throw new AiError("The Gemini API key is not set on the server.");
+  if (!key) throw new AiError("The Gemini API key is not set. Add your key in AI Settings.");
 
-  const parts = image ? [{ inline_data: { mime_type: image.mediaType, data: Buffer.from(image.data).toString("base64") } }, { text: prompt }] : [{ text: prompt }];
+  // Gemma models on the Gemini API take no system instruction and no JSON mode, and have a smaller output
+  // limit: the instructions go at the top of the prompt instead (the JSON shape is already asked in the prompt).
+  const gemma = /^gemma/i.test(model);
+  const text = gemma && system ? `${system}\n\n${prompt}` : prompt;
+  const parts = image ? [{ inline_data: { mime_type: image.mediaType, data: Buffer.from(image.data).toString("base64") } }, { text }] : [{ text }];
   const body = {
     contents: [{ role: "user", parts }],
-    generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens, ...(json ? { responseMimeType: "application/json" } : {}) },
-    ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+    generationConfig: { temperature: 0.7, maxOutputTokens: gemma ? Math.min(maxTokens, 8192) : maxTokens, ...(json && !gemma ? { responseMimeType: "application/json" } : {}) },
+    ...(system && !gemma ? { systemInstruction: { parts: [{ text: system }] } } : {}),
   };
 
   let res: Response;
@@ -84,19 +88,21 @@ export async function runGemini({
 
   if (!res.ok) {
     console.error("[ai] gemini error", res.status, data.error?.message?.slice(0, 300));
-    if (res.status === 400 && /api key/i.test(data.error?.message ?? "")) throw new AiError("The Gemini API key is invalid. Contact an admin.");
-    if (res.status === 401 || res.status === 403) throw new AiError("The Gemini API key is invalid or lacks permission. Contact an admin.");
+    const reason = (data.error?.message ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+    if (res.status === 400 && /api key/i.test(reason)) throw new AiError("The Gemini API key is invalid. Check the key in AI Settings.");
+    if (res.status === 401 || res.status === 403) throw new AiError("The Gemini API key is invalid or lacks permission. Check the key in AI Settings.");
     if (res.status === 404) throw new AiError(`The Gemini model “${model}” was not found. Check the model name in AI Settings.`);
     if (res.status === 429) throw new AiError("Gemini is busy or the quota is used up. Wait a moment and try again.");
-    throw new AiError("Gemini rejected the request. Try again in a little while.");
+    // Show Gemini's own reason (e.g. the model doesn't support something), so the teacher knows what to change.
+    throw new AiError(reason ? `Gemini rejected the request (${model}): ${reason}` : "Gemini rejected the request. Try again in a little while.");
   }
 
   const cand = data.candidates?.[0];
-  const text = (cand?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
-  if (!text) {
+  const reply = (cand?.content?.parts ?? []).map((p) => p.text ?? "").join("").trim();
+  if (!reply) {
     console.error("[ai] gemini empty reply", cand?.finishReason, data.promptFeedback);
     throw new AiError("Gemini gave no answer. Try rephrasing the topic.");
   }
   if (cand?.finishReason === "MAX_TOKENS") throw new AiError("The AI answer was cut off because it was too long. Try again with a narrower topic.");
-  return text;
+  return reply;
 }

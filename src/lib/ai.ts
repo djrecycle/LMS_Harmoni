@@ -158,11 +158,11 @@ export async function generateText({
 export function aiErrorMessage(e: unknown): string {
   if (e instanceof AiError) return e.message;
   if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError)
-    return "The AI API key is invalid or lacks permission. Contact an admin.";
+    return "The AI API key is invalid or lacks permission. Check the key in AI Settings.";
   if (e instanceof Anthropic.RateLimitError) return "The AI service is busy. Wait a moment and try again.";
   if (e instanceof Anthropic.BadRequestError) {
     console.error("[ai] bad request", e.message);
-    return /credit|billing|balance/i.test(e.message) ? "The AI service balance is used up. Contact an admin." : "The AI request was rejected. Try changing the topic or asking for fewer questions.";
+    return /credit|billing|balance/i.test(e.message) ? "The AI service balance is used up. Top up your account with the AI provider, or use another key." : "The AI request was rejected. Try changing the topic or asking for fewer questions.";
   }
   if (e instanceof Anthropic.APIConnectionError) return "Could not reach the AI service. Check the server connection and try again.";
   if (e instanceof Anthropic.APIError) {
