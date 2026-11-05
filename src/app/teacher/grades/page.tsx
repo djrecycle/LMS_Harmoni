@@ -106,7 +106,7 @@ export default async function TeacherGrades({ searchParams }: { searchParams: Pr
             </tbody>
             <tfoot className="border-t-2 bg-muted/40 font-bold">
               <tr>
-                <td className="px-4 py-2.5">Class average</td>
+                <td className="px-4 py-2.5">{t("Class average")}</td>
                 {r.quiz.map((k) => (
                   <td key={k.id} className="px-3 py-2.5 text-center">
                     {r.quizAverage[k.id] === null ? "–" : Math.round(r.quizAverage[k.id]!)}

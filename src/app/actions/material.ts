@@ -35,7 +35,8 @@ const materialSchema = z
       if (v.mediaKey && !isInteractiveLessonSlug(v.mediaKey)) ctx.addIssue({ code: "custom", path: ["mediaKey"], message: t("Choose a valid interactive lesson.") });
       if (v.interactiveData && !interactiveLessonSchema.safeParse(safeJsonParse(v.interactiveData)).success)
         ctx.addIssue({ code: "custom", path: ["mediaKey"], message: t("The interactive lesson is incomplete — it needs at least one part with a heading and text.") });
-    } else if (!v.mediaKey) {
+    } else if (v.typeMedia !== "text" && !v.mediaKey) {
+      // Image, audio and video lessons need their file; a text lesson has none.
       ctx.addIssue({ code: "custom", path: ["mediaKey"], message: t("Upload {0} for this lesson", v.typeMedia) });
     }
     if (v.typeMedia === "text" && v.content.trim().length < 3) ctx.addIssue({ code: "custom", path: ["content"], message: t("The lesson content is empty") });
