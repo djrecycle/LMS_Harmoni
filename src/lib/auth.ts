@@ -25,8 +25,9 @@ const googleConfigured = Boolean(process.env.GOOGLE_CLIENT_ID?.trim() && process
 export const isGoogleSignInEnabled = () => googleConfigured;
 
 /**
- * The role may only be set from the registration server action (which validates the teacher code).
- *  The /api/auth/sign-up/email endpoint called directly always produces a `student` account.
+ * Who is creating an account: the teacher sign-up form, a teacher adding a student (roster), or the seed script.
+ *  Accounts are only created inside this context or through Google sign-in (always a teacher), so calling
+ *  /api/auth/sign-up/email directly is refused: students can't sign themselves up.
  */
 export const signupContext = new AsyncLocalStorage<{ role: "teacher" | "student"; schoolName?: string }>();
 
@@ -75,7 +76,9 @@ export const auth = betterAuth({
       create: {
         before: async (u, ctx) => {
           const google = viaOAuth(ctx);
-          const role = google ? "teacher" : (signupContext.getStore()?.role ?? "student");
+          const store = signupContext.getStore();
+          if (!google && !store) throw new APIError("FORBIDDEN", { code: "signup_closed", message: "Sign-up is closed. Students get their account from their teacher." });
+          const role = google ? "teacher" : store!.role;
           if (google) {
             const blocked = await teacherSignupBlocked();
             if (blocked) throw new APIError("FORBIDDEN", { code: blocked.code, message: blocked.message });

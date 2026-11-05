@@ -39,7 +39,7 @@ export default async function Home() {
                 <Link href="/login">{t("Sign in")}</Link>
               </Button>
               <Button asChild className="hidden sm:inline-flex">
-                <Link href="/register">{t("Sign up")}</Link>
+                <Link href="/register">{t("Teacher sign-up")}</Link>
               </Button>
             </>
           )}
@@ -61,11 +61,11 @@ export default async function Home() {
           </p>
           <div className="mx-auto mt-8 flex max-w-xs flex-col gap-3 sm:max-w-none sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
             <Button asChild size="lg">
-              <Link href={user ? dashboardPathFor(user.role) : "/register"}>{user ? t("Open dashboard") : t("Get started")}</Link>
+              <Link href={user ? dashboardPathFor(user.role) : "/login"}>{user ? t("Open dashboard") : t("Sign in")}</Link>
             </Button>
             {!user && (
               <Button asChild size="lg" variant="outline">
-                <Link href="/login">{t("I already have an account")}</Link>
+                <Link href="/register">{t("Sign up as a teacher")}</Link>
               </Button>
             )}
           </div>

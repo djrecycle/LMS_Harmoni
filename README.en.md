@@ -108,7 +108,7 @@ docker compose --env-file .env.docker --profile proxy up -d --build
 
 The first build takes 5–15 minutes. `--profile proxy` starts **Caddy**, which gets a free HTTPS certificate (Let's Encrypt) automatically. HTTPS is required: browsers only allow audio recording and MIDI over HTTPS.
 
-**6. Create the Super Admin account.** Open `https://music.myschool.edu/register`, choose **Teacher**, and fill in the form. **The first teacher who registers becomes the Super Admin** and is active right away. Do this as soon as the app is up, before sharing the address.
+**6. Create the Super Admin account.** Open `https://music.myschool.edu/register` and fill in the teacher sign-up form. **The first teacher who registers becomes the Super Admin** and is active right away. Do this as soon as the app is up, before sharing the address.
 
 **Day-to-day commands** (run in `/opt/harmoni`):
 
@@ -220,7 +220,7 @@ Under **Teaching Documents** a teacher generates, in this order: **CP – TP –
 
 ## Roster, schedule, journal & academic calendar
 
-- **Accounts a teacher creates by hand** (`/teacher/classes/[id]` → "Add a student by hand", or bulk via `/teacher/classes/upload`): the student signs in with a **username + password** instead of an email — there is no working inbox behind the account, so "forgot password" cannot reach them. A teacher resets a student's password from the class page; the new password is shown once and is not stored anywhere in plain text. A student can still register normally with an email (and, if `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are set, with Google) — the two kinds of accounts otherwise work identically (materials, quizzes, grades). The login form accepts either an email or a username.
+- **Accounts a teacher creates by hand** (`/teacher/classes/[id]` → "Add a student by hand", or bulk via `/teacher/classes/upload`): the student signs in with a **username + password** instead of an email — there is no working inbox behind the account, so "forgot password" cannot reach them. A teacher resets a student's password from the class page; the new password is shown once and is not stored anywhere in plain text. Students cannot sign themselves up; older student accounts with an email keep working and can still use "forgot password". The login form accepts either an email or a username.
 - **Bulk upload** (`/teacher/classes/upload`): download the `.xlsx` template, fill in class name / student name / username / password (password optional — left blank means auto-generated), and upload it. Classes that do not exist yet are created; existing ones (matched by name) get the new students added. Up to 300 rows per upload.
 - **Teaching Schedule** (`/teacher/schedule`): a plain weekly timetable — day, start/end time, subject, and class (an existing class or free text). No AI involved.
 - **Teaching Journal** (`/teacher/journal`): one entry per class meeting, combining the teaching log (material taught, activities, obstacles, notes) with that meeting's attendance (Hadir/Sakit/Izin/Alpa per student, with an optional note). Opening "New entry" for a class/date that already has one edits it instead of creating a duplicate.
@@ -231,7 +231,7 @@ Under **Teaching Documents** a teacher generates, in this order: **CP – TP –
 | | Super Admin | Teacher | Student |
 |---|:---:|:---:|:---:|
 | How many | Exactly one | Many | Many |
-| How the account is made | The first teacher who registers | Registers (form or Google), then waits for the Super Admin's approval | Registers, or is created by a teacher (username + password) |
+| How the account is made | The first teacher who registers | Registers (form or Google), then waits for the Super Admin's approval | Created by a teacher (username + password); there is no student sign-up |
 | AI features | ✅ (may use the server's AI) | ✅ (with their own API key) | ❌ |
 | Upload space | No limit | Limited (default 500 MB, adjustable per teacher) | Practice recordings only |
 | Manage Teachers, Server Status, Visitors | ✅ | ❌ | ❌ |
@@ -239,7 +239,7 @@ Under **Teaching Documents** a teacher generates, in this order: **CP – TP –
 - **Super Admin**: the first teacher account on an installation is the Super Admin and is active at once. There is only one (enforced by a unique index) and the role cannot be handed over in the app.
 - **Teachers** must give a **school name** and stay **waiting for approval** (shown on `/account-status`) until the Super Admin approves them in **Manage Teachers**. The Super Admin can also suspend, reactivate or delete teachers, close teacher sign-up, cap the number of teachers, and set the upload space. Each teacher only sees their own classes, students, lessons and quizzes.
 - **Google sign-in** (when configured) is for teachers only and always creates a teacher account waiting for approval. Students use email/username + password.
-- **Students** register with the **Student** role and join a class with the teacher's invite code, or are created by the teacher. A teacher can also try the student pages with a **test student** (class page → *View as student*); its attempts never count in grades.
+- **Students** cannot sign up: a teacher creates their account (by hand or Excel upload) and it is enrolled in the class right away. An existing student can join another class with that class's invite code. A teacher can also try the student pages with a **test student** (class page → *View as student*); its attempts never count in grades.
 
 **With the sample data** (after `npm run db:seed`), open http://localhost:3000/login and use:
 
@@ -299,7 +299,7 @@ Every teacher has an **AI Settings** page (`/teacher/ai-settings`):
 
 | Feature | Where |
 |---|---|
-| **Accounts**: register (choose role), sign in/out, Google sign-in for teachers, forgot password, teacher approval status, edit profile & password | `/register`, `/login`, `/forgot-password`, `/account-status`, `/teacher/profile`, `/student/profile` |
+| **Accounts**: teacher sign-up, sign in/out, Google sign-in for teachers, forgot password, teacher approval status, edit profile & password | `/register`, `/login`, `/forgot-password`, `/account-status`, `/teacher/profile`, `/student/profile` |
 | **AI Settings**: own API key per teacher (encrypted), provider, model, connection test; server AI for the Super Admin | `/teacher/ai-settings` |
 | **Super Admin**: approve/suspend teachers, sign-up limits, upload space, server status, visitors | `/teacher/admin/teachers`, `/teacher/admin/server`, `/teacher/admin/traffic` |
 | **Student learning space**: Today's Lessons, audio/video/image player, progress, grade history | `/student`, `/student/materials`, `/student/grades` |
@@ -383,7 +383,7 @@ and run `npm run db:migrate && npm run db:seed && npm run dev`. The database por
 ## Security
 
 - **Roles** are checked in three layers: `proxy.ts` (fast cookie check), the `/teacher` and `/student` layouts (role check on the server), and **every server action** (`requireTeacher()` / `requireStudent()` / `requireAdmin()` plus ownership checks). `requireTeacher()` also rejects teachers who are not approved, are suspended, or have no school name.
-- Accounts created through the public Better Auth endpoint are **always `student`**. The `teacher` role can only be set from the registration form (which validates `TEACHER_SIGNUP_CODE` and the sign-up limits) or Google sign-in. New teachers wait for the Super Admin's approval; only the very first teacher becomes the Super Admin.
+- The public Better Auth sign-up endpoint (`/api/auth/sign-up/email`) is **refused** (403 `signup_closed`): accounts are only created by the teacher sign-up form (which validates `TEACHER_SIGNUP_CODE` and the sign-up limits), Google sign-in (always a teacher), or a teacher creating a student. New teachers wait for the Super Admin's approval; only the very first teacher becomes the Super Admin.
 - **Answer keys are never sent to students** before a question is answered; grading happens on the server. With instant feedback an answer locks once it is checked. The full explanation only opens after the quiz is submitted. The timer is enforced on the server.
 - Students only see their own data: lessons **already published** in their class, their class's quizzes, and their own attempts.
 - **Student recordings are private**: only the owner and the teacher of that student can play them.

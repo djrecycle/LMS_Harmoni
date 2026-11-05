@@ -39,15 +39,14 @@ const registerSchema = z
     email,
     password: password,
     confirmText: z.string(),
-    role: z.enum(["teacher", "student"], { error: "Choose a role" }),
     teacherCode: z.string().optional(),
-    schoolName: z.string().trim().max(160, "Too long").optional(),
+    schoolName: z.string().trim().min(3, "Enter the name of your school").max(160, "Too long"),
     agree: z.string().optional(),
   })
   .refine((v) => v.password === v.confirmText, { path: ["confirmText"], message: "Passwords do not match" })
-  .refine((v) => v.role !== "teacher" || (v.schoolName?.length ?? 0) >= 3, { path: ["schoolName"], message: "Enter the name of your school" })
   .refine((v) => v.agree === "on", { path: ["agree"], message: "You must agree to the Terms and the Privacy Policy" });
 
+/** Sign-up is for teachers only: students get their account from their teacher (roster or Excel upload). */
 export async function list(_: ActionResult, fd: FormData): Promise<ActionResult> {
   const t = await getT();
   const p = registerSchema.safeParse(Object.fromEntries(fd));
@@ -55,26 +54,24 @@ export async function list(_: ActionResult, fd: FormData): Promise<ActionResult>
   const v = p.data;
 
   const requireCode = process.env.TEACHER_SIGNUP_CODE?.trim();
-  if (v.role === "teacher" && requireCode && v.teacherCode?.trim() !== requireCode) {
+  if (requireCode && v.teacherCode?.trim() !== requireCode) {
     return { ok: false, error: t("Incorrect teacher registration code."), fieldErrors: { teacherCode: t("Incorrect teacher registration code") }, values: formValues(fd) };
   }
 
-  if (v.role === "teacher") {
-    const blocked = await teacherSignupBlocked();
-    if (blocked) return { ok: false, error: t(blocked.message), values: formValues(fd) };
-  }
+  const blocked = await teacherSignupBlocked();
+  if (blocked) return { ok: false, error: t(blocked.message), values: formValues(fd) };
 
   const rate = rateLimit(`register:${(await headers()).get("x-forwarded-for") ?? "local"}`, 10, 60 * 60 * 1000);
   if (!rate.boleh) return fail(t("Too many sign-up attempts. Try again later."));
 
   try {
-    await signupContext.run({ role: v.role, schoolName: v.role === "teacher" ? v.schoolName : undefined }, () =>
+    await signupContext.run({ role: "teacher", schoolName: v.schoolName }, () =>
       auth.api.signUpEmail({ body: { name: v.name, email: v.email, password: v.password } }),
     );
   } catch (e) {
     return fail(apiErrorMessage(e, t("Registration failed. Try again."), t), fd);
   }
-  redirect(dashboardPathFor(v.role));
+  redirect(dashboardPathFor("teacher"));
 }
 
 /** A teacher's school, saved straight on the account (Better Auth's updateUser can't set an `input: false` field). */

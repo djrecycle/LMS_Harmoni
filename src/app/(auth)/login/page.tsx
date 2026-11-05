@@ -48,10 +48,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         </>
       )}
       <p className="mt-6 text-center text-sm text-muted-foreground">
-        {t("Don't have an account?")}{" "}
+        {t("New teacher?")}{" "}
         <Link href="/register" className="font-semibold text-primary hover:underline">
-          {t("Sign up")}
+          {t("Sign up as a teacher")}
         </Link>
+        <span className="mt-1 block text-xs">{t("Students: ask your teacher for your username and password.")}</span>
       </p>
     </>
   );

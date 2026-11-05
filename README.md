@@ -80,6 +80,7 @@ AI hanya tersedia untuk guru. Setiap guru memakai **API key Gemini atau Anthropi
 ### Platform untuk banyak guru
 - **Super Admin** (satu akun, yaitu guru pertama yang mendaftar) menyetujui atau menonaktifkan guru, membatasi jumlah guru, dan mengatur ruang upload per guru.
 - Guru baru mendaftar lewat formulir atau **akun Google**, wajib mengisi nama sekolah, lalu menunggu persetujuan.
+- **Siswa tidak mendaftar sendiri.** Akun siswa dibuat oleh guru (manual atau unggah Excel) dan login memakai username + password.
 - Super Admin juga punya halaman **Status Server** (CPU, RAM, disk, database) dan **Pengunjung** (siapa yang sedang online).
 
 📖 **Panduan pemakaian lengkap** (login, daftar, peran, dan semua fitur) ada di **[Wiki](https://github.com/djrecycle/LMS_Harmoni/wiki)**.
@@ -155,7 +156,7 @@ docker compose --env-file .env.docker --profile proxy up -d --build
 
 Build pertama memakan waktu 5–15 menit. `--profile proxy` menyalakan **Caddy**, yang otomatis memasang sertifikat HTTPS gratis (Let's Encrypt). HTTPS wajib, karena rekam suara dan keyboard MIDI di browser hanya berjalan lewat HTTPS.
 
-**6. Buat akun Super Admin.** Buka `https://musik.sekolahku.sch.id/register`, pilih **Guru**, dan isi formulir. **Guru pertama yang mendaftar otomatis menjadi Super Admin** dan langsung aktif. Lakukan ini segera setelah aplikasi menyala, sebelum alamatnya dibagikan ke orang lain.
+**6. Buat akun Super Admin.** Buka `https://musik.sekolahku.sch.id/register` dan isi formulir pendaftaran guru. **Guru pertama yang mendaftar otomatis menjadi Super Admin** dan langsung aktif. Lakukan ini segera setelah aplikasi menyala, sebelum alamatnya dibagikan ke orang lain.
 
 **Cek dan perintah sehari-hari** (jalankan di `/opt/harmoni`):
 

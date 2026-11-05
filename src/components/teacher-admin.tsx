@@ -53,7 +53,7 @@ export function TeacherAdmin({ overview }: { overview: AdminOverview }) {
       <section className="grid gap-4 rounded-xl border bg-card p-4 shadow-xs sm:p-5">
         <div>
           <h2 className="text-lg font-bold">{t("Teacher registration & space")}</h2>
-          <p className="text-sm text-muted-foreground">{t("New teachers always wait for your approval. Students can still register and join classes as usual.")}</p>
+          <p className="text-sm text-muted-foreground">{t("New teachers always wait for your approval. Students can't sign up themselves: teachers create their accounts.")}</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label={t("Teacher registration")} htmlFor="pf-open">
