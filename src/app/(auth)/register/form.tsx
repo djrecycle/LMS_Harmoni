@@ -23,7 +23,7 @@ export function RegisterForm({ needsTeacherCode }: { needsTeacherCode: boolean }
       <Field label={t("School name")} htmlFor="schoolName" hint={t("Example: SMP Negeri 1 Surabaya")} error={e.schoolName}>
         <Input id="schoolName" name="schoolName" autoComplete="organization" defaultValue={v.schoolName} maxLength={160} required />
       </Field>
-      <Field label="Email" htmlFor="email" error={e.email}>
+      <Field label="Email" htmlFor="email" hint={t("Official email (belajar.id) or Gmail")} error={e.email}>
         <Input id="email" name="email" type="email" autoComplete="email" inputMode="email" defaultValue={v.email} required />
       </Field>
       <Field label={t("Password")} htmlFor="password" hint={t("At least 8 characters")} error={e.password}>

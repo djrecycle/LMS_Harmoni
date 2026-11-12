@@ -10,6 +10,7 @@ import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, formValues, type ActionResult } from "@/lib/action-result";
 import { auth, signupContext } from "@/lib/auth";
 import { teacherSignupBlocked } from "@/lib/platform";
+import { isAllowedTeacherEmail, TEACHER_EMAIL_RULE } from "@/lib/teacher-email";
 import { rateLimit } from "@/lib/ratelimit";
 import { dashboardPathFor, getRealUser, requireUser, STUDENT_VIEW_COOKIE } from "@/lib/session";
 import { getT } from "@/i18n/server";
@@ -52,6 +53,10 @@ export async function list(_: ActionResult, fd: FormData): Promise<ActionResult>
   const p = registerSchema.safeParse(Object.fromEntries(fd));
   if (!p.success) return zodError(p.error, fd);
   const v = p.data;
+
+  if (!isAllowedTeacherEmail(v.email)) {
+    return { ok: false, error: t(TEACHER_EMAIL_RULE), fieldErrors: { email: t(TEACHER_EMAIL_RULE) }, values: formValues(fd) };
+  }
 
   const requireCode = process.env.TEACHER_SIGNUP_CODE?.trim();
   if (requireCode && v.teacherCode?.trim() !== requireCode) {

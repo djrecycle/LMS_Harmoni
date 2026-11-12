@@ -2170,6 +2170,8 @@ export const id: Record<string, string> = {
   "Teacher registration & space": "Pendaftaran guru & ruang penyimpanan",
   "Teacher registration is closed for now.": "Pendaftaran guru sedang ditutup.",
   "Teacher registration is full for now.": "Kuota pendaftaran guru sedang penuh.",
+  "Teachers sign up with an official email (belajar.id) or Gmail.": "Guru mendaftar dengan email resmi (belajar.id) atau Gmail.",
+  "Official email (belajar.id) or Gmail": "Email resmi (belajar.id) atau Gmail",
   "Teachers": "Guru",
   "The AI features use your own Gemini or Anthropic API key, so the usage is billed to your account with that provider. Gemini has a free tier: create a key at aistudio.google.com/apikey. Your key is stored encrypted and is never shown again.": "Fitur AI memakai API key Gemini atau Anthropic milik Anda sendiri, jadi biaya pemakaiannya ditagihkan ke akun Anda di provider tersebut. Gemini punya paket gratis: buat key di aistudio.google.com/apikey. Key Anda disimpan terenkripsi dan tidak pernah ditampilkan lagi.",
   "The server's AI settings, used by your account (Super Admin). Other teachers use their own API keys. Values saved here override the server's .env file.": "Pengaturan AI server, dipakai oleh akun Anda (Super Admin). Guru lain memakai API key mereka sendiri. Nilai yang disimpan di sini menggantikan isi file .env server.",

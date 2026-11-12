@@ -16,6 +16,7 @@ const GOOGLE_ERRORS: Record<string, string> = {
   google_teachers_only: "Google sign-in is for teachers only. Students, please sign in with your email or username and password.",
   teacher_registration_closed: "Teacher registration is closed for now.",
   teacher_registration_full: "Teacher registration is full for now.",
+  teacher_email_not_allowed: "Teachers sign up with an official email (belajar.id) or Gmail.",
   access_denied: "Google sign-in was cancelled.",
 };
 

@@ -9,6 +9,7 @@ import { db, schema } from "@/db";
 import { getT } from "@/i18n/server";
 import { sendEmail } from "./email";
 import { teacherSignupBlocked } from "./platform";
+import { isAllowedTeacherEmail, TEACHER_EMAIL_RULE } from "./teacher-email";
 
 /** The account is being created / signed in through an OAuth callback (Google), not the email form. */
 const viaOAuth = (ctx: unknown) => {
@@ -80,6 +81,8 @@ export const auth = betterAuth({
           if (!google && !store) throw new APIError("FORBIDDEN", { code: "signup_closed", message: "Sign-up is closed. Students get their account from their teacher." });
           const role = google ? "teacher" : store!.role;
           if (google) {
+            // The email form checks this itself (with a field error); the seed script's demo accounts are exempt.
+            if (!isAllowedTeacherEmail(u.email)) throw new APIError("FORBIDDEN", { code: "teacher_email_not_allowed", message: TEACHER_EMAIL_RULE });
             const blocked = await teacherSignupBlocked();
             if (blocked) throw new APIError("FORBIDDEN", { code: blocked.code, message: blocked.message });
           }
