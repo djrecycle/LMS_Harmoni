@@ -2,7 +2,7 @@
 
 **English** · [Bahasa Indonesia](README.md)
 
-An interactive LMS for **Music** class: multimedia lessons, quizzes with text/image/audio/video/**MIDI piano** questions, instrument practice (virtual piano, pitch, rhythm, recording), and AI assistance for teachers. It is a platform for **many teachers**: one **Super Admin** approves new teachers and watches the server, each teacher runs their own classes, and students learn from their phones. Mobile-first, with light and dark mode.
+An interactive LMS for **Music** class: multimedia lessons, quizzes with text/image/audio/video/**MIDI piano** questions, **exams** with an AI-drafted blueprint (kisi-kisi), questions illustrated with staff or numbered notation and a ready-to-upload CBT file, instrument practice (virtual piano, pitch, rhythm, recording), and AI assistance for teachers. It is a platform for **many teachers**: one **Super Admin** approves new teachers and watches the server, each teacher runs their own classes, and students learn from their phones. Mobile-first, with light and dark mode.
 
 The interface is in **Bahasa Indonesia by default** and can be switched to **English** at any time with the `EN | ID` toggle (sidebar, sign-in pages, and home page). The choice is remembered in a cookie.
 
@@ -13,6 +13,7 @@ The interface is in **Bahasa Indonesia by default** and can be switched to **Eng
 | | |
 |---|---|
 | <img src="docs/screenshots/dashboard-guru.png" alt="Teacher dashboard" /><br>**Teacher dashboard** | <img src="docs/screenshots/kuis-midi.png" alt="Quiz answered on the piano" /><br>**Quiz answered on the piano / MIDI keyboard** |
+| <img src="docs/screenshots/ujian-kisi-kisi.png" alt="Exam blueprint (kisi-kisi)" /><br>**Exam blueprint (kisi-kisi) by AI** | <img src="docs/screenshots/ujian-soal-bergambar.png" alt="Exam question with staff notation" /><br>**Exam question with staff notation drawn by the app** |
 | <img src="docs/screenshots/perangkat-ajar.png" alt="Teaching documents with AI" /><br>**Teaching documents (AI)** | <img src="docs/screenshots/piano-virtual-gelap.png" alt="Virtual piano in dark mode" /><br>**Virtual piano + metronome (dark mode)** |
 | <img src="docs/screenshots/status-server.png" alt="Server Status page" /><br>**Server Status** (Super Admin) | <img src="docs/screenshots/pengunjung.png" alt="Visitors page" /><br>**Visitors** (Super Admin) |
 | <img src="docs/screenshots/kelola-guru.png" alt="Manage Teachers page" /><br>**Manage Teachers** (Super Admin) | <img src="docs/screenshots/siswa-hp.png" alt="Student home on a phone" width="200" /><br>**Student home on a phone** |
@@ -216,7 +217,21 @@ Under **Teaching Documents** a teacher generates, in this order: **CP – TP –
 - **AI provider**: Claude Code (`claude -p`, no API key needed when it is installed and logged in on the server), the Anthropic API, the Gemini API, or a local Ollama server (no key, free). With `AI_PROVIDER=auto` the first one available is used, in that order; a teacher can choose another in the UI. The CLI runs in an empty temporary directory with its file/shell tools disabled, and it only works on a server that has `claude` installed (not on serverless or a plain Docker image).
 - **Long jobs**: a document takes 1–3 minutes, so generation runs in the background (`after()`), and the page polls the status. Jobs that stay "pending" for more than 20 minutes (e.g. after a restart) are marked as failed and the daily allowance is refunded.
 - **Templates**: `/teacher/perangkat-ajar/templates` lists the built-in template and the teacher's own. A template can be created from an existing Modul Ajar / RPM `.docx` (the layout is detected) and edited (sections, order, numbering, font, AI instructions).
-- **Question bank**: "Save questions to the question bank" copies the multiple-choice questions of a Modul Ajar (test) or of the teacher material (LKPD). Essay questions are skipped because the LMS has no essay question type.
+- **Question bank**: "Save questions to the question bank" copies the multiple-choice questions of a Modul Ajar (test) or of the teacher material (LKPD). Essay questions are not copied.
+
+## Exams (Ujian)
+
+Under **Exams** (`/teacher/exams`) a teacher builds a school exam (PSAT, PSAS, PTS…) in three steps:
+
+1. **Settings, TP & weights**: identity (subject, class, semester, school year), the learning objectives (TP) to test — ticked from the teacher's CP-TP-ATP documents or typed by hand — and the **number of questions and weight (%)** of each form: multiple choice (4 or 5 options), complex multiple choice, matching, short answer and essay. The default plan is 20 / 4 / 16 / 0 / 0 questions with weights 50 / 25 / 25 / 0 / 0.
+2. **Blueprint (kisi-kisi)**: the AI spreads the questions over the chosen TP and writes, for each row, the material, an indicator and a cognitive level (C1–C6). The table can be edited, and rows added or removed.
+3. **Questions**: the AI writes one question per blueprint row (in the background, the page polls), saving each one in the question bank. Rows can also be filled from a quiz ("Take questions from a quiz") or from the question bank.
+
+**Question images.** The AI decides which questions need an image. For questions about reading music it writes the notation as short text, and the exam page draws it in the browser (VexFlow for staff notation, a canvas renderer for numbered notation) and uploads it as the question's PNG image. Pictures the app cannot draw (an instrument photo, a posture…) are marked "this question needs a picture" with a description, for the teacher to upload; the exam cannot be published until they are added or removed. "Add images to suitable questions" runs the same check on questions that already exist (e.g. taken from a quiz) without changing their answer key. The notation syntax is documented at the top of `src/lib/notation.ts`; teachers can also write it in the question editor with a live preview.
+
+**Downloads.** *Kisi-kisi .docx* (one table per form: No, TP, material, indicator, level, form) and *Questions in CBT upload format .docx*, which follows the school's CBT import template: JENIS 1 (multiple choice), 2 (complex), 3 (matching rows/columns with key codes), 4 (short answer), 5 (essay), the key marked with `v`, and question images embedded in the SOAL cell.
+
+**Online.** "Publish" creates one quiz per chosen class (one attempt, no instant feedback). Each form's weight is spread equally over its questions (`quiz_question.points`), so the grade (0–100) follows the exam weights. Complex multiple choice and matching earn **partial points**; essays are graded by the teacher.
 
 ## Roster, schedule, journal & academic calendar
 
@@ -303,7 +318,8 @@ Every teacher has an **AI Settings** page (`/teacher/ai-settings`):
 | **AI Settings**: own API key per teacher (encrypted), provider, model, connection test; server AI for the Super Admin | `/teacher/ai-settings` |
 | **Super Admin**: approve/suspend teachers, sign-up limits, upload space, server status, visitors | `/teacher/admin/teachers`, `/teacher/admin/server`, `/teacher/admin/traffic` |
 | **Student learning space**: Today's Lessons, audio/video/image player, progress, grade history | `/student`, `/student/materials`, `/student/grades` |
-| **Interactive questions**: multiple choice, fill-in, true/false (+ image), audio, video, **MIDI piano**; automatic grading; instant feedback | `/teacher/question-bank`, `/teacher/quizzes`, `/student/quizzes` |
+| **Interactive questions**: multiple choice, complex multiple choice, matching (incl. True/False and Yes/No tables), fill-in, essay, true/false (+ image or drawn staff/numbered notation), audio, video, **MIDI piano**; automatic grading with partial points; instant feedback | `/teacher/question-bank`, `/teacher/quizzes`, `/student/quizzes` |
+| **Exams (teachers only)**: TP from CP-TP-ATP, number of questions and weight per form, AI blueprint (kisi-kisi) and questions, notation images, kisi-kisi and CBT-upload `.docx`, online run with weighted grades | `/teacher/exams` |
 | **Instrument practice**: virtual piano + MIDI keyboard, pitch practice, rhythm practice, ear training (intervals, chords, scales), record & play back, metronome | `/student/practice/*` |
 | **AI assistance (teachers only)**: generate question drafts and lesson/summary drafts you can edit before saving | `/teacher/ai-generator` |
 | **Teaching documents (teachers only)**: AI-written CP-TP-ATP, Modul Ajar, teacher material with a worksheet (LKPD + answer key) and simple student material, downloaded as Word files; custom Modul Ajar templates; multiple-choice questions can be saved to the question bank | `/teacher/perangkat-ajar`, `/teacher/perangkat-ajar/templates` |
@@ -398,8 +414,8 @@ Where the PRD is silent, the simplest option was chosen:
 
 1. **WIB time zone (UTC+7)** for "today" and all schedules. Every timestamp column is `timestamptz`.
 2. **Today's Lessons** = lessons whose publish date is today. Older lessons stay open; lessons dated in the future are **hidden** from students (404).
-3. **Quiz grade** = the student's **best** attempt; `maxAttempts` is set per quiz (default 1). Grade 0–100 = score / max score.
-4. **Fill-in questions without a key** are graded manually by the teacher ("needs grading"). Manual grading can also override an automatic grade; the quiz grade is recalculated automatically.
+3. **Quiz grade** = the student's **best** attempt; `maxAttempts` is set per quiz (default 1). Grade 0–100 = score / max score. For an exam, each question's points are its form's weight divided by the number of questions in that form, so the grade follows the exam weights.
+4. **Fill-in questions without a key and essays** are graded manually by the teacher ("needs grading"). Manual grading can also override an automatic grade; the quiz grade is recalculated automatically. **Partial points**: complex multiple choice earns (correct ticks − wrong ticks) ÷ number of correct answers (never below 0); matching earns the share of statements matched correctly. Only a full score counts as "correct".
 5. **MIDI questions**: *ordered* mode (melody) or *chord* mode (any order); an "ignore octave" option; a "play example" option for listen-then-repeat practice (the example notes are sent to the student's device, because that is the example).
 6. **Audio/video questions** are answered with multiple choice, fill-in, or true/false (chosen by the teacher).
 7. **Rhythm practice** tolerance is ±0.3 beat with audio latency compensation; extra taps reduce the score. **Pitch practice** score = percentage of correct positions.
@@ -407,7 +423,7 @@ Where the PRD is silent, the simplest option was chosen:
 9. **Report PDF** uses the browser's *Print → Save as PDF* (print stylesheet included); the official download format is **CSV**.
 10. **Forgot password** sends email via SMTP; without SMTP the link is printed in the server log (development mode).
 11. Deleting a question that students have already answered is **refused** so grades are not lost. Editing a question does not recalculate saved grades.
-12. AI uses structured output (JSON Schema) and the result is validated with the same schema as manual questions; invalid AI questions are discarded. Audio/video questions are not generated by AI (they need media).
+12. AI uses structured output (JSON Schema) and the result is validated with the same schema as manual questions; invalid AI questions are discarded. Audio/video questions are not generated by AI (they need media). Exam questions whose notation cannot be drawn, or whose text contains notation code, are discarded too, and their blueprint row stays empty for another run. Matching answer columns are shuffled so the key is not in plain order.
 13. **AI is for teachers only.** Students have no AI feature.
 
 ## Known limitations
@@ -417,6 +433,8 @@ Where the PRD is silent, the simplest option was chosen:
 - Uploads go through the server (not direct-to-S3 presigned uploads); see the Vercel note.
 - The time zone is fixed to WIB; there is no per-school time zone setting.
 - The Visitors page keeps its numbers in memory, so they start from zero after every deploy or restart.
+- Notation images are drawn in the teacher's browser: after the AI writes exam questions, keep the exam page open for a few seconds until every image is drawn.
+- Drawable notation: one staff (treble or bass clef) with chords, labels or lyrics, and single-line numbered notation. Multi-voice scores / piano grand staff are not supported. Photos and illustrations are never generated; the teacher uploads them.
 
 ## Manual test flow
 
@@ -425,6 +443,7 @@ Where the PRD is silent, the simplest option was chosen:
 3. Back as the teacher → **Grades & Reports**: the grades appear automatically; download the CSV; open a student's report.
 4. As a student, try to open `/teacher` → you are redirected to `/student`.
 5. Toggle `EN | ID` and check that the interface language changes.
+6. As the teacher → **Exams** → **New exam** → tick a few TP → keep the default weights → **Make the blueprint** → **Write questions** (keep the page open while the notation images are drawn) → download the kisi-kisi and CBT `.docx` → publish to a class → take it with **View as student** and check the partial points on a complex-choice and a matching question.
 
 ## Project structure
 
@@ -433,13 +452,15 @@ src/
   app/
     (auth)/            register, login, forgot password, reset password
     teacher/  student/ pages per role (the layout checks the role)
-    actions/           server actions (auth, classroom, material, question, quiz, practice, ai)
-    api/               auth (Better Auth), upload, files (file server + Range), export (CSV), perangkat (document status + .docx download)
+    actions/           server actions (auth, classroom, material, question, quiz, exam, practice, ai)
+    api/               auth (Better Auth), upload, files (file server + Range), export (CSV), perangkat (document status + .docx download), exams (kisi-kisi / CBT .docx)
   components/          UI, piano, media player, question/quiz/material forms, quiz runner, practice, AI generator
   db/                  Drizzle schema, connection (PGlite/pg), migrations
   i18n/                English source + Indonesian dictionary, server/client translators, language switch action
   lib/                 auth, session, access (ownership), questions (grading), audio, ai (+ Claude Code CLI), storage, data (aggregation)
   lib/perangkat/       teaching documents: prompts, generator, .docx writers (docx/), templates, text extraction
+  lib/exam*.ts         exams: forms & weights, AI prompts (blueprint, questions, image review), kisi-kisi / CBT .docx writers
+  lib/notation*.ts     music notation as text: parser (server + client) and the browser renderer (VexFlow / canvas → PNG)
 scripts/               seed, migrate, reset
 drizzle/               SQL migration files
 ```

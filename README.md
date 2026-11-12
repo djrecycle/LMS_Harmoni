@@ -2,7 +2,7 @@
 
 # 🎵 Harmoni Kelas Musik
 
-**LMS khusus pelajaran Seni Musik: materi, kuis suara & piano MIDI, latihan alat musik, dan perangkat ajar berbantuan AI dalam satu aplikasi.**
+**LMS khusus pelajaran Seni Musik: materi, kuis suara & piano MIDI, ujian dengan kisi-kisi AI, latihan alat musik, dan perangkat ajar berbantuan AI dalam satu aplikasi.**
 
 [Bahasa Indonesia](README.md) · [English](README.en.md)
 
@@ -17,7 +17,7 @@
 
 ---
 
-Harmoni dibuat oleh guru, untuk guru musik. Siswa belajar dari HP, mengerjakan kuis yang soalnya bisa **didengar** atau **dijawab dengan tuts piano**, dan berlatih nada, ritme, serta interval kapan saja. Guru menyiapkan materi, memantau kelas, menilai, dan menyusun **CP–TP–ATP, Modul Ajar, dan LKPD** dengan bantuan AI, lalu mengunduhnya sebagai berkas Word.
+Harmoni dibuat oleh guru, untuk guru musik. Siswa belajar dari HP, mengerjakan kuis yang soalnya bisa **didengar** atau **dijawab dengan tuts piano**, dan berlatih nada, ritme, serta interval kapan saja. Guru menyiapkan materi, memantau kelas, menilai, menyusun **CP–TP–ATP, Modul Ajar, dan LKPD** dengan bantuan AI, serta membuat **ujian (PSAT/PSAS)** lengkap dengan kisi-kisi, soal bergambar notasi, dan file siap upload ke aplikasi CBT sekolah.
 
 Tampilan berbahasa **Indonesia** secara bawaan dan bisa diganti ke **Inggris** kapan saja (tombol `EN | ID`). Tersedia mode terang dan gelap, dan tampilan diprioritaskan untuk HP.
 
@@ -30,6 +30,14 @@ Tampilan berbahasa **Indonesia** secara bawaan dan bisa diganti ke **Inggris** k
 **Kuis dengan jawaban piano**: siswa menjawab dengan menekan tuts di layar, keyboard komputer, atau keyboard MIDI.
 
 <img src="docs/screenshots/kuis-midi.png" alt="Soal kuis yang dijawab dengan piano" />
+
+**Ujian: kisi-kisi**: pilih CP/TP, atur jumlah dan bobot tiap bentuk soal, lalu AI menyusun kisi-kisi (TP, materi, indikator, level kognitif) yang bisa disunting.
+
+<img src="docs/screenshots/ujian-kisi-kisi.png" alt="Kisi-kisi ujian" />
+
+**Ujian: soal bergambar notasi**: AI menulis satu soal per baris kisi-kisi dan memberi gambar not balok atau not angka pada soal yang membutuhkannya.
+
+<img src="docs/screenshots/ujian-soal-bergambar.png" alt="Soal ujian bergambar not balok" />
 
 **Perangkat Ajar (AI)**: susun CP–TP–ATP, Modul Ajar, dan LKPD, lalu unduh sebagai berkas Word.
 
@@ -59,15 +67,16 @@ Tampilan berbahasa **Indonesia** secara bawaan dan bisa diganti ke **Inggris** k
 
 ### Untuk siswa
 - **Materi hari ini**: teks, gambar, audio, dan video dalam satu tempat, beserta progres belajar.
-- **Kuis interaktif**: pilihan ganda, isian, benar/salah, soal audio & video, dan **soal piano MIDI** (mainkan melodi atau akor). Dinilai otomatis dengan umpan balik langsung.
+- **Kuis & ujian interaktif**: pilihan ganda, **pilihan ganda kompleks**, **menjodohkan** (termasuk tabel Benar/Salah dan Ya/Tidak), isian, **uraian**, benar/salah, soal audio & video, dan **soal piano MIDI** (mainkan melodi atau akor). Soal bisa bergambar not balok atau not angka. Dinilai otomatis (PG kompleks dan menjodohkan mendapat **skor parsial**), uraian dinilai guru.
 - **Latihan alat musik**: piano virtual (layar sentuh, keyboard komputer, atau **keyboard MIDI** sungguhan), metronom, latihan nada, ritme, serta latihan pendengaran (interval, akor, tangga nada).
 - **Rekam permainan** dengan mikrofon dan dengarkan ulang. Rekaman hanya bisa diputar oleh siswa itu sendiri dan gurunya.
 - **Materi latihan** dari guru: lagu, partitur, dan video contoh.
 
 ### Untuk guru
 - **Kelas & siswa**: kode undangan kelas, tambah akun siswa manual, atau **unggah massal dari Excel**.
-- **Materi & bank soal**: editor Markdown dengan media, bank soal per topik/kelas/semester, jadwal terbit.
+- **Materi & bank soal**: editor Markdown dengan media, bank soal per topik/kelas/semester, jadwal terbit. Gambar soal bisa diunggah atau dibuat dari teks notasi (not balok / not angka) dengan pratinjau langsung.
 - **Kuis**: susun dari bank soal, atur waktu, jumlah percobaan, dan umpan balik langsung.
+- **Ujian**: pilih CP/TP dari CP–TP–ATP, atur jumlah dan **bobot** tiap bentuk soal, lalu AI menyusun **kisi-kisi** dan menulis soalnya (bisa juga mengambil soal dari kuis atau bank soal). AI memilah soal yang cocok diberi **gambar not balok / not angka** dan menggambarnya; gambar lain bisa diunggah sendiri. Unduh **kisi-kisi `.docx`** dan **soal format upload CBT `.docx`** (tabel JENIS 1–5, kunci bertanda `v`, gambar ikut), atau jalankan ujian online dengan nilai sesuai bobot.
 - **Kelas live**: saat jam pelajaran, lihat siswa yang sedang online dan siapa yang sudah membuka materi yang dibagikan.
 - **Nilai & rapor**: rekap nilai otomatis, lihat jawaban dan rekaman, penilaian manual, unduh CSV, cetak/PDF.
 - **Perangkat Ajar (AI)**: CP–TP–ATP → Modul Ajar → materi guru dengan LKPD + kunci jawaban → materi siswa, diunduh sebagai `.docx`. Bisa memakai template Modul Ajar sekolah sendiri.
@@ -269,6 +278,8 @@ Daftar lengkap variabel lingkungan dan catatan teknis lain ada di **[README.en.m
 - Suara piano memakai sintesis (Tone.js), bukan sampel piano asli, supaya ringan.
 - Web MIDI hanya didukung Chrome/Edge/Opera (desktop & Android). Di Safari/iOS siswa tetap bisa memakai piano di layar.
 - Zona waktu tetap WIB.
+- Gambar notasi dibuat di browser guru: setelah AI selesai menulis soal, biarkan halaman ujian terbuka beberapa detik sampai semua gambar selesai digambar.
+- Notasi yang bisa digambar: satu paranada (kunci G atau F) dengan akor, label, atau lirik, dan not angka satu baris suara. Partitur multi-suara/grand staff piano belum didukung. Foto atau ilustrasi (misalnya alat musik) tidak dibuat AI; guru mengunggahnya sendiri.
 - Belum ada pengujian otomatis.
 
 ## Struktur proyek
@@ -278,7 +289,7 @@ src/app/         halaman guru, siswa, login, server actions, dan API
 src/components/  komponen UI, piano, pemutar media, kuis, latihan, AI
 src/db/          skema Drizzle dan koneksi database
 src/i18n/        teks Inggris (sumber) + terjemahan Indonesia
-src/lib/         auth, penilaian, audio, AI, penyimpanan, perangkat ajar
+src/lib/         auth, penilaian, audio, AI, penyimpanan, perangkat ajar, ujian & notasi
 drizzle/         file migrasi SQL
 scripts/         seed, migrate, reset
 ```
