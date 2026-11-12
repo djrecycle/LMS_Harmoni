@@ -155,6 +155,19 @@ FORMAT JSON (field "no" sama dengan nomor kisi-kisi)
 }
 
 /** Turn one AI question into a validated bank question for its blueprint row; null when it does not validate. */
+/** Notation code the AI sometimes leaks into text: staff tokens (C4/h., F#4/q, R/8) and underlined digits (1_, 6__). */
+const CODE = /\b(?:[A-G][#b]?\d|R)\/(?:w|h|q|8|16)\.*|\b\d_+/;
+const hasCode = (text: string) => CODE.test(text);
+/** An explanation with the code removed, e.g. "Not A (C4/h.) adalah ..." becomes "Not A adalah ...". */
+export function stripCode(text: string): string {
+  return text
+    .replace(/\s*\([^)]*(?:\b(?:[A-G][#b]?\d|R)\/(?:w|h|q|8|16)|\b\d_)[^)]*\)/g, "")
+    .replace(new RegExp(CODE.source, "g"), "")
+    .replace(/(['"‘’“”])\s*\1/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 /** The image the AI asked for: notation the app can draw, or a picture the teacher has to add. Invalid notation gives "invalid". */
 export function readGambar(raw: unknown): { notation: Notation | null; imageHint: string | null } | "invalid" {
   const g = (raw && typeof raw === "object" ? raw : null) as Record<string, unknown> | null;
@@ -176,9 +189,11 @@ export function toExamQuestion(raw: Record<string, unknown>, section: ExamSectio
   /** A 0-based index, which the AI sometimes writes as a letter ("B"). */
   const idx = (v: unknown) => (typeof v === "string" && /^[A-Ha-h]$/.test(v.trim()) ? v.trim().toUpperCase().charCodeAt(0) - 65 : Number(v));
   const ints = (v: unknown) => (Array.isArray(v) ? v.map(idx).filter((n) => Number.isInteger(n)) : []);
+  // Students do not know the notation code: a question or choice written with it is dropped and written again.
+  if ([str(raw.pertanyaan), ...strs(raw.opsi), ...strs(raw.baris), ...strs(raw.kolom)].some(hasCode)) return null;
   const base = {
     prompt: str(raw.pertanyaan),
-    explanation: str(raw.pembahasan) || null,
+    explanation: stripCode(str(raw.pembahasan)) || null,
     topic: t.tp.slice(0, 300) || null,
     level: t.level || null,
     kelas: meta.kelas,

@@ -11,7 +11,7 @@ import { fail, succeed, type ActionResult } from "@/lib/action-result";
 import { aiErrorMessage, canUseAi, generateText, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, takeAllowance, type ProviderChoice } from "@/lib/ai";
 import { AiError } from "@/lib/ai-error";
 import { COGNITIVE_LEVELS, EXAM_SECTIONS, SECTION_META, pointsPerQuestion, readComposition, sectionForType, totalCount, type ExamSection } from "@/lib/exam";
-import { EXAM_SYSTEM, gambarPrompt, kisiPrompt, parseKisi, parseSoal, readGambar, soalPrompt, toExamQuestion, type SoalTarget } from "@/lib/exam-ai";
+import { EXAM_SYSTEM, gambarPrompt, kisiPrompt, parseKisi, parseSoal, readGambar, soalPrompt, stripCode, toExamQuestion, type SoalTarget } from "@/lib/exam-ai";
 import { getOwnedExam, listExamItems, nextPosition } from "@/lib/exam-store";
 import { semesterGanjilGenap } from "@/lib/perangkat/generator";
 import { normalize, toDbValues } from "@/lib/question-db";
@@ -251,7 +251,7 @@ export async function startGambar(examId: string, data: unknown): Promise<Action
           // Choices written as notation code may be replaced by the labels drawn in the image: same count and order, so the key still holds.
           const newOptions = Array.isArray(raw.opsi) ? raw.opsi.map((o) => (typeof o === "string" ? o.trim().slice(0, 300) : "")) : null;
           const options = newOptions && q.options && newOptions.length === q.options.length && newOptions.every(Boolean) && g.notation ? newOptions : q.options;
-          const explanation = typeof raw.pembahasan === "string" && raw.pembahasan.trim() ? raw.pembahasan.trim().slice(0, 2000) : q.explanation;
+          const explanation = typeof raw.pembahasan === "string" && raw.pembahasan.trim() ? stripCode(raw.pembahasan.trim()).slice(0, 2000) : q.explanation;
           await db.update(S.question).set({ notation: g.notation, imageHint: g.imageHint, prompt, options, explanation, updatedAt: new Date() }).where(and(eq(S.question.id, q.id), isNull(S.question.mediaKey)));
           added++;
         }
