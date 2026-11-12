@@ -9,11 +9,11 @@ www.{$DOMAIN} {
 	redir https://{$DOMAIN}{uri} permanent
 }
 
-# Harmoni Gitar (repo terpisah, /opt/harmoni-gitar di VPS). App-nya membuka port 3001 di 172.17.0.1
+# Harmoni Gitar (repo terpisah, /opt/harmoni-gitar di VPS). App-nya membuka port 3001 di 172.16.0.1
 # (jembatan docker0), yang bisa dijangkau Caddy ini tanpa berbagi network Docker.
 harmoniclass.tech {
 	encode zstd gzip
-	reverse_proxy 172.17.0.1:3001
+	reverse_proxy 172.16.0.1:3001
 }
 
 www.harmoniclass.tech {
