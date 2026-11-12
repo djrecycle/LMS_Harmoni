@@ -11,7 +11,7 @@ import { db, schema } from "@/db";
 import { isUuid, getOwnedQuiz } from "@/lib/access";
 import { QUESTION_TYPE_LABELS, formatAnswer, formatAnswerKey } from "@/lib/questions";
 import { requireTeacher } from "@/lib/session";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, round } from "@/lib/utils";
 import { getT } from "@/i18n/server";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -66,7 +66,7 @@ export default async function StudentAnswer({ params }: { params: Promise<{ id: 
 
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <StatCard label={t("Grade")} value={Math.round(p.p.grade * 10) / 10} />
-        <StatCard label={t("Score")} value={`${p.p.score}/${p.p.maxScore}`} />
+        <StatCard label={t("Score")} value={`${round(p.p.score, 2)}/${round(p.p.maxScore, 2)}`} />
         <StatCard label={t("Awaiting review")} value={p.p.pendingReview} />
       </div>
 
@@ -93,7 +93,7 @@ export default async function StudentAnswer({ params }: { params: Promise<{ id: 
                 )}
                 {j.teacherGraded && <Badge tone="primary">{t("Graded by teacher")}</Badge>}
                 <span className="ml-auto text-sm font-extrabold">
-                  {j.score ?? 0}/{j.maxScore}
+                  {round(j.score ?? 0, 2)}/{round(j.maxScore, 2)}
                 </span>
               </div>
               <p className="font-semibold">{s.prompt}</p>
@@ -106,11 +106,11 @@ export default async function StudentAnswer({ params }: { params: Promise<{ id: 
               <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                 <div className="rounded-lg bg-muted p-3">
                   <dt className="text-xs font-semibold text-muted-foreground">{t("Student's answer")}</dt>
-                  <dd className="mt-0.5 font-semibold break-words">{formatAnswer(j.answer, s.options, t)}</dd>
+                  <dd className="mt-0.5 font-semibold break-words">{formatAnswer(j.answer, s.options, t, s)}</dd>
                 </div>
                 <div className="rounded-lg bg-success-soft p-3">
                   <dt className="text-xs font-semibold text-muted-foreground">{t("Answer key")}</dt>
-                  <dd className="mt-0.5 font-semibold break-words">{s.answerKey ? formatAnswerKey(s.answerKey, s.options, t) : "-"}</dd>
+                  <dd className="mt-0.5 font-semibold break-words">{s.answerKey ? formatAnswerKey(s.answerKey, s.options, t, s.matchRows) : "-"}</dd>
                 </div>
               </dl>
               {s.answerType === "fill_in" && s.answerKey?.kind === "fill_in" && s.answerKey.answer.length === 0 && (

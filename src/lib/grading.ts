@@ -33,7 +33,7 @@ export async function finishAttempt(attemptId: string) {
   if (p.status === "completed") return p;
 
   const all = await db
-    .select({ questionId: quizQuestion.questionId, points: question.points })
+    .select({ questionId: quizQuestion.questionId, points: sql<number>`coalesce(${quizQuestion.points}, ${question.points})`.mapWith(Number) })
     .from(quizQuestion)
     .innerJoin(question, eq(question.id, quizQuestion.questionId))
     .where(eq(quizQuestion.quizId, p.quizId));

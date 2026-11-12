@@ -19,6 +19,7 @@ import { RhythmGlyphs, SoundPlayer } from "@/components/sound-player";
 import { RhythmTapRecorder } from "@/components/rhythm-tap-recorder";
 import { parseRhythm, rhythmToText, rhythmVariants } from "@/lib/rhythm";
 import { cn } from "@/lib/utils";
+import { COGNITIVE_LEVELS } from "@/lib/exam";
 import { useT } from "@/i18n/client";
 
 export type QuestionDraft = {
@@ -29,9 +30,11 @@ export type QuestionDraft = {
   mediaKey: string | null;
   sound?: QuestionSound | null;
   options: string[] | null;
+  matchRows?: string[] | null;
   answerKey: AnswerKey | null;
   explanation: string | null;
   topic: string | null;
+  level?: string | null;
   kelas?: string | null;
   semester?: number | null;
   points: number;
@@ -45,7 +48,10 @@ const AUDIO_ANSWER_TYPES: { grade: Exclude<AnswerType, "midi">; label: string }[
 
 const QUESTION_TYPE_HINTS: Record<QuestionType, string> = {
   multiple_choice: "A text question with several choices, optional image.",
+  multiple_select: "Several choices can be correct; the student ticks all of them.",
+  matching: "Match each statement with an answer (also for True/False or Yes/No tables).",
   fill_in: "The student types a short answer.",
+  essay: "The student writes a longer answer, graded by the teacher.",
   true_false: "A statement judged true or false.",
   audio: "Guess the note, interval, or tempo: upload a clip or let the app play it.",
   video: "A short video as the question material.",
@@ -77,8 +83,20 @@ function defaultAnswerKey(b: AnswerType): AnswerKey {
       return { kind: "true_false", correct: true };
     case "midi":
       return { kind: "midi", note: [], mode: "ordered", ignoreOctave: false, playExample: false };
+    case "multiple_select":
+      return { kind: "multiple_select", correct: [] };
+    case "matching":
+      return { kind: "matching", pairs: [] };
+    case "essay":
+      return { kind: "essay", answer: "" };
   }
 }
+
+/** Ready-made column sets for a matching question. */
+const MATCHING_PRESETS: { label: string; columns: string[] }[] = [
+  { label: "Benar / Salah", columns: ["Benar", "Salah"] },
+  { label: "Ya / Tidak", columns: ["Ya", "Tidak"] },
+];
 
 export function QuestionForm({
   question,
@@ -101,6 +119,8 @@ export function QuestionForm({
   const [mediaKey, setMediaKey] = useState(initialState.mediaKey ?? "");
   const [sound, setSound] = useState<QuestionSound | null>(initialState.sound ?? null);
   const [options, setOptions] = useState<string[]>(initialState.options?.length ? initialState.options : ["", "", "", ""]);
+  const [matchRows, setMatchRows] = useState<string[]>(initialState.matchRows?.length ? initialState.matchRows : ["", "", "", ""]);
+  const [level, setLevel] = useState(initialState.level ?? "");
   const [answerKey, setAnswerKey] = useState<AnswerKey>(initialState.answerKey ?? defaultAnswerKey(initialState.answerType));
   const [explanation, setExplanation] = useState(initialState.explanation ?? "");
   const [topic, setTopic] = useState(initialState.topic ?? "");
@@ -151,8 +171,10 @@ export function QuestionForm({
       prompt,
       mediaKey: type === "audio" && sound ? null : mediaKey || null,
       sound: type === "audio" ? sound : null,
-      options: answerShape === "multiple_choice" ? options.map((o) => o.trim()) : null,
-      answerKey,
+      options: answerShape === "multiple_choice" || answerShape === "multiple_select" || answerShape === "matching" ? options.map((o) => o.trim()) : null,
+      matchRows: answerShape === "matching" ? matchRows.map((o) => o.trim()) : null,
+      answerKey: answerKey.kind === "matching" ? { kind: "matching", pairs: matchRows.map((_, i) => answerKey.pairs[i] ?? -1) } : answerKey,
+      level: level || null,
       explanation: explanation || null,
       topic: topic || null,
       kelas: kelas.trim() || null,
@@ -318,6 +340,64 @@ export function QuestionForm({
           </div>
         )}
 
+        {answerShape === "multiple_select" && answerKey.kind === "multiple_select" && (
+          <div className="grid gap-2">
+            {options.map((o, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={answerKey.correct.includes(i)}
+                  onChange={(e) => setAnswerKey({ kind: "multiple_select", correct: e.target.checked ? [...answerKey.correct, i] : answerKey.correct.filter((x) => x !== i) })}
+                  aria-label={t("Mark choice {0} as correct", i + 1)}
+                  className="size-5 shrink-0 accent-[var(--success)]"
+                />
+                <Input value={o} onChange={(e) => setOptions((a) => a.map((x, j) => (j === i ? e.target.value : x)))} placeholder={t("Choice {0}", String.fromCharCode(65 + i))} aria-label={t("Choice {0}", i + 1)} />
+                {options.length > 2 && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-9 shrink-0"
+                    aria-label={t("Remove choice")}
+                    onClick={() => {
+                      setOptions((a) => a.filter((_, j) => j !== i));
+                      setAnswerKey((k) => (k.kind === "multiple_select" ? { kind: "multiple_select", correct: k.correct.filter((x) => x !== i).map((x) => (x > i ? x - 1 : x)) } : k));
+                    }}
+                  >
+                    <X />
+                  </Button>
+                )}
+              </div>
+            ))}
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">{t("Tick every correct answer. Students get partial points for each correct tick.")}</p>
+              {options.length < 8 && (
+                <Button variant="ghost" size="sm" onClick={() => setOptions((a) => [...a, ""])}>
+                  <Plus /> {t("Add choice")}
+                </Button>
+              )}
+            </div>
+            {(error.options || error.answerKey) && <p className="text-xs font-medium text-danger">{error.options ?? error.answerKey}</p>}
+          </div>
+        )}
+
+        {answerShape === "matching" && answerKey.kind === "matching" && (
+          <MatchingKey
+            rows={matchRows}
+            setRows={setMatchRows}
+            columns={options}
+            setColumns={setOptions}
+            pairs={answerKey.pairs}
+            setPairs={(pairs) => setAnswerKey({ kind: "matching", pairs })}
+            error={error.matchRows ?? error.options ?? error.answerKey}
+          />
+        )}
+
+        {answerShape === "essay" && answerKey.kind === "essay" && (
+          <Field label={t("Model answer / scoring guide (optional)")} htmlFor="answerKey-essay" hint={t("Essays are always graded by the teacher. This text helps you grade and is shown to the student afterwards.")}>
+            <Textarea id="answerKey-essay" rows={4} value={answerKey.answer} onChange={(e) => setAnswerKey({ kind: "essay", answer: e.target.value })} />
+          </Field>
+        )}
+
         {answerShape === "true_false" && answerKey.kind === "true_false" && (
           <div className="flex gap-2">
             {[true, false].map((b) => (
@@ -368,6 +448,16 @@ export function QuestionForm({
             <option value="2">{t("Semester 2 (even)")}</option>
           </Select>
         </Field>
+        <Field label={t("Cognitive level")} htmlFor="level" hint={t("Used in exam blueprints (kisi-kisi)")}>
+          <Select id="level" value={level} onChange={(e) => setLevel(e.target.value)}>
+            <option value="">{t("Not set")}</option>
+            {COGNITIVE_LEVELS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </Select>
+        </Field>
       </div>
       <Field label={t("Explanation (optional)")} htmlFor="explanation" hint={t("Shown to the student after answering")}>
         <Textarea id="explanation" rows={2} value={explanation} onChange={(e) => setExplanation(e.target.value)} />
@@ -380,6 +470,105 @@ export function QuestionForm({
         </Button>
       </div>
     </form>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+/** Matching key editor: statements (rows) on the left, answer columns on the right, and which column each row matches. */
+function MatchingKey({
+  rows,
+  setRows,
+  columns,
+  setColumns,
+  pairs,
+  setPairs,
+  error,
+}: {
+  rows: string[];
+  setRows: (r: string[]) => void;
+  columns: string[];
+  setColumns: (c: string[]) => void;
+  pairs: number[];
+  setPairs: (p: number[]) => void;
+  error?: string;
+}) {
+  const t = useT();
+  function removeColumn(i: number) {
+    setColumns(columns.filter((_, j) => j !== i));
+    setPairs(rows.map((_, r) => (pairs[r] === i ? -1 : pairs[r] > i ? pairs[r] - 1 : (pairs[r] ?? -1))));
+  }
+  function removeRow(i: number) {
+    setRows(rows.filter((_, j) => j !== i));
+    setPairs(rows.map((_, r) => pairs[r] ?? -1).filter((_, j) => j !== i));
+  }
+  return (
+    <div className="grid gap-4">
+      <div>
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <p className="text-sm font-semibold">{t("Answer columns")}</p>
+          {MATCHING_PRESETS.map((p) => (
+            <Button key={p.label} variant="outline" size="sm" onClick={() => setColumns(p.columns)}>
+              {p.label}
+            </Button>
+          ))}
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {columns.map((c, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-sm font-bold">{String.fromCharCode(65 + i)}</span>
+              <Input value={c} onChange={(e) => setColumns(columns.map((x, j) => (j === i ? e.target.value : x)))} aria-label={t("Column {0}", String.fromCharCode(65 + i))} />
+              {columns.length > 2 && (
+                <Button variant="ghost" size="icon" className="size-9 shrink-0" aria-label={t("Remove choice")} onClick={() => removeColumn(i)}>
+                  <X />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+        {columns.length < 8 && (
+          <Button variant="ghost" size="sm" className="mt-1" onClick={() => setColumns([...columns, ""])}>
+            <Plus /> {t("Add column")}
+          </Button>
+        )}
+      </div>
+
+      <div>
+        <p className="mb-2 text-sm font-semibold">{t("Statements and their matching answer")}</p>
+        <div className="grid gap-2">
+          {rows.map((r, i) => (
+            <div key={i} className="grid gap-2 rounded-lg border bg-card p-2 sm:grid-cols-[auto_1fr_12rem_auto] sm:items-center">
+              <span className="grid size-8 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{i + 1}</span>
+              <Textarea rows={1} value={r} onChange={(e) => setRows(rows.map((x, j) => (j === i ? e.target.value : x)))} aria-label={t("Statement {0}", i + 1)} className="min-h-10" />
+              <Select
+                value={String(pairs[i] ?? -1)}
+                onChange={(e) => setPairs(rows.map((_, j) => (j === i ? Number(e.target.value) : (pairs[j] ?? -1))))}
+                aria-label={t("Matching answer for statement {0}", i + 1)}
+              >
+                <option value="-1">{t("Choose…")}</option>
+                {columns.map((c, j) => (
+                  <option key={j} value={j}>
+                    {String.fromCharCode(65 + j)}. {c || "…"}
+                  </option>
+                ))}
+              </Select>
+              {rows.length > 1 && (
+                <Button variant="ghost" size="icon" className="size-9" aria-label={t("Remove statement")} onClick={() => removeRow(i)}>
+                  <X />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+        {rows.length < 12 && (
+          <Button variant="ghost" size="sm" className="mt-1" onClick={() => setRows([...rows, ""])}>
+            <Plus /> {t("Add statement")}
+          </Button>
+        )}
+        <p className="mt-1 text-xs text-muted-foreground">{t("Students get partial points for each statement matched correctly.")}</p>
+      </div>
+      {error && <p className="text-xs font-medium text-danger">{error}</p>}
+    </div>
   );
 }
 

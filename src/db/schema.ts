@@ -17,6 +17,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { InteractiveLessonData } from "@/lib/interactive-lessons";
 import type { AnswerKey, QuestionSound } from "@/lib/questions";
+import type { ExamComposition, ExamInfo, ExamSection } from "@/lib/exam";
 
 /* ------------------------------------------------------------------ */
 /* Enums                                                               */
@@ -32,12 +33,18 @@ export const questionTypeEnum = pgEnum("question_type", [
   "audio",
   "video",
   "midi",
+  "multiple_select",
+  "matching",
+  "essay",
 ]);
 export const answerTypeEnum = pgEnum("answer_type", [
   "multiple_choice",
   "fill_in",
   "true_false",
   "midi",
+  "multiple_select",
+  "matching",
+  "essay",
 ]);
 export const typeMediaEnum = pgEnum("type_media", ["text", "image", "audio", "video", "interactive"]);
 export const attemptStatusEnum = pgEnum("attempt_status", ["in_progress", "completed"]);
@@ -290,12 +297,16 @@ export const question = pgTable(
     mediaKey: text("media_key"),
     /** Sound the browser plays for an audio question (piano notes or a click track), instead of an uploaded clip. */
     sound: jsonb("sound").$type<QuestionSound | null>(),
-    /** Answer choices (only for the multiple_choice answer type). */
+    /** Answer choices (multiple_choice / multiple_select), or the column choices of a matching question. */
     options: jsonb("options").$type<string[]>(),
+    /** Statements (rows) of a matching question; each is matched to one of `options`. */
+    matchRows: jsonb("match_rows").$type<string[]>(),
     /** Answer key. MUST NOT be sent to the student before the question is answered. */
     answerKey: jsonb("answerKey").$type<AnswerKey | null>(),
     explanation: text("explanation"),
     topic: text("topic"),
+    /** Cognitive level (Bloom: C1-C6), set when the question was written for an exam blueprint (kisi-kisi). */
+    level: text("level"),
     /** Grade level this question is for (free text like material.kelas, e.g. "VII"), used to filter/combine questions. */
     kelas: text("kelas"),
     /** Semester 1 (ganjil) or 2 (genap); null when not set. */
@@ -325,6 +336,8 @@ export const quiz = pgTable(
     maxAttempts: integer("max_attempts").notNull().default(1),
     instantFeedback: boolean("instant_feedback").notNull().default(true),
     published: boolean("published").notNull().default(false),
+    /** Set when this quiz is the online run of an exam (its questions and weights come from the exam). */
+    examId: uuid("exam_id").references((): AnyPgColumn => exam.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("quiz_classroom_idx").on(t.classroomId), index("quiz_teacher_idx").on(t.teacherId)],
@@ -341,8 +354,58 @@ export const quizQuestion = pgTable(
       .notNull()
       .references(() => question.id, { onDelete: "cascade" }),
     position: integer("position").notNull().default(0),
+    /** Points for this question in this quiz, overriding question.points (an exam spreads each section's weight over its questions). */
+    points: real("points"),
   },
   (t) => [uniqueIndex("quiz_question_unique").on(t.quizId, t.questionId)],
+);
+
+/* ------------------------------------------------------------------ */
+/* Exams (Ujian): blueprint (kisi-kisi) + weighted sections            */
+/* ------------------------------------------------------------------ */
+
+/** An exam: identity, chosen TP, the number of questions and weight of each section, and the AI job running on it. */
+export const exam = pgTable(
+  "exam",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    teacherId: text("teacher_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    /** Identity printed on the documents (subject, class, semester, school year, exam type, school). */
+    info: jsonb("info").$type<ExamInfo>().notNull().default({}),
+    /** Learning objectives (TP) this exam tests. */
+    tps: jsonb("tps").$type<string[]>().notNull().default([]),
+    /** Number of questions and weight (%) per section. */
+    composition: jsonb("composition").$type<ExamComposition>().notNull(),
+    /** AI job on this exam: "kisi" (writing the blueprint) or "soal" (writing questions); null when idle. */
+    job: text("job"),
+    jobError: text("job_error"),
+    jobStartedAt: timestamp("job_started_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("exam_teacher_idx").on(t.teacherId)],
+);
+
+/** One blueprint (kisi-kisi) row = one exam question: what it tests, and the bank question that fills it. */
+export const examItem = pgTable(
+  "exam_item",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    examId: uuid("exam_id")
+      .notNull()
+      .references(() => exam.id, { onDelete: "cascade" }),
+    section: text("section").$type<ExamSection>().notNull(),
+    position: integer("position").notNull().default(0),
+    tp: text("tp").notNull().default(""),
+    materi: text("materi").notNull().default(""),
+    indikator: text("indikator").notNull().default(""),
+    level: text("level").notNull().default(""),
+    questionId: uuid("question_id").references(() => question.id, { onDelete: "set null" }),
+  },
+  (t) => [index("exam_item_exam_idx").on(t.examId)],
 );
 
 /* ------------------------------------------------------------------ */

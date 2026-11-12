@@ -4,7 +4,10 @@ import { QUESTION_TYPE_LABELS, type AnswerType, type QuestionSound, type Questio
 
 export const TYPE_TONES: Record<QuestionType, "primary" | "success" | "warning" | "neutral"> = {
   multiple_choice: "neutral",
+  multiple_select: "neutral",
+  matching: "neutral",
   fill_in: "neutral",
+  essay: "neutral",
   true_false: "neutral",
   audio: "primary",
   video: "primary",

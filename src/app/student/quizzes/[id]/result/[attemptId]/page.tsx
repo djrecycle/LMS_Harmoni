@@ -11,7 +11,7 @@ import { db, schema } from "@/db";
 import { isUuid } from "@/lib/access";
 import { requireStudent } from "@/lib/session";
 import { QUESTION_TYPE_LABELS, formatAnswer, formatAnswerKey } from "@/lib/questions";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, round } from "@/lib/utils";
 import { getT } from "@/i18n/server";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -58,7 +58,7 @@ export default async function QuizResult({ params }: { params: Promise<{ id: str
         <p className="text-6xl font-extrabold tracking-tight sm:text-7xl">{grade}</p>
         <p className="mt-1 font-semibold">{semangat}</p>
         <p className="mt-2 text-sm opacity-80">
-          {correct} {t("of")} {list.length} {t("questions correct · score")} {p.p.score}/{p.p.maxScore} · {formatDateTime(p.p.completedAt)}
+          {correct} {t("of")} {list.length} {t("questions correct · score")} {round(p.p.score, 2)}/{round(p.p.maxScore, 2)} · {formatDateTime(p.p.completedAt)}
         </p>
         {p.p.pendingReview > 0 && (
           <p className="mx-auto mt-3 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">
@@ -90,7 +90,7 @@ export default async function QuizResult({ params }: { params: Promise<{ id: str
                   </Badge>
                 )}
                 <span className="ml-auto text-sm font-bold">
-                  {j.score ?? 0}/{j.maxScore}
+                  {round(j.score ?? 0, 2)}/{round(j.maxScore, 2)}
                 </span>
               </div>
               <p className="font-semibold">{s.prompt}</p>
@@ -103,11 +103,11 @@ export default async function QuizResult({ params }: { params: Promise<{ id: str
               <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                 <div className="rounded-lg bg-muted p-3">
                   <dt className="text-xs font-semibold text-muted-foreground">{t("Your answer")}</dt>
-                  <dd className="font-semibold break-words">{formatAnswer(j.answer, s.options, t)}</dd>
+                  <dd className="font-semibold break-words">{formatAnswer(j.answer, s.options, t, s)}</dd>
                 </div>
                 <div className="rounded-lg bg-success-soft p-3">
                   <dt className="text-xs font-semibold text-muted-foreground">{t("Correct answer")}</dt>
-                  <dd className="font-semibold break-words">{s.answerKey ? formatAnswerKey(s.answerKey, s.options, t) : "-"}</dd>
+                  <dd className="font-semibold break-words">{s.answerKey ? formatAnswerKey(s.answerKey, s.options, t, s.matchRows) : "-"}</dd>
                 </div>
               </dl>
               {s.explanation && <p className="mt-2 text-sm text-muted-foreground">💡 {s.explanation}</p>}

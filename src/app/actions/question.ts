@@ -8,8 +8,8 @@ import { deleteMediaIfOrphaned, isValidMediaKey, getOwnedQuestion } from "@/lib/
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
 import { requireTeacher } from "@/lib/session";
-import { midiToNote, noteToMidi } from "@/lib/music";
 import { questionInputSchema, type QuestionInput } from "@/lib/questions";
+import { normalize, toDbValues } from "@/lib/question-db";
 import { topicSuggestions } from "@/lib/form-data";
 import { semesterGanjilGenap } from "@/lib/perangkat/generator";
 import { docContext } from "@/lib/perangkat/store";
@@ -18,35 +18,6 @@ import { getT } from "@/i18n/server";
 
 const S = schema;
 const refresh = () => revalidatePath("/", "layout");
-
-/** Normalize MIDI key notes to standard notation (e.g. Db4 -> C#4). */
-function normalize(v: QuestionInput): QuestionInput {
-  if (v.sound?.kind === "notes") v = { ...v, sound: { ...v.sound, notes: v.sound.notes.map((n) => midiToNote(noteToMidi(n) ?? 60)) } };
-  if (v.answerKey.kind === "midi") {
-    return { ...v, answerKey: { ...v.answerKey, note: v.answerKey.note.map((n) => midiToNote(noteToMidi(n) ?? 60)) } };
-  }
-  if (v.answerKey.kind === "fill_in") {
-    return { ...v, answerKey: { ...v.answerKey, answer: v.answerKey.answer.map((j) => j.trim()).filter(Boolean) } };
-  }
-  return v;
-}
-
-function toDbValues(v: QuestionInput) {
-  return {
-    type: v.type,
-    answerType: v.answerType,
-    prompt: v.prompt,
-    mediaKey: v.mediaKey || null,
-    sound: v.type === "audio" ? (v.sound ?? null) : null,
-    options: v.answerType === "multiple_choice" ? (v.options ?? []) : null,
-    answerKey: v.answerKey,
-    explanation: v.explanation || null,
-    topic: v.topic || null,
-    kelas: v.kelas || null,
-    semester: v.semester ?? null,
-    points: v.points,
-  };
-}
 
 /** Save (create/update) one question. An empty `id` means a new question. */
 export async function saveQuestion(data: unknown, id?: string): Promise<ActionResult<{ id: string }>> {

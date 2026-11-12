@@ -148,6 +148,13 @@
       "when": 1793772685156,
       "tag": "0020_teacher_school",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794484530391,
+      "tag": "0021_exams",
+      "breakpoints": true
     }
   ]
 }

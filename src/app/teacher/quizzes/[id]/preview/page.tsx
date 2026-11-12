@@ -96,10 +96,10 @@ export default async function QuizPreview({ params }: { params: Promise<{ id: st
                 )}
                 {s.sound && <SoundPlayer sound={s.sound} reveal className="mt-3 max-w-md" />}
 
-                {s.answerType === "multiple_choice" && s.options && s.options.length > 0 && (
+                {(s.answerType === "multiple_choice" || s.answerType === "multiple_select") && s.options && s.options.length > 0 && (
                   <ul className="mt-3 grid gap-2 text-sm">
                     {s.options.map((opt, j) => {
-                      const correct = key?.kind === "multiple_choice" && key.correct === j;
+                      const correct = (key?.kind === "multiple_choice" && key.correct === j) || (key?.kind === "multiple_select" && key.correct.includes(j));
                       return (
                         <li key={j} className={correct ? "flex items-start gap-2 rounded-lg border border-success/40 bg-success-soft p-2.5 font-semibold" : "flex items-start gap-2 rounded-lg border p-2.5"}>
                           <span className="font-bold">{String.fromCharCode(65 + j)}.</span>
@@ -127,10 +127,10 @@ export default async function QuizPreview({ params }: { params: Promise<{ id: st
                   </div>
                 )}
 
-                {(s.answerType === "fill_in" || s.answerType === "midi") && (
+                {(s.answerType === "fill_in" || s.answerType === "midi" || s.answerType === "matching" || s.answerType === "essay") && (
                   <div className="mt-3 rounded-lg bg-success-soft p-3 text-sm">
                     <p className="text-xs font-semibold text-muted-foreground">{t("Answer key")}</p>
-                    <p className="mt-0.5 font-semibold break-words">{key ? formatAnswerKey(key, s.options, t) : "-"}</p>
+                    <p className="mt-0.5 font-semibold break-words">{key ? formatAnswerKey(key, s.options, t, s.matchRows) : "-"}</p>
                     {key?.kind === "fill_in" && key.answer.length === 0 && <p className="mt-1 text-xs text-muted-foreground">{t("Fill-in question without a key: graded manually by the teacher.")}</p>}
                   </div>
                 )}

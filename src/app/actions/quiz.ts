@@ -88,8 +88,10 @@ export async function saveQuiz(data: unknown, id?: string): Promise<ActionResult
     quizId = fresh.id;
   }
 
+  // Keep per-question points (an exam's section weights) for the questions that stay in the quiz.
+  const kept = new Map((await db.select({ questionId: S.quizQuestion.questionId, points: S.quizQuestion.points }).from(S.quizQuestion).where(eq(S.quizQuestion.quizId, quizId!))).map((r) => [r.questionId, r.points]));
   await db.delete(S.quizQuestion).where(eq(S.quizQuestion.quizId, quizId!));
-  if (uniqueQuestion.length) await db.insert(S.quizQuestion).values(uniqueQuestion.map((questionId, position) => ({ quizId: quizId!, questionId, position })));
+  if (uniqueQuestion.length) await db.insert(S.quizQuestion).values(uniqueQuestion.map((questionId, position) => ({ quizId: quizId!, questionId, position, points: kept.get(questionId) ?? null })));
 
   // Send a copy to each extra class.
   for (const classroomId of extraIds) {
@@ -214,8 +216,15 @@ export type Feedback = {
   explanation: string | null;
 };
 
-function clearAnswer(answerShape: AnswerType, answer: unknown, optionCount: number): { ok: true; grade: unknown } | { ok: false } {
+function clearAnswer(answerShape: AnswerType, answer: unknown, optionCount: number, rowCount: number): { ok: true; grade: unknown } | { ok: false } {
+  const ints = (a: unknown): a is number[] => Array.isArray(a) && a.every((n) => typeof n === "number" && Number.isInteger(n));
   switch (answerShape) {
+    case "multiple_select":
+      return ints(answer) && answer.length <= optionCount && answer.every((n) => n >= 0 && n < optionCount) ? { ok: true, grade: [...new Set(answer)].sort((a, b) => a - b) } : { ok: false };
+    case "matching":
+      return ints(answer) && answer.length === rowCount && answer.every((n) => n >= -1 && n < optionCount) ? { ok: true, grade: answer } : { ok: false };
+    case "essay":
+      return typeof answer === "string" ? { ok: true, grade: answer.trim().slice(0, 5000) } : { ok: false };
     case "multiple_choice":
       return typeof answer === "number" && Number.isInteger(answer) && answer >= 0 && answer < optionCount ? { ok: true, grade: answer } : { ok: false };
     case "true_false":
@@ -252,36 +261,38 @@ export async function saveAnswer(attemptId: string, questionId: string, answer: 
   }
 
   const [row] = await db
-    .select({ question: S.question })
+    .select({ question: S.question, quizPoints: S.quizQuestion.points })
     .from(S.quizQuestion)
     .innerJoin(S.question, eq(S.question.id, S.quizQuestion.questionId))
     .where(and(eq(S.quizQuestion.quizId, p.k.id), eq(S.quizQuestion.questionId, questionId)))
     .limit(1);
   if (!row) return fail(t("This question is not part of this quiz."));
   const question = row.question;
+  // An exam spreads each section's weight over its questions, so the quiz may give this question its own points.
+  const points = row.quizPoints ?? question.points;
 
-  const clean = clearAnswer(question.answerType, answer, question.options?.length ?? 0);
+  const clean = clearAnswer(question.answerType, answer, question.options?.length ?? 0, question.matchRows?.length ?? 0);
   if (!clean.ok) return fail(t("Invalid answer."));
 
   const [current] = await db.select().from(S.answer).where(and(eq(S.answer.attemptId, p.p.id), eq(S.answer.questionId, question.id))).limit(1);
   // With instant feedback, an answer locks once it is checked (so the key cannot be found by trial and error).
   if (current && p.k.instantFeedback) return fail(t("This question was already answered."));
 
-  const result = question.answerKey ? gradeAnswer(question.answerKey, clean.grade, question.points) : { correct: null, score: null };
+  const result = question.answerKey ? gradeAnswer(question.answerKey, clean.grade, points) : { correct: null, score: null };
   await db
     .insert(S.answer)
-    .values({ attemptId: p.p.id, questionId: question.id, answer: clean.grade as never, correct: result.correct, score: result.score, maxScore: question.points })
+    .values({ attemptId: p.p.id, questionId: question.id, answer: clean.grade as never, correct: result.correct, score: result.score, maxScore: points })
     .onConflictDoUpdate({
       target: [S.answer.attemptId, S.answer.questionId],
-      set: { answer: clean.grade as never, correct: result.correct, score: result.score, maxScore: question.points, answeredAt: new Date() },
+      set: { answer: clean.grade as never, correct: result.correct, score: result.score, maxScore: points, answeredAt: new Date() },
     });
 
-  if (!p.k.instantFeedback) return succeed(t("Answer saved."), { correct: null, score: null, maxScore: question.points, answerKey: null, explanation: null });
+  if (!p.k.instantFeedback) return succeed(t("Answer saved."), { correct: null, score: null, maxScore: points, answerKey: null, explanation: null });
   return succeed(undefined, {
     correct: result.correct,
     score: result.score,
-    maxScore: question.points,
-    answerKey: question.answerKey && result.correct === false ? formatAnswerKey(question.answerKey, question.options, t) : null,
+    maxScore: points,
+    answerKey: question.answerKey && result.correct === false ? formatAnswerKey(question.answerKey, question.options, t, question.matchRows) : null,
     explanation: question.explanation,
   });
 }

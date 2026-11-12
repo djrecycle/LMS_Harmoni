@@ -59,7 +59,7 @@ export default async function QuizPage({ params }: { params: Promise<{ id: strin
         saved: true,
         // Feedback only for questions that were actually answered (and if the teacher enabled it)
         feedback: quiz.instantFeedback
-          ? { correct: j.correct, score: j.score, maxScore: j.maxScore, answerKey: s.answerKey && j.correct === false ? formatAnswerKey(s.answerKey, s.options, t) : null, explanation: s.explanation }
+          ? { correct: j.correct, score: j.score, maxScore: j.maxScore, answerKey: s.answerKey && j.correct === false ? formatAnswerKey(s.answerKey, s.options, t, s.matchRows) : null, explanation: s.explanation }
           : null,
       };
     }
