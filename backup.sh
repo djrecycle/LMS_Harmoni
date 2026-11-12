@@ -27,7 +27,9 @@ REMOTE_DIR="$1"; TGL="$2"; DUMP="$3"; KEEP="$4"
 cd "$REMOTE_DIR"
 
 echo "--> Database dump: $DUMP"
-docker compose --env-file .env.docker exec -T db pg_dump -U harmoni harmoni | gzip > "$DUMP"
+# </dev/null: this script is read by bash from stdin, and `docker compose exec` would swallow the rest of it
+# (the size check, code copy and cleanup below never ran before this fix).
+docker compose --env-file .env.docker exec -T db pg_dump -U harmoni harmoni < /dev/null | gzip > "$DUMP"
 # An empty dump still gzips to ~20 bytes; anything under 1 KB means pg_dump produced nothing.
 SIZE=$(stat -c %s "$DUMP")
 if [ "$SIZE" -lt 1024 ]; then
