@@ -30,6 +30,8 @@ export function toDbValues(v: QuestionInput) {
     explanation: v.explanation || null,
     topic: v.topic || null,
     level: v.level || null,
+    notation: v.notation ?? null,
+    imageHint: v.imageHint || null,
     kelas: v.kelas || null,
     semester: v.semester ?? null,
     points: v.points,

@@ -18,6 +18,7 @@ import {
 import type { InteractiveLessonData } from "@/lib/interactive-lessons";
 import type { AnswerKey, QuestionSound } from "@/lib/questions";
 import type { ExamComposition, ExamInfo, ExamSection } from "@/lib/exam";
+import type { Notation } from "@/lib/notation";
 
 /* ------------------------------------------------------------------ */
 /* Enums                                                               */
@@ -301,6 +302,10 @@ export const question = pgTable(
     options: jsonb("options").$type<string[]>(),
     /** Statements (rows) of a matching question; each is matched to one of `options`. */
     matchRows: jsonb("match_rows").$type<string[]>(),
+    /** Music notation (staff / numbered) the question image was drawn from, kept so it can be edited and drawn again. */
+    notation: jsonb("notation").$type<Notation | null>(),
+    /** A picture the question needs but the AI cannot draw (e.g. a photo of an instrument): what the teacher should upload. */
+    imageHint: text("image_hint"),
     /** Answer key. MUST NOT be sent to the student before the question is answered. */
     answerKey: jsonb("answerKey").$type<AnswerKey | null>(),
     explanation: text("explanation"),

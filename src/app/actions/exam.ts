@@ -5,13 +5,13 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { isUuid, getOwnedQuiz } from "@/lib/access";
+import { deleteMediaIfOrphaned, getOwnedQuestion, isUuid, isValidMediaKey, getOwnedQuiz } from "@/lib/access";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
 import { aiErrorMessage, canUseAi, generateText, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, takeAllowance, type ProviderChoice } from "@/lib/ai";
 import { AiError } from "@/lib/ai-error";
 import { COGNITIVE_LEVELS, EXAM_SECTIONS, SECTION_META, pointsPerQuestion, readComposition, sectionForType, totalCount, type ExamSection } from "@/lib/exam";
-import { EXAM_SYSTEM, kisiPrompt, parseKisi, parseSoal, soalPrompt, toExamQuestion, type SoalTarget } from "@/lib/exam-ai";
+import { EXAM_SYSTEM, gambarPrompt, kisiPrompt, parseKisi, parseSoal, readGambar, soalPrompt, toExamQuestion, type SoalTarget } from "@/lib/exam-ai";
 import { getOwnedExam, listExamItems, nextPosition } from "@/lib/exam-store";
 import { semesterGanjilGenap } from "@/lib/perangkat/generator";
 import { normalize, toDbValues } from "@/lib/question-db";
@@ -81,10 +81,15 @@ export async function deleteExam(id: string): Promise<ActionResult> {
 
 /* ------------------------------------------------------------------ AI jobs */
 
-const jobSchema = z.object({ provider: z.enum(PROVIDER_CHOICES).default("auto"), catatan: z.string().trim().max(1500).default("") });
+const jobSchema = z.object({
+  provider: z.enum(PROVIDER_CHOICES).default("auto"),
+  catatan: z.string().trim().max(1500).default(""),
+  /** Let the AI add notation images to questions that suit them. */
+  gambar: z.boolean().default(true),
+});
 
 /** Start an AI job on the exam (only one at a time). Returns an error message, or null when it started. */
-async function claimJob(examId: string, teacherId: string, job: "kisi" | "soal", provider: ProviderChoice): Promise<string | null> {
+async function claimJob(examId: string, teacherId: string, job: "kisi" | "soal" | "gambar", provider: ProviderChoice): Promise<string | null> {
   const t = await getT();
   if (!(await canUseAi(teacherId, provider))) return t(providerUnavailableMessage(provider));
   const claimed = await db
@@ -167,7 +172,7 @@ export async function startSoal(examId: string, data: unknown): Promise<ActionRe
   const busy = await claimJob(e.id, teacher.id, "soal", p.data.provider);
   if (busy) return fail(busy);
 
-  const { provider, catatan } = p.data;
+  const { provider, catatan, gambar } = p.data;
   const comp = readComposition(e.composition);
   const meta = { kelas: e.info.kelas || null, semester: semesterGanjilGenap(e.info.semester), pgOptions: comp.pgOptions };
   after(async () => {
@@ -179,7 +184,7 @@ export async function startSoal(examId: string, data: unknown): Promise<ActionRe
         const chunk = rows.slice(i, i + BATCH);
         const targets: SoalTarget[] = chunk.map((r) => ({ no: r.no, section, tp: r.item.tp, materi: r.item.materi, indikator: r.item.indikator, level: r.item.level }));
         try {
-          const got = await ask(teacher.id, provider, soalPrompt(e.info, comp, section, targets, catatan), parseSoal);
+          const got = await ask(teacher.id, provider, soalPrompt(e.info, comp, section, targets, catatan, gambar), parseSoal);
           for (const r of chunk) {
             const raw = got.get(r.no);
             const q = raw ? toExamQuestion(raw, section, targets.find((x) => x.no === r.no)!, meta) : null;
@@ -201,6 +206,86 @@ export async function startSoal(examId: string, data: unknown): Promise<ActionRe
   });
   refresh();
   return succeed();
+}
+
+/**
+ * AI looks over the exam's questions and adds an image where it fits: notation it writes (drawn into a PNG by the
+ * exam page), or a note describing a picture the teacher should upload. Questions that already have an image, or
+ * that students have already answered, are left alone.
+ */
+export async function startGambar(examId: string, data: unknown): Promise<ActionResult> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const p = jobSchema.safeParse(data);
+  if (!p.success) return zodError(p.error);
+  const e = await getOwnedExam(teacher.id, examId);
+  if (!e) return fail(t("Exam not found."));
+  const items = (await listExamItems(e.id)).map((r, i) => ({ ...r, no: i + 1 }));
+  const ids = items.map((r) => r.question?.id).filter((x): x is string => Boolean(x));
+  const answered = new Set(ids.length ? (await db.selectDistinct({ id: S.answer.questionId }).from(S.answer).where(inArray(S.answer.questionId, ids))).map((r) => r.id) : []);
+  const targets = items.filter((r) => r.question && !r.question.mediaKey && !r.question.notation && !r.question.imageHint && !answered.has(r.question.id));
+  if (targets.length === 0) return fail(t("No questions to check: they already have an image or have been answered by students."));
+
+  const busy = await claimJob(e.id, teacher.id, "gambar", p.data.provider);
+  if (busy) return fail(busy);
+
+  const { provider } = p.data;
+  after(async () => {
+    let added = 0;
+    let undrawable = 0;
+    let firstError: string | null = null;
+    for (let i = 0; i < targets.length; i += 10) {
+      const chunk = targets.slice(i, i + 10);
+      try {
+        const got = await ask(teacher.id, provider, gambarPrompt(e.info, chunk.map((r) => ({ no: r.no, type: SECTION_META[r.item.section].nama, prompt: r.question!.prompt, options: r.question!.options, matchRows: r.question!.matchRows, answerKey: r.question!.answerKey }))), parseSoal);
+        for (const r of chunk) {
+          const raw = got.get(r.no);
+          if (!raw) continue;
+          const g = readGambar(raw.gambar);
+          if (g === "invalid") undrawable++;
+          if (g === "invalid" || (!g.notation && !g.imageHint)) continue;
+          const q = r.question!;
+          const proposed = typeof raw.pertanyaan === "string" ? raw.pertanyaan.trim().slice(0, 2000) : "";
+          // A rewrite that lost the actual question (e.g. only "Perhatikan notasi berikut!") keeps the original question under it.
+          const prompt = !proposed ? q.prompt : proposed.length < q.prompt.length * 0.6 ? `${proposed}\n${q.prompt}`.slice(0, 2000) : proposed;
+          // Choices written as notation code may be replaced by the labels drawn in the image: same count and order, so the key still holds.
+          const newOptions = Array.isArray(raw.opsi) ? raw.opsi.map((o) => (typeof o === "string" ? o.trim().slice(0, 300) : "")) : null;
+          const options = newOptions && q.options && newOptions.length === q.options.length && newOptions.every(Boolean) && g.notation ? newOptions : q.options;
+          const explanation = typeof raw.pembahasan === "string" && raw.pembahasan.trim() ? raw.pembahasan.trim().slice(0, 2000) : q.explanation;
+          await db.update(S.question).set({ notation: g.notation, imageHint: g.imageHint, prompt, options, explanation, updatedAt: new Date() }).where(and(eq(S.question.id, q.id), isNull(S.question.mediaKey)));
+          added++;
+        }
+      } catch (err) {
+        console.error("[exam] gambar batch failed", err);
+        firstError ??= aiErrorMessage(err);
+      }
+    }
+    const error =
+      added > 0
+        ? undrawable > 0
+          ? "Some notation the AI wrote could not be drawn. Run it again for the rest."
+          : null
+        : (firstError ?? (undrawable > 0 ? "The notation the AI wrote could not be drawn. Try again." : "The AI found no questions that need an image."));
+    await endJob(e.id, teacher.id, error, Boolean(firstError) && added === 0);
+  });
+  refresh();
+  return succeed();
+}
+
+/** Put an uploaded/drawn image on a question of this teacher (null removes it). A real image replaces the "picture needed" note. */
+export async function setQuestionImage(questionId: string, key: string | null): Promise<ActionResult> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const q = await getOwnedQuestion(teacher.id, questionId);
+  if (!q) return fail(t("Question not found."));
+  if (key !== null && !isValidMediaKey(key, teacher.id)) return fail(t("Invalid media file."));
+  await db
+    .update(S.question)
+    .set(key ? { mediaKey: key, imageHint: null, updatedAt: new Date() } : { mediaKey: null, notation: null, imageHint: null, updatedAt: new Date() })
+    .where(eq(S.question.id, q.id));
+  if (q.mediaKey && q.mediaKey !== key) await deleteMediaIfOrphaned(q.mediaKey);
+  refresh();
+  return succeed(key ? t("Image added to the question.") : t("Image removed from the question."));
 }
 
 /** Polled by the exam page while a job runs. */
@@ -383,6 +468,8 @@ export async function publishExam(examId: string, data: unknown): Promise<Action
   if (items.length === 0) return fail(t("This exam has no questions yet."));
   const missing = items.filter((r) => !r.question).length;
   if (missing) return fail(t("{0} blueprint rows have no question yet. Fill or delete them first.", missing));
+  const noPicture = items.filter((r) => r.question && !r.question.mediaKey && (r.question.imageHint || r.question.notation)).length;
+  if (noPicture) return fail(t("{0} questions still need their image. Add or remove it first.", noPicture));
 
   const comp = readComposition(e.composition);
   const filled = Object.fromEntries(EXAM_SECTIONS.map((s) => [s, items.filter((r) => r.item.section === s).length])) as Record<ExamSection, number>;

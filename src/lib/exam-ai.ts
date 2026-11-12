@@ -1,7 +1,8 @@
 /** AI prompts for exams: the blueprint (kisi-kisi) from the chosen TP, then one question per blueprint row. */
 import { ambilJson } from "./ai-json";
 import { COGNITIVE_LEVELS, EXAM_SECTIONS, SECTION_META, type ExamComposition, type ExamInfo, type ExamSection } from "./exam";
-import { questionInputSchema, type QuestionInput } from "./questions";
+import { notationError, type Notation } from "./notation";
+import { formatAnswerKey, questionInputSchema, type AnswerKey, type QuestionInput } from "./questions";
 
 export const EXAM_SYSTEM = `Anda adalah guru dan penyusun soal asesmen sumatif Kurikulum Merdeka yang berpengalaman di Indonesia.
 Anda menulis kisi-kisi dan butir soal yang valid, jelas, sesuai jenjang siswa, dan berbahasa Indonesia baku.
@@ -116,7 +117,23 @@ const CONTOH: Record<ExamSection, string> = {
   uraian: `{"no": 45, "pertanyaan": "Jelaskan tiga hal yang perlu diperhatikan saat bernyanyi solo agar penampilan maksimal!", "jawaban_model": "...", "pembahasan": "..."}`,
 };
 
-export function soalPrompt(info: ExamInfo, c: ExamComposition, section: ExamSection, targets: SoalTarget[], catatan: string): string {
+/** How the AI writes notation, shared by question writing and the image review. */
+const ATURAN_GAMBAR = `GAMBAR (field "gambar", opsional)
+Tambahkan gambar HANYA bila soal memang membutuhkan atau jauh lebih baik dengan gambar: membaca not balok (nama nada pada garis paranada, nilai not/tanda istirahat, tanda birama, pola irama, melodi, akor, tanda kunci, tanda kres/mol) atau membaca not angka (nada, ketukan, oktaf, pola irama). Soal konsep, istilah, sejarah, fungsi, atau sikap TIDAK diberi gambar.
+- Not balok: {"jenis": "not_balok", "notasi": "..."}
+  Format: token dipisah spasi. Header opsional: time=3/4 key=G clef=bass (bawaan 4/4, C, treble).
+  Nada = huruf + oktaf (C4 = do tengah, F#4, Bb3) lalu /w /h /q /8 /16 (w=4 ketuk, h=2, q=1, 8=1/2, 16=1/4); titik di akhir = not bertitik (G4/h.).
+  Akor: C4+E4+G4/h. Tanda istirahat: R/q. Label di bawah not: C4/q[A] (pakai kurung siku, JANGAN tanda kutip). Garis birama: | ; akhir lagu: ||.
+  Contoh: "time=4/4 | C4/q D4/q E4/q F4/q | G4/h R/h ||"
+- Not angka: {"jenis": "not_angka", "notasi": "..."}
+  Format: header opsional do=G time=4/4. Angka 1-7, 0 = tanda diam, . = tahan satu ketuk.
+  Oktaf tinggi 1' , oktaf rendah 5, ; nada naik 4# , turun 7b ; setengah ketuk 6_ , seperempat ketuk 6__ ; label 1[A] (hanya pada angka, bukan pada titik). Garis birama | dan ||.
+  Contoh: "do=C time=4/4 | 1 2 3 4 | 5 . 5 . | 6_ 6_ 5 0 5 | 1' . . . ||"
+- Gambar lain yang tidak bisa ditulis sebagai notasi (foto alat musik, sikap tubuh, dsb.): {"jenis": "foto", "deskripsi": "gambar yang perlu disiapkan guru"}. Gunakan sangat jarang: guru harus mengunggahnya sendiri.
+JANGAN PERNAH menulis kode notasi (seperti 1_, 5', 6__, C4/q, R/h) di pertanyaan, pilihan, atau pernyataan: siswa tidak mengenal kode itu. Bila pilihan jawabannya berupa notasi, gambar semua pilihan dalam satu notasi dengan label A, B, C, D di bawahnya, lalu pilihan jawaban berisi huruf label itu.
+Bila memakai gambar: pertanyaan merujuk gambar ("Perhatikan notasi berikut!") dan TIDAK menulis ulang notasinya di teks. Untuk menunjuk not tertentu beri label huruf di bawahnya (C4/q[A], 5[B]) dan pilihan jawaban merujuk label itu. Hitung ketukan setiap birama dengan teliti dan pastikan kunci jawaban benar menurut notasi yang digambar.`;
+
+export function soalPrompt(info: ExamInfo, c: ExamComposition, section: ExamSection, targets: SoalTarget[], catatan: string, gambar = true): string {
   return `Tulis butir soal ujian berbentuk ${SECTION_META[section].nama.toUpperCase()} sesuai kisi-kisi berikut. Satu baris kisi-kisi = satu soal.
 
 IDENTITAS
@@ -130,16 +147,31 @@ ATURAN UMUM
 - Bahasa jelas, sesuai usia siswa, tidak ambigu, tanpa petunjuk jawaban. Pertanyaan pilihan diakhiri "....".
 - Jangan gunakan pilihan "semua benar"/"semua salah". Jangan memakai gambar/audio (soal harus bisa dipahami dari teks).
 - Panjang dan gaya semua pilihan jawaban setara; kunci jawaban tidak boleh selalu pilihan yang paling panjang atau paling rinci.
-- "pembahasan": penjelasan singkat mengapa jawabannya benar.
+- "pembahasan": penjelasan singkat mengapa jawabannya benar. Rujuk pilihan dengan hurufnya (A, B, C, …) atau isinya, BUKAN nomor indeks seperti (0) atau (1), dan tanpa kode notasi.
 - ${ATURAN_BENTUK[section](c)}
-
+${gambar ? `\n${ATURAN_GAMBAR}\nContoh soal bergambar: {"no": 5, "pertanyaan": "Perhatikan notasi berikut!\\nNilai ketukan not yang diberi label A adalah ....", "gambar": {"jenis": "not_balok", "notasi": "time=4/4 | C4/h[A] E4/q G4/q ||"}, "opsi": ["1 ketukan", "2 ketukan", "3 ketukan", "4 ketukan"], "kunci": 1, "pembahasan": "..."}\n` : "- Jangan memakai gambar. Jangan menulis kode notasi (seperti 1_, C4/q) di teks soal maupun pilihan."}
 FORMAT JSON (field "no" sama dengan nomor kisi-kisi)
 {"soal": [${CONTOH[section]}]}`;
 }
 
 /** Turn one AI question into a validated bank question for its blueprint row; null when it does not validate. */
+/** The image the AI asked for: notation the app can draw, or a picture the teacher has to add. Invalid notation gives "invalid". */
+export function readGambar(raw: unknown): { notation: Notation | null; imageHint: string | null } | "invalid" {
+  const g = (raw && typeof raw === "object" ? raw : null) as Record<string, unknown> | null;
+  const jenis = typeof g?.jenis === "string" ? g.jenis.toLowerCase() : "";
+  if (jenis === "not_balok" || jenis === "not_angka") {
+    const notation: Notation = { kind: jenis === "not_balok" ? "staff" : "angka", text: typeof g?.notasi === "string" ? g.notasi.trim().slice(0, 2000) : "" };
+    return notation.text && !notationError(notation) ? { notation, imageHint: null } : "invalid";
+  }
+  if (jenis === "foto" && typeof g?.deskripsi === "string" && g.deskripsi.trim()) return { notation: null, imageHint: g.deskripsi.trim().slice(0, 300) };
+  return { notation: null, imageHint: null };
+}
+
 export function toExamQuestion(raw: Record<string, unknown>, section: ExamSection, t: SoalTarget, meta: { kelas: string | null; semester: 1 | 2 | null; pgOptions: number }): QuestionInput | null {
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  // A question written around a picture that cannot be drawn makes no sense: drop it (the row stays empty, to retry).
+  const gambar = readGambar(raw.gambar);
+  if (gambar === "invalid") return null;
   const strs = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : []);
   /** A 0-based index, which the AI sometimes writes as a letter ("B"). */
   const idx = (v: unknown) => (typeof v === "string" && /^[A-Ha-h]$/.test(v.trim()) ? v.trim().toUpperCase().charCodeAt(0) - 65 : Number(v));
@@ -153,6 +185,8 @@ export function toExamQuestion(raw: Record<string, unknown>, section: ExamSectio
     semester: meta.semester,
     points: 1,
     mediaKey: null,
+    notation: gambar.notation,
+    imageHint: gambar.imageHint,
   };
   let candidate: unknown;
   switch (section) {
@@ -213,4 +247,39 @@ export function parseSoal(text: string): Map<number, Record<string, unknown>> {
     if (Number.isInteger(no) && !out.has(no)) out.set(no, r);
   }
   return out;
+}
+
+/* ------------------------------------------------------------------ image review of existing questions */
+
+export type ReviewTarget = { no: number; type: string; prompt: string; options: string[] | null; matchRows: string[] | null; answerKey: AnswerKey | null };
+
+/** Ask which existing questions should get an image, and to draw it; the meaning and the key must stay the same. */
+export function gambarPrompt(info: ExamInfo, targets: ReviewTarget[]): string {
+  const list = targets
+    .map((q) => {
+      const key = q.answerKey ? formatAnswerKey(q.answerKey, q.options, (k) => k, q.matchRows) : "-";
+      const opsi = q.options?.length ? `\n   Pilihan: ${q.options.map((o, i) => `${String.fromCharCode(65 + i)}. ${o}`).join(" | ")}` : "";
+      const baris = q.matchRows?.length ? `\n   Pernyataan: ${q.matchRows.map((r, i) => `${i + 1}. ${r}`).join(" | ")}` : "";
+      return `No ${q.no} [${q.type}]: ${q.prompt}${opsi}${baris}\n   Kunci: ${key}`;
+    })
+    .join("\n");
+  return `Periksa soal-soal ujian berikut dan tentukan soal mana yang cocok diberi gambar.
+
+IDENTITAS
+${identitas(info)}
+
+SOAL
+${list}
+
+${ATURAN_GAMBAR}
+
+ATURAN TAMBAHAN
+- Kebanyakan soal TIDAK perlu gambar. Pilih hanya yang benar-benar terbantu oleh gambar.
+- Untuk soal yang diberi gambar, boleh menulis ulang "pertanyaan" agar merujuk gambar, tetapi makna dan kunci TIDAK boleh berubah, dan gambar harus sesuai dengan kunci yang sudah ada. "pertanyaan" baru WAJIB tetap memuat kalimat tanya lengkap (mis. "Perhatikan notasi berikut!\\nNotasi yang bernilai satu ketukan adalah ...."), bukan hanya "Perhatikan notasi berikut!".
+- Soal yang pilihannya berisi kode notasi (mis. "1_", "1 .") WAJIB diberi gambar: gambar setiap pilihan dengan label A, B, C, … (urutan sama), lalu kirim "opsi" baru berisi teks pengganti dengan JUMLAH dan URUTAN yang sama (mis. ["A", "B", "C", "D"]) sehingga kunci tetap benar. Selain kasus ini jangan kirim "opsi".
+- Kirim juga "pembahasan" baru bila pembahasan lama tidak lagi cocok dengan gambar/pilihan baru (rujuk label huruf, tanpa kode notasi).
+- Jangan sertakan soal yang tidak perlu gambar.
+
+FORMAT JSON
+{"soal": [{"no": 3, "pertanyaan": "Perhatikan notasi berikut!\\n...", "gambar": {"jenis": "not_balok", "notasi": "time=4/4 | C4/q D4/q E4/q F4/q ||"}, "opsi": ["A", "B", "C", "D"]}]}`;
 }

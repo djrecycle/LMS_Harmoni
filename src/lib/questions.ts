@@ -3,6 +3,7 @@ import type { Translate } from "@/i18n";
 import { NOTE_GLYPH_KINDS } from "./music-blocks";
 import { midiToNote, noteToMidi } from "./music";
 import { rhythmBeats, rhythmToText } from "./rhythm";
+import { NOTATION_KINDS, notationError } from "./notation";
 import type { NoteGlyphKind } from "@/components/lessons/note-glyph";
 
 /* ------------------------------------------------------------------ */
@@ -127,6 +128,10 @@ export const questionInputSchema = z
     explanation: z.string().trim().max(2000).nullable().optional(),
     topic: z.string().trim().max(300).nullable().optional(),
     level: z.string().trim().max(10).nullable().optional(),
+    /** Music notation the question image is drawn from. */
+    notation: z.object({ kind: z.enum(NOTATION_KINDS), text: z.string().trim().min(1).max(2000) }).nullable().optional(),
+    /** A picture the teacher still has to add (described by the AI). */
+    imageHint: z.string().trim().max(300).nullable().optional(),
     kelas: z.string().trim().max(40, "Too long").nullable().optional(),
     semester: z.union([z.literal(1), z.literal(2)]).nullable().optional(),
     points: z.number().int().min(1).max(100).default(1),
@@ -148,6 +153,9 @@ export const questionInputSchema = z
     if (v.sound?.kind === "notes" && v.sound.notes.some((n) => noteToMidi(n) === null)) isu("sound", "Some notes are invalid (a correct example: C4 E4 G4)");
     if (v.sound?.kind === "notes" && v.sound.doNote && noteToMidi(v.sound.doNote) === null) isu("sound", "The \"do\" note is invalid (example: C4)");
     if (v.answerKey.kind !== v.answerType) isu("answerKey", "The answer key does not match the answer type");
+    if (v.notation) {
+      if (notationError(v.notation)) isu("notation", "The notation cannot be drawn. Check it in the preview.");
+    }
 
     if (v.answerType === "multiple_choice" && v.answerKey.kind === "multiple_choice") {
       const options = v.options ?? [];

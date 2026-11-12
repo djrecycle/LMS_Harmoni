@@ -63,7 +63,18 @@ export default async function ExamPage({ params }: { params: Promise<{ id: strin
     indikator: item.indikator,
     level: item.level,
     question: question
-      ? { id: question.id, type: question.type, prompt: question.prompt, options: question.options, matchRows: question.matchRows, answerKey: question.answerKey, explanation: question.explanation }
+      ? {
+          id: question.id,
+          type: question.type,
+          prompt: question.prompt,
+          options: question.options,
+          matchRows: question.matchRows,
+          answerKey: question.answerKey,
+          explanation: question.explanation,
+          mediaKey: question.mediaKey,
+          notation: question.notation,
+          imageHint: question.imageHint,
+        }
       : null,
   }));
 

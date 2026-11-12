@@ -3,7 +3,7 @@
  *  - the blueprint (kisi-kisi), laid out like the school's kisi-kisi file;
  *  - the question sheet in the CBT upload template (JENIS 1-5 tables, "v" on the key), so it can be uploaded as is.
  */
-import { AlignmentType, BorderStyle, Document, Packer, PageOrientation, Paragraph, Table, TableCell, TableLayoutType, TableRow, TextRun, VerticalAlign, VerticalMergeType, WidthType } from "docx";
+import { AlignmentType, BorderStyle, Document, ImageRun, Packer, PageOrientation, Paragraph, Table, TableCell, TableLayoutType, TableRow, TextRun, VerticalAlign, VerticalMergeType, WidthType } from "docx";
 import { EXAM_SECTIONS, SECTION_META, letter, type ExamInfo, type ExamSection } from "./exam";
 import type { AnswerKey } from "./questions";
 
@@ -17,7 +17,39 @@ const NO_BORDERS = { top: NONE, bottom: NONE, left: NONE, right: NONE };
 /** A4 landscape with the template's narrow margins. */
 const PAGE = { size: { width: 11906, height: 16838, orientation: PageOrientation.LANDSCAPE }, margin: { top: 680, right: 680, bottom: 680, left: 680 } };
 
+/** An image to place under the question text. */
+export type DocImage = { data: Buffer; type: "png" | "jpg" | "gif" | "bmp"; width: number; height: number };
+
+/** Type and pixel size of an image file Word can show (PNG, JPEG, GIF, BMP); null for anything else (e.g. WebP). */
+export function imageInfo(data: Buffer): DocImage | null {
+  if (data.length > 24 && data.readUInt32BE(0) === 0x89504e47) return { data, type: "png", width: data.readUInt32BE(16), height: data.readUInt32BE(20) };
+  if (data.length > 10 && data.toString("ascii", 0, 3) === "GIF") return { data, type: "gif", width: data.readUInt16LE(6), height: data.readUInt16LE(8) };
+  if (data.length > 26 && data.toString("ascii", 0, 2) === "BM") return { data, type: "bmp", width: data.readInt32LE(18), height: Math.abs(data.readInt32LE(22)) };
+  if (data.length > 4 && data[0] === 0xff && data[1] === 0xd8) {
+    // Walk the JPEG segments to the frame header (SOF0-SOF15, except DHT/JPG/DAC), which holds the size.
+    let i = 2;
+    while (i + 9 < data.length) {
+      if (data[i] !== 0xff) return null;
+      const marker = data[i + 1];
+      const len = data.readUInt16BE(i + 2);
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) return { data, type: "jpg", width: data.readUInt16BE(i + 7), height: data.readUInt16BE(i + 5) };
+      i += 2 + len;
+    }
+  }
+  return null;
+}
+
+/** The image scaled to fit `maxWidth` pixels (never enlarged). */
+function imageParagraph(img: DocImage, maxWidth: number) {
+  const scale = Math.min(1, maxWidth / Math.max(1, img.width));
+  return new Paragraph({
+    children: [new ImageRun({ type: img.type, data: img.data, transformation: { width: Math.round(img.width * scale), height: Math.round(img.height * scale) } })],
+    spacing: { before: 60 },
+  });
+}
+
 export type DocQuestion = {
+  image?: DocImage | null;
   prompt: string;
   options: string[] | null;
   matchRows: string[] | null;
@@ -35,9 +67,12 @@ function runs(text: string, opts: { bold?: boolean; size?: number } = {}): TextR
 const para = (text: string, opts: { bold?: boolean; center?: boolean; size?: number; after?: number } = {}) =>
   new Paragraph({ children: runs(text, opts), alignment: opts.center ? AlignmentType.CENTER : undefined, spacing: { after: opts.after ?? 60 } });
 
-function cell(text: string, width: number, opts: { bold?: boolean; center?: boolean; merge?: "restart" | "continue"; span?: number; shade?: boolean; borders?: boolean } = {}) {
+function cell(text: string, width: number, opts: { bold?: boolean; center?: boolean; merge?: "restart" | "continue"; span?: number; shade?: boolean; borders?: boolean; image?: DocImage | null } = {}) {
+  const children = [new Paragraph({ children: opts.merge === "continue" ? [] : runs(text, { bold: opts.bold }), alignment: opts.center ? AlignmentType.CENTER : undefined })];
+  // A twip is 1/20 pt; at 96 dpi a pixel is 15 twips. Leave room for the cell margins.
+  if (opts.image && opts.merge !== "continue") children.push(imageParagraph(opts.image, Math.floor(width / 15) - 14));
   return new TableCell({
-    children: [new Paragraph({ children: opts.merge === "continue" ? [] : runs(text, { bold: opts.bold }), alignment: opts.center ? AlignmentType.CENTER : undefined })],
+    children,
     width: { size: width, type: WidthType.DXA },
     columnSpan: opts.span,
     verticalMerge: opts.merge === "restart" ? VerticalMergeType.RESTART : opts.merge === "continue" ? VerticalMergeType.CONTINUE : undefined,
@@ -141,7 +176,7 @@ function choiceTable(items: { no: number; question: DocQuestion | null }[], jeni
           cantSplit: true,
           children: [
             cell(String(n + 1), W[0], { center: true, merge }),
-            cell(q?.prompt ?? "", W[1], { merge }),
+            cell(q?.prompt ?? "", W[1], { merge, image: q?.image }),
             cell(String(jenis), W[2], { center: true, merge }),
             cell(i < options.length || jenis === 1 ? letter(i) : "", W[3], { center: true }),
             cell(options[i] ?? "", W[4]),
@@ -194,7 +229,7 @@ function matchingTable(items: { no: number; question: DocQuestion | null }[]): T
           cantSplit: true,
           children: [
             cell(String(n + 1), W[0], { center: true, merge }),
-            cell(q?.prompt ?? "", W[1], { merge }),
+            cell(q?.prompt ?? "", W[1], { merge, image: q?.image }),
             cell("3", W[2], { center: true, merge }),
             cell(hasRow ? String(i + 1) : "", W[3], { center: true }),
             cell(statements[i] ?? "", W[4]),
@@ -221,7 +256,7 @@ function textTable(items: { no: number; question: DocQuestion | null }[], jenis:
       (it, n) =>
         new TableRow({
           cantSplit: true,
-          children: [cell(String(n + 1), W[0], { center: true }), cell(it.question?.prompt ?? "", W[1]), cell(String(jenis), W[2], { center: true }), cell(answer(it.question), W[3])],
+          children: [cell(String(n + 1), W[0], { center: true }), cell(it.question?.prompt ?? "", W[1], { image: it.question?.image }), cell(String(jenis), W[2], { center: true }), cell(answer(it.question), W[3])],
         }),
     ),
   ]);

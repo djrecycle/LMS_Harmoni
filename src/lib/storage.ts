@@ -100,6 +100,20 @@ export function contentDisposition(filename: string) {
 
 export const usesS3 = useS3;
 
+/** The whole file (for embedding images in generated documents); null when it does not exist. */
+export async function readFileBytes(key: string): Promise<Buffer | null> {
+  if (!isValidKey(key)) return null;
+  try {
+    if (useS3()) {
+      const r = await clientS3().send(new GetObjectCommand({ Bucket: process.env.S3_BUCKET, Key: key }));
+      return r.Body ? Buffer.from(await r.Body.transformToByteArray()) : null;
+    }
+    return await fsp.readFile(path.join(/*turbopackIgnore: true*/ ROOT, key));
+  } catch {
+    return null;
+  }
+}
+
 /** Local file info & stream, with byte-range (Range) support so audio/video can be seeked. */
 export async function openLocalFile(key: string, range?: { start: number; end: number }) {
   const location = path.join(/*turbopackIgnore: true*/ ROOT, key);

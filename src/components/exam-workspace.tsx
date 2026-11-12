@@ -1,22 +1,37 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, CircleCheck, Download, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
+import { ChevronDown, CircleCheck, Download, ImageIcon, ImageOff, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
-import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, linkExamQuestion, publishExam, saveExamItem, startKisi, startSoal } from "@/app/actions/exam";
+import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, linkExamQuestion, publishExam, saveExamItem, setQuestionImage, startGambar, startKisi, startSoal } from "@/app/actions/exam";
 import { DeleteButton } from "@/components/delete-button";
 import { ProviderSelect, providerReady, useProviderPick, type ProviderOption } from "@/components/provider-select";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { Alert, Badge } from "@/components/ui/misc";
 import { COGNITIVE_LEVELS, EXAM_SECTIONS, SECTION_META, letter, pointsPerQuestion, totalCount, type ExamComposition, type ExamInfo, type ExamSection } from "@/lib/exam";
-import type { AnswerKey, QuestionType } from "@/lib/questions";
+import { mediaUrl, type AnswerKey, type QuestionType } from "@/lib/questions";
+import type { Notation } from "@/lib/notation";
+import { notationPng, uploadMedia } from "@/lib/notation-render";
+import { MediaUploader } from "@/components/media-uploader";
+import { NotationPreview } from "@/components/notation-editor";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 
-export type WorkspaceQuestion = { id: string; type: QuestionType; prompt: string; options: string[] | null; matchRows: string[] | null; answerKey: AnswerKey | null; explanation: string | null };
+export type WorkspaceQuestion = {
+  id: string;
+  type: QuestionType;
+  prompt: string;
+  options: string[] | null;
+  matchRows: string[] | null;
+  answerKey: AnswerKey | null;
+  explanation: string | null;
+  mediaKey: string | null;
+  notation: Notation | null;
+  imageHint: string | null;
+};
 export type WorkspaceItem = { id: string; section: ExamSection; tp: string; materi: string; indikator: string; level: string; question: WorkspaceQuestion | null };
 type BankQuestion = { id: string; type: QuestionType; prompt: string; topic: string | null; kelas: string | null; level: string | null };
 type ExamView = { id: string; title: string; info: ExamInfo; tps: string[]; composition: ExamComposition; job: string | null; jobError: string | null };
@@ -48,7 +63,40 @@ export function ExamWorkspace({
   const [progress, setProgress] = useState<{ filled: number; total: number } | null>(null);
   const [pick, setPick] = useProviderPick();
   const [catatan, setCatatan] = useState("");
+  const [withImages, setWithImages] = useState(true);
   const [busy, start] = useTransition();
+  const [drawing, setDrawing] = useState<{ done: number; total: number } | null>(null);
+  const tried = useRef(new Set<string>());
+
+  // Notation the AI (or the teacher) wrote but that is not an image yet: draw it here in the browser, upload the PNG,
+  // and make it the question image. Runs once per question; a failure is reported and left for the teacher.
+  const pendingDrawings = items.map((i) => i.question).filter((q): q is WorkspaceQuestion => Boolean(q?.notation && !q.mediaKey && !tried.current.has(q.id)));
+  const pendingKey = pendingDrawings.map((q) => q.id).join(",");
+  useEffect(() => {
+    if (job || drawing || pendingDrawings.length === 0) return;
+    const list = pendingDrawings;
+    list.forEach((q) => tried.current.add(q.id));
+    void (async () => {
+      setDrawing({ done: 0, total: list.length });
+      let failed = 0;
+      for (let n = 0; n < list.length; n++) {
+        try {
+          const key = await uploadMedia(await notationPng(list[n].notation!));
+          const r = await setQuestionImage(list[n].id, key);
+          if (!r.ok) failed++;
+        } catch {
+          failed++;
+        }
+        setDrawing({ done: n + 1, total: list.length });
+      }
+      setDrawing(null);
+      if (failed) toast.warning(t("{0} notation images could not be drawn. Open the question to fix its notation.", failed));
+      else toast.success(t("{0} notation images added to the questions.", list.length));
+      router.refresh();
+    })();
+    // Runs when the set of undrawn questions changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingKey, job]);
 
   // Follow the server's job state after a refresh.
   useEffect(() => setJob(exam.job), [exam.job]);
@@ -66,7 +114,7 @@ export function ExamWorkspace({
         if (!r.data.job) {
           setJob(null);
           if (r.data.jobError) toast.warning(t(r.data.jobError));
-          else toast.success(job === "kisi" ? t("The blueprint is ready. Check and edit it.") : t("The questions are ready. Check them."));
+          else toast.success(job === "kisi" ? t("The blueprint is ready. Check and edit it.") : job === "gambar" ? t("The AI chose the questions that get an image.") : t("The questions are ready. Check them."));
           if (job === "kisi") setTab("kisi");
           router.refresh();
           return;
@@ -91,9 +139,14 @@ export function ExamWorkspace({
   const filled = items.filter((i) => i.question).length;
   const noProvider = !providerReady(providers, pick);
 
-  function run(kind: "kisi" | "soal") {
+  function run(kind: "kisi" | "soal" | "gambar") {
     start(async () => {
-      const r = kind === "kisi" ? await startKisi(exam.id, { provider: pick, catatan }) : await startSoal(exam.id, { provider: pick, catatan });
+      const r =
+        kind === "kisi"
+          ? await startKisi(exam.id, { provider: pick, catatan })
+          : kind === "soal"
+            ? await startSoal(exam.id, { provider: pick, catatan, gambar: withImages })
+            : await startGambar(exam.id, { provider: pick });
       if (!r.ok) return void toast.error(r.error ?? t("Could not start the generation."));
       setProgress(null);
       setJob(kind);
@@ -153,10 +206,17 @@ export function ExamWorkspace({
 
       {/* Job state */}
       {job && (
-        <Alert kind="info" title={job === "kisi" ? t("The AI is writing the blueprint…") : t("The AI is writing the questions…")}>
+        <Alert kind="info" title={job === "kisi" ? t("The AI is writing the blueprint…") : job === "gambar" ? t("The AI is choosing questions that need an image…") : t("The AI is writing the questions…")}>
           <p className="flex items-center gap-2">
             <LoaderCircle className="size-4 animate-spin" />
             {job === "soal" && progress ? t("{0} of {1} rows have a question.", progress.filled, progress.total) : t("This can take a few minutes. You can leave this page and come back.")}
+          </p>
+        </Alert>
+      )}
+      {drawing && (
+        <Alert kind="info" title={t("Drawing notation images…")}>
+          <p className="flex items-center gap-2">
+            <LoaderCircle className="size-4 animate-spin" /> {t("{0} of {1}. Keep this page open until it finishes.", drawing.done, drawing.total)}
           </p>
         </Alert>
       )}
@@ -201,11 +261,25 @@ export function ExamWorkspace({
           <Field label={t("Notes for the AI (optional)")} htmlFor="ex-catatan">
             <Textarea id="ex-catatan" rows={2} value={catatan} onChange={(e) => setCatatan(e.target.value)} maxLength={1500} placeholder={t("Example: use stories about school music activities; avoid questions about note values.")} />
           </Field>
+          {tab === "soal" && (
+            <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+              <input type="checkbox" className="mt-0.5 size-4 accent-[var(--primary)]" checked={withImages} onChange={(e) => setWithImages(e.target.checked)} />
+              <span>
+                <b>{t("Add images where they fit")}</b>
+                <span className="block text-xs text-muted-foreground">{t("Staff or numbered notation for questions about reading music, drawn by the app. Pictures the app cannot draw (e.g. instrument photos) are marked for you to upload.")}</span>
+              </span>
+            </label>
+          )}
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => run(tab === "kisi" ? "kisi" : "soal")} disabled={busy || Boolean(job) || noProvider || (tab === "kisi" ? exam.tps.length === 0 : items.length === filled || items.length === 0)}>
               {busy || job ? <LoaderCircle className="animate-spin" /> : <Sparkles />}
               {tab === "kisi" ? (items.length ? t("Make the blueprint again") : t("Make the blueprint")) : t("Write questions ({0})", items.length - filled)}
             </Button>
+            {tab === "soal" && filled > 0 && (
+              <Button variant="secondary" onClick={() => run("gambar")} disabled={busy || Boolean(job) || noProvider}>
+                <ImageIcon /> {t("Add images to suitable questions")}
+              </Button>
+            )}
             {tab === "kisi" && exam.tps.length === 0 && <p className="self-center text-sm text-warning">{t("Choose the TP in the exam settings first.")}</p>}
           </div>
         </div>
@@ -430,8 +504,20 @@ function SoalCard({ examId, item, bank, locked }: { examId: string; item: Worksp
   const t = useT();
   const router = useRouter();
   const [picking, setPicking] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [busy, start] = useTransition();
   const q = item.question;
+
+  function image(key: string | null) {
+    if (!q) return;
+    start(async () => {
+      const r = await setQuestionImage(q.id, key);
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(r.message);
+      setUploading(false);
+      router.refresh();
+    });
+  }
 
   function link(questionId: string | null) {
     start(async () => {
@@ -455,6 +541,18 @@ function SoalCard({ examId, item, bank, locked }: { examId: string; item: Worksp
 
       {q ? <QuestionView q={q} /> : <p className="text-sm font-semibold text-muted-foreground">{t("No question yet.")}</p>}
 
+      {q?.imageHint && !q.mediaKey && (
+        <Alert kind="warning" className="mt-3" title={t("This question needs a picture")}>
+          <p>{q.imageHint}</p>
+          <p className="mt-1 text-xs">{t("The app cannot draw this picture. Upload it, or remove the note if the question works without it.")}</p>
+        </Alert>
+      )}
+      {q && (uploading || (q.imageHint && !q.mediaKey)) && (
+        <div className="mt-2 max-w-md">
+          <MediaUploader name={`img-${q.id}`} kind="image" allowLink={false} onChange={(key) => key && image(key)} />
+        </div>
+      )}
+
       <div className="mt-3 flex flex-wrap gap-2">
         <Button variant="outline" size="sm" disabled={busy || locked} onClick={() => setPicking((x) => !x)}>
           <Search /> {q ? t("Replace from bank") : t("Choose from bank")}
@@ -466,6 +564,15 @@ function SoalCard({ examId, item, bank, locked }: { examId: string; item: Worksp
                 <Pencil /> {t("Edit question")}
               </Link>
             </Button>
+            {q.mediaKey || q.notation || q.imageHint ? (
+              <Button variant="ghost" size="sm" disabled={busy || locked} onClick={() => image(null)}>
+                <ImageOff /> {t("Remove image")}
+              </Button>
+            ) : (
+              <Button variant="ghost" size="sm" disabled={busy || locked} onClick={() => setUploading((x) => !x)}>
+                <ImageIcon /> {t("Add own image")}
+              </Button>
+            )}
             <Button variant="ghost" size="sm" disabled={busy || locked} onClick={() => link(null)}>
               <Unlink /> {t("Remove")}
             </Button>
@@ -484,6 +591,12 @@ function QuestionView({ q }: { q: WorkspaceQuestion }) {
   return (
     <div className="grid gap-2 text-sm">
       <p className="font-semibold break-words whitespace-pre-line">{q.prompt}</p>
+      {q.mediaKey ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={mediaUrl(q.mediaKey)!} alt={t("Question image")} className="max-h-56 w-auto max-w-full justify-self-start rounded-lg border bg-white object-contain" />
+      ) : q.notation ? (
+        <NotationPreview notation={q.notation} />
+      ) : null}
       {(q.type === "multiple_choice" || q.type === "multiple_select") && (
         <ol className="grid gap-1">
           {(q.options ?? []).map((o, i) => {
@@ -607,7 +720,9 @@ function PublishTab({
   const points = pointsPerQuestion(comp, counts);
   const weight = EXAM_SECTIONS.reduce((n, s) => n + (counts[s] > 0 ? comp[s].weight : 0), 0);
   const missing = items.filter((i) => !i.question).length;
+  const needImage = items.filter((i) => i.question && !i.question.mediaKey && (i.question.imageHint || i.question.notation)).length;
   const problems = [
+    needImage > 0 && t("{0} questions still need their image.", needImage),
     items.length === 0 && t("The exam has no rows yet."),
     missing > 0 && t("{0} rows have no question yet.", missing),
     Math.abs(weight - 100) > 0.01 && t("The weights of the sections that have questions add up to {0}%, not 100%.", Math.round(weight * 100) / 100),

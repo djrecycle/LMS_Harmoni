@@ -20,6 +20,8 @@ import { RhythmTapRecorder } from "@/components/rhythm-tap-recorder";
 import { parseRhythm, rhythmToText, rhythmVariants } from "@/lib/rhythm";
 import { cn } from "@/lib/utils";
 import { COGNITIVE_LEVELS } from "@/lib/exam";
+import type { Notation } from "@/lib/notation";
+import { NotationEditor } from "@/components/notation-editor";
 import { useT } from "@/i18n/client";
 
 export type QuestionDraft = {
@@ -35,6 +37,8 @@ export type QuestionDraft = {
   explanation: string | null;
   topic: string | null;
   level?: string | null;
+  notation?: Notation | null;
+  imageHint?: string | null;
   kelas?: string | null;
   semester?: number | null;
   points: number;
@@ -121,6 +125,10 @@ export function QuestionForm({
   const [options, setOptions] = useState<string[]>(initialState.options?.length ? initialState.options : ["", "", "", ""]);
   const [matchRows, setMatchRows] = useState<string[]>(initialState.matchRows?.length ? initialState.matchRows : ["", "", "", ""]);
   const [level, setLevel] = useState(initialState.level ?? "");
+  const [notation, setNotation] = useState<Notation | null>(initialState.notation ?? null);
+  const [imageHint] = useState(initialState.imageHint ?? "");
+  // Bumped when the image is replaced from outside the uploader (drawn notation), so the uploader shows it.
+  const [uploaderVersion, setUploaderVersion] = useState(0);
   const [answerKey, setAnswerKey] = useState<AnswerKey>(initialState.answerKey ?? defaultAnswerKey(initialState.answerType));
   const [explanation, setExplanation] = useState(initialState.explanation ?? "");
   const [topic, setTopic] = useState(initialState.topic ?? "");
@@ -175,6 +183,9 @@ export function QuestionForm({
       matchRows: answerShape === "matching" ? matchRows.map((o) => o.trim()) : null,
       answerKey: answerKey.kind === "matching" ? { kind: "matching", pairs: matchRows.map((_, i) => answerKey.pairs[i] ?? -1) } : answerKey,
       level: level || null,
+      notation: notation?.text.trim() ? notation : null,
+      // Once the question has an image, the "picture needed" note has done its job.
+      imageHint: mediaKey ? null : imageHint || null,
       explanation: explanation || null,
       topic: topic || null,
       kelas: kelas.trim() || null,
@@ -270,8 +281,27 @@ export function QuestionForm({
             {type === "audio" ? t("Question audio clip") : type === "video" ? t("Question video") : type === "midi" ? t("Supporting audio (optional)") : t("Supporting image (optional)")}
             {mediaRequire && <span className="text-danger"> *</span>}
           </p>
-          <MediaUploader key={kindMedia} name="mediaKey" kind={kindMedia} defaultValue={mediaKey} onChange={setMediaKey} />
+          {imageHint && !mediaKey && (
+            <Alert kind="warning" className="mb-2" title={t("This question needs a picture")}>
+              {imageHint}
+            </Alert>
+          )}
+          <MediaUploader key={`${kindMedia}-${uploaderVersion}`} name="mediaKey" kind={kindMedia} defaultValue={mediaKey} onChange={setMediaKey} />
           {error.mediaKey && <p className="mt-1 text-xs font-medium text-danger">{error.mediaKey}</p>}
+          {kindMedia === "image" && (
+            <div className="mt-3">
+              <p className="mb-1.5 text-sm font-semibold">{t("Or draw music notation as the image")}</p>
+              <NotationEditor
+                value={notation}
+                onChange={setNotation}
+                onImage={(key) => {
+                  setMediaKey(key);
+                  setUploaderVersion((v) => v + 1);
+                }}
+              />
+              {error.notation && <p className="mt-1 text-xs font-medium text-danger">{error.notation}</p>}
+            </div>
+          )}
         </div>
       )}
 
