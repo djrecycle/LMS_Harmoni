@@ -5,7 +5,7 @@ import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import { ExamWorkspace, type WorkspaceItem } from "@/components/exam-workspace";
 import { db, schema } from "@/db";
-import { canMakeImages, providerOptions } from "@/lib/ai";
+import { imageReadyFor, providerOptions } from "@/lib/ai";
 import { EXAM_SECTIONS, SECTION_META, readComposition } from "@/lib/exam";
 import { expireStaleExamJob, getOwnedExam, listExamItems } from "@/lib/exam-store";
 import { requireTeacher } from "@/lib/session";
@@ -53,7 +53,7 @@ export default async function ExamPage({ params }: { params: Promise<{ id: strin
       .groupBy(S.quiz.id, S.classroom.name)
       .orderBy(desc(S.quiz.createdAt)),
     providerOptions(teacher.id),
-    canMakeImages(teacher.id),
+    imageReadyFor(teacher.id),
   ]);
 
   const items: WorkspaceItem[] = rows.map(({ item, question }) => ({

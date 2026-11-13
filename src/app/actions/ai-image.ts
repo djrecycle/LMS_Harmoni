@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
-import { aiErrorMessage, canMakeImages, generateImage, refundAllowance, takeAllowance } from "@/lib/ai";
+import { aiErrorMessage, canMakeImages, generateImage, generateText, illustrationProvider, imageReadyFor, refundAllowance, takeAllowance, type ImageReady } from "@/lib/ai";
+import { ILLUSTRATION_SYSTEM, cleanSvg, illustrationPrompt } from "@/lib/ai-illustration";
 import { storageQuotaBytes } from "@/lib/platform";
 import { requireTeacher } from "@/lib/session";
 import { saveFile, usedBytes } from "@/lib/storage";
@@ -31,10 +32,10 @@ function imagePrompt(description: string, shape: "question" | "option") {
   ].join("\n");
 }
 
-/** Whether the AI image button can work for this teacher (a Gemini key is set). */
-export async function aiImageReady(): Promise<boolean> {
+/** Which kinds of AI pictures the signed-in teacher can make. */
+export async function aiImageReady(): Promise<ImageReady> {
   const teacher = await requireTeacher();
-  return canMakeImages(teacher.id);
+  return imageReadyFor(teacher.id);
 }
 
 /**
@@ -60,6 +61,28 @@ export async function generateAiImage(data: unknown): Promise<ActionResult<{ key
     const key = `media/${teacher.id}/${randomUUID()}.${ext}`;
     await saveFile(key, img.data, img.mediaType in EXT ? img.mediaType : "image/png");
     return succeed(t("The AI picture is ready."), { key });
+  } catch (e) {
+    await refundAllowance(teacher.id).catch(() => undefined);
+    return fail(t(aiErrorMessage(e)));
+  }
+}
+
+/**
+ * An illustration drawn by Claude as SVG code (the browser turns it into a PNG and uploads it).
+ * Uses Claude Code or the Anthropic API when available, else the teacher's other text AI.
+ */
+export async function generateAiIllustration(data: unknown): Promise<ActionResult<{ svg: string }>> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const p = schema.safeParse(data);
+  if (!p.success) return zodError(p.error);
+  const provider = await illustrationProvider(teacher.id);
+  if (!provider) return fail(t("AI is not set up yet. Add your own Gemini or Anthropic API key in AI Settings first."));
+  if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
+
+  try {
+    const { text } = await generateText({ system: ILLUSTRATION_SYSTEM, prompt: illustrationPrompt(p.data.prompt, p.data.shape), maxTokens: 16000, provider, owner: teacher.id });
+    return succeed(undefined, { svg: cleanSvg(text, p.data.shape) });
   } catch (e) {
     await refundAllowance(teacher.id).catch(() => undefined);
     return fail(t(aiErrorMessage(e)));

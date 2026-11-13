@@ -293,6 +293,30 @@ export async function generateJson<T>({
 /** Whether `userId` can make images: only Gemini makes pictures (Anthropic and the others only write text). */
 export const canMakeImages = async (userId: string) => (await getAiConfig(userId)).gemini.key !== "";
 
+/**
+ * The text AI that draws illustrations as SVG code: Claude (Claude Code or the Anthropic API, the teacher's default
+ * first) when it can be used, else whatever text AI the teacher has. Null when there is none.
+ */
+export async function illustrationProvider(userId: string): Promise<AiProvider | null> {
+  const cfg = await getAiConfig(userId);
+  if ((cfg.provider === "claude-cli" || cfg.provider === "anthropic") && (await isAvailable(cfg.provider, cfg))) return cfg.provider;
+  for (const p of ["claude-cli", "anthropic"] as const) if (await isAvailable(p, cfg)) return p;
+  return resolveProvider("auto", cfg);
+}
+
+export type ImageReady = {
+  /** Realistic pictures: needs a Gemini key. */
+  photo: boolean;
+  /** Name of the AI that draws illustrations as SVG ("Claude", or the teacher's other text AI); null = none. */
+  illustration: string | null;
+};
+
+/** Which kinds of AI pictures `userId` can make. */
+export async function imageReadyFor(userId: string): Promise<ImageReady> {
+  const [photo, p] = await Promise.all([canMakeImages(userId), illustrationProvider(userId)]);
+  return { photo, illustration: p === "claude-cli" || p === "anthropic" ? "Claude" : p === "gemini" ? "Gemini" : p === "ollama" ? "Ollama" : null };
+}
+
 /** One picture from a description, made with the Gemini key of the teacher using the AI. */
 export async function generateImage({ prompt, owner, aspectRatio }: { prompt: string; owner: string; aspectRatio?: "1:1" | "4:3" }) {
   const cfg = await getAiConfig(owner);

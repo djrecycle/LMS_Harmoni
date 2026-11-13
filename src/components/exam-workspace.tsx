@@ -17,6 +17,7 @@ import type { Notation } from "@/lib/notation";
 import { notationPng, uploadMedia } from "@/lib/notation-render";
 import { MediaUploader } from "@/components/media-uploader";
 import { AiImagePanel, type ImageTarget } from "@/components/ai-image-panel";
+import type { ImageReady } from "@/lib/ai";
 import { NotationPreview } from "@/components/notation-editor";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
@@ -58,8 +59,8 @@ export function ExamWorkspace({
   classrooms: { id: string; name: string }[];
   linked: { id: string; title: string; published: boolean; classroomName: string; attempts: number }[];
   providers: ProviderOption[];
-  /** The teacher has a Gemini key, so the AI can make pictures. */
-  imageAi: boolean;
+  /** Which AI pictures the teacher can make. */
+  imageAi: ImageReady;
 }) {
   const t = useT();
   const router = useRouter();
@@ -463,7 +464,7 @@ function SoalTab({
   bank: BankQuestion[];
   quizzes: { id: string; title: string; classroomName: string; n: number }[];
   locked: boolean;
-  imageAi: boolean;
+  imageAi: ImageReady;
 }) {
   const t = useT();
   const router = useRouter();
@@ -519,7 +520,7 @@ function SoalTab({
   );
 }
 
-function SoalCard({ examId, item, bank, locked, imageAi }: { examId: string; item: WorkspaceItem & { no: number }; bank: BankQuestion[]; locked: boolean; imageAi: boolean }) {
+function SoalCard({ examId, item, bank, locked, imageAi }: { examId: string; item: WorkspaceItem & { no: number }; bank: BankQuestion[]; locked: boolean; imageAi: ImageReady }) {
   const t = useT();
   const router = useRouter();
   const [picking, setPicking] = useState(false);
