@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
 import { zodError } from "@/lib/action-result-server";
-import { aiErrorMessage, generateText, listModels } from "@/lib/ai";
+import { aiErrorMessage, generateImage, generateText, listModels } from "@/lib/ai";
 import { aiSettingsSchema, clearAiKey as forgetKey, saveAiConfig } from "@/lib/ai-config";
 import { requireTeacher } from "@/lib/session";
 import { getT } from "@/i18n/server";
@@ -28,7 +28,7 @@ export async function saveAiSettings(data: unknown): Promise<ActionResult> {
 export async function clearAiKey(provider: unknown): Promise<ActionResult> {
   const t = await getT();
   const teacher = await requireTeacher();
-  const p = providerField.exclude(["claude-cli", "ollama"]).safeParse(provider);
+  const p = z.enum(["anthropic", "gemini", "cloudflare"]).safeParse(provider);
   if (!p.success) return fail(t("Unknown provider."));
   await forgetKey(p.data, teacher.id);
   refresh();
@@ -62,4 +62,18 @@ export async function listProviderModels(provider: unknown): Promise<ActionResul
   } catch (e) {
     return fail(t(aiErrorMessage(e)));
   }
+}
+
+/** Makes one small picture with the SAVED Cloudflare Workers AI settings (uses a little of the free daily allowance, not the AI limit). */
+export async function testCloudflareImage(): Promise<ActionResult<{ ms: number }>> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const started = Date.now();
+  try {
+    await generateImage({ prompt: "a red apple on a white table", provider: "cloudflare", owner: teacher.id, steps: 1 });
+  } catch (e) {
+    return fail(t(aiErrorMessage(e)));
+  }
+  const ms = Date.now() - started;
+  return succeed(t("Connected — Cloudflare made a test picture in {0} ms.", ms), { ms });
 }

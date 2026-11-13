@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
-import { aiErrorMessage, canMakeImages, generateImage, generateText, illustrationProvider, imageReadyFor, refundAllowance, takeAllowance, type ImageReady } from "@/lib/ai";
+import { aiErrorMessage, generateImage, generateText, illustrationProvider, imageReadyFor, photoProvider, refundAllowance, takeAllowance, type ImageReady } from "@/lib/ai";
 import { ILLUSTRATION_SYSTEM, cleanSvg, illustrationPrompt } from "@/lib/ai-illustration";
 import { storageQuotaBytes } from "@/lib/platform";
 import { requireTeacher } from "@/lib/session";
@@ -32,6 +32,28 @@ function imagePrompt(description: string, shape: "question" | "option") {
   ].join("\n");
 }
 
+/**
+ * FLUX (Cloudflare) understands short, concrete English prompts best and tends to draw any "no text" instruction as
+ * text: the teacher's description (often Indonesian) is rewritten by the teacher's text AI. Without one, or if that
+ * fails, the description is used as written.
+ */
+async function fluxPrompt(description: string, shape: "question" | "option", owner: string): Promise<string> {
+  const tail = shape === "option" ? "single object, centered, plain white background, clear educational photo" : "clear educational picture, plain light background";
+  try {
+    const { text } = await generateText({
+      system: "You write prompts for an image generator (FLUX). Reply with ONLY the prompt: one line in English, at most 60 words.",
+      prompt: `Rewrite this picture description from a music teacher (it may be in Indonesian) as an English image prompt. Describe only what must be visible, concretely and positively: never write "no ...". Draw musical instruments with their correct shape and parts.${shape === "option" ? " The picture shows a single object, centered, on a plain white background." : ""}\n\nDescription: ${description}`,
+      maxTokens: 300,
+      owner,
+    });
+    const line = text.replace(/^["'`\s]+|["'`\s]+$/g, "").split("\n")[0].trim();
+    if (line.length >= 3) return `${line}, ${tail}`;
+  } catch (e) {
+    console.warn("[ai-image] prompt rewrite failed, using the description as written:", e instanceof Error ? e.message : e);
+  }
+  return `${description}, ${tail}`;
+}
+
 /** Which kinds of AI pictures the signed-in teacher can make. */
 export async function aiImageReady(): Promise<ImageReady> {
   const teacher = await requireTeacher();
@@ -39,7 +61,7 @@ export async function aiImageReady(): Promise<ImageReady> {
 }
 
 /**
- * Make a picture from the teacher's description with the AI (Gemini) and save it in the teacher's media.
+ * Make a realistic picture from the teacher's description (Cloudflare Workers AI or Gemini) and save it in the teacher's media.
  * Returns the media key; the caller puts it on the question or on a choice.
  */
 export async function generateAiImage(data: unknown): Promise<ActionResult<{ key: string }>> {
@@ -47,7 +69,8 @@ export async function generateAiImage(data: unknown): Promise<ActionResult<{ key
   const teacher = await requireTeacher();
   const p = schema.safeParse(data);
   if (!p.success) return zodError(p.error);
-  if (!(await canMakeImages(teacher.id))) return fail(t("Making images needs a Gemini API key (Anthropic cannot make images). Add your Gemini key in AI Settings."));
+  const provider = await photoProvider(teacher.id);
+  if (!provider) return fail(t("Realistic pictures need Cloudflare Workers AI (free daily allowance) or a Gemini key with an image quota. Set one up in AI Settings."));
 
   const quota = await storageQuotaBytes(teacher.id);
   if (quota !== null && (await usedBytes(`media/${teacher.id}/`)) + 2 * 1024 * 1024 > quota) {
@@ -56,7 +79,8 @@ export async function generateAiImage(data: unknown): Promise<ActionResult<{ key
   if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
 
   try {
-    const img = await generateImage({ prompt: imagePrompt(p.data.prompt, p.data.shape), owner: teacher.id, aspectRatio: p.data.shape === "option" ? "1:1" : "4:3" });
+    const prompt = provider === "cloudflare" ? await fluxPrompt(p.data.prompt, p.data.shape, teacher.id) : imagePrompt(p.data.prompt, p.data.shape);
+    const img = await generateImage({ prompt, provider, owner: teacher.id, aspectRatio: p.data.shape === "option" ? "1:1" : "4:3" });
     const ext = EXT[img.mediaType] ?? "png";
     const key = `media/${teacher.id}/${randomUUID()}.${ext}`;
     await saveFile(key, img.data, img.mediaType in EXT ? img.mediaType : "image/png");

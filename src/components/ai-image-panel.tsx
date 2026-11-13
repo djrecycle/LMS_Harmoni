@@ -23,7 +23,7 @@ type Style = "illustration" | "photo";
 /**
  * The teacher writes what the picture should show and the AI draws it, or uploads their own file instead:
  *  - illustration: Claude draws it as SVG code, the browser turns it into a PNG;
- *  - photo: a realistic picture from a Gemini image model (needs a Gemini key with an image quota).
+ *  - photo: a realistic picture from Cloudflare Workers AI (FLUX, free daily allowance) or a Gemini image model.
  * `onApply` puts the new media key on the chosen target (the question, or a choice).
  */
 export function AiImagePanel({
@@ -54,7 +54,7 @@ export function AiImagePanel({
     let live = true;
     aiImageReady()
       .then((r) => live && setAsked(r))
-      .catch(() => live && setAsked({ photo: false, illustration: null }));
+      .catch(() => live && setAsked({ photo: null, illustration: null }));
     return () => {
       live = false;
     };
@@ -62,7 +62,7 @@ export function AiImagePanel({
   const can = ready ?? asked;
   const [chosenStyle, setStyle] = useState<Style | null>(null);
   const style: Style = chosenStyle ?? (can && !can.illustration && can.photo ? "photo" : "illustration");
-  const canMake = can === null ? null : style === "photo" ? can.photo : Boolean(can.illustration);
+  const canMake = can === null ? null : style === "photo" ? Boolean(can.photo) : Boolean(can.illustration);
   const current = targets.find((x) => x.id === target) ?? first;
   if (!current) return null;
 
@@ -136,7 +136,7 @@ export function AiImagePanel({
               onClick={() => setStyle(x)}
               className={cn("rounded-full border px-3 py-1 text-xs font-semibold transition-colors", style === x ? "border-primary bg-primary-soft text-primary" : "bg-card hover:bg-muted")}
             >
-              {x === "illustration" ? t("Illustration ({0})", can.illustration ?? "Claude") : t("Realistic (Gemini)")}
+              {x === "illustration" ? t("Illustration ({0})", can.illustration ?? "Claude") : t("Realistic ({0})", can.photo ?? "Cloudflare / Gemini")}
             </button>
           ))}
         </div>
@@ -178,7 +178,7 @@ export function AiImagePanel({
         </>
       ) : (
         <Alert kind="info">
-          {style === "photo" ? t("Realistic pictures need a Gemini API key with an image quota.") : t("AI is not set up yet. Add your own Gemini or Anthropic API key in AI Settings first.")}{" "}
+          {style === "photo" ? t("Realistic pictures need Cloudflare Workers AI (free daily allowance) or a Gemini key with an image quota. Set one up in AI Settings.") : t("AI is not set up yet. Add your own Gemini or Anthropic API key in AI Settings first.")}{" "}
           <Link href="/teacher/ai-settings" className="font-semibold underline">
             {t("AI Settings")}
           </Link>

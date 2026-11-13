@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle, PlugZap, RefreshCw, Save, Trash2 } from "lucide-react";
-import { clearAiKey, listProviderModels, saveAiSettings, testAiProvider } from "@/app/actions/ai-settings";
+import { clearAiKey, listProviderModels, saveAiSettings, testAiProvider, testCloudflareImage } from "@/app/actions/ai-settings";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/input";
 import { Alert, Badge } from "@/components/ui/misc";
@@ -95,7 +95,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
   const personal = view.scope === "teacher";
   const defaultWord = personal ? t("Default") : t("Server default");
   const [busy, start] = useTransition();
-  const [testing, setTesting] = useState<Provider | "">("");
+  const [testing, setTesting] = useState<Provider | "cloudflare" | "">("");
   const [f, setF] = useState({
     provider: view.saved.provider,
     anthropicKey: "",
@@ -107,7 +107,11 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
     ollamaModel: view.saved.ollamaModel,
     cliModel: view.saved.cliModel,
     dailyLimit: view.saved.dailyLimit,
+    cloudflareAccountId: view.saved.cloudflareAccountId,
+    cloudflareToken: "",
+    cloudflareImageModel: view.saved.cloudflareImageModel,
   });
+  const [cfTest, setCfTest] = useState<{ ok: boolean; text: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string; fields?: Record<string, string> } | null>(null);
   const [lists, setLists] = useState<Partial<Record<Provider, ModelList>>>({});
   const loadModels = useCallback(async (p: Provider) => {
@@ -127,12 +131,12 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
 
   /** Saves the form. Returns false (and shows the error at the top) when the server rejects it. */
   async function persist(): Promise<boolean> {
-    const r = await saveAiSettings({ ...f, anthropicKey: f.anthropicKey || undefined, geminiKey: f.geminiKey || undefined });
+    const r = await saveAiSettings({ ...f, anthropicKey: f.anthropicKey || undefined, geminiKey: f.geminiKey || undefined, cloudflareToken: f.cloudflareToken || undefined });
     if (!r.ok) {
       setMsg({ ok: false, text: r.error ?? t("Could not save the settings."), fields: r.fieldErrors });
       return false;
     }
-    setF((s) => ({ ...s, anthropicKey: "", geminiKey: "" }));
+    setF((s) => ({ ...s, anthropicKey: "", geminiKey: "", cloudflareToken: "" }));
     setMsg({ ok: true, text: r.message ?? "" });
     router.refresh();
     loadAllModels();
@@ -146,7 +150,22 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
     });
   }
 
-  function removeKey(p: "anthropic" | "gemini") {
+  const cfUnsaved = f.cloudflareToken !== "" || f.cloudflareAccountId !== view.saved.cloudflareAccountId || f.cloudflareImageModel !== view.saved.cloudflareImageModel;
+  function testCloudflare() {
+    setCfTest(null);
+    setTesting("cloudflare");
+    start(async () => {
+      if (cfUnsaved) {
+        setMsg(null);
+        if (!(await persist())) return setTesting("");
+      }
+      const r = await testCloudflareImage();
+      setCfTest({ ok: r.ok, text: (r.ok ? r.message : r.error) ?? "" });
+      setTesting("");
+    });
+  }
+
+  function removeKey(p: "anthropic" | "gemini" | "cloudflare") {
     setMsg(null);
     start(async () => {
       const r = await clearAiKey(p);
@@ -323,6 +342,51 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
           {testButton("gemini")}
           {view.sources.geminiKey === "dashboard" && (
             <Button type="button" size="sm" variant="ghost" onClick={() => removeKey("gemini")} disabled={busy}>
+              <Trash2 /> {t("Remove saved key")}
+            </Button>
+          )}
+        </div>
+      </Section>
+
+      <Section
+        title={t("Cloudflare Workers AI (pictures)")}
+        badges={
+          <>
+            {view.cloudflare.keySet && view.cloudflare.accountId ? (
+              <Badge tone="success">
+                {t("Key set")} {view.cloudflare.keyHint}
+              </Badge>
+            ) : (
+              <Badge tone="warning">{t("Not set up")}</Badge>
+            )}
+            {view.cloudflare.keySet && <SourceBadge source={view.sources.cloudflareToken} />}
+            {view.unreadableKeys.includes("cloudflare") && <Badge tone="danger">{t("Saved key cannot be read — enter it again")}</Badge>}
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          {t("Makes realistic pictures for questions (FLUX model) with a free daily allowance. In the Cloudflare dashboard open AI → Workers AI → Use REST API: copy the Account ID and create an API token with the Workers AI permission.")}
+        </p>
+        <Field label={t("Account ID")} htmlFor="ai-cf-account" error={err("cloudflareAccountId")}>
+          <Input id="ai-cf-account" value={f.cloudflareAccountId} onChange={set("cloudflareAccountId")} maxLength={64} spellCheck={false} autoComplete="off" placeholder={view.cloudflare.accountId || "0123456789abcdef0123456789abcdef"} />
+        </Field>
+        <Field label={t("API token")} htmlFor="ai-cf-token" hint={view.sources.cloudflareToken === "dashboard" ? t("Leave empty to keep the saved key") : t("Stored encrypted. It is never shown again after saving.")} error={err("cloudflareToken")}>
+          <Input id="ai-cf-token" type="password" autoComplete="off" spellCheck={false} value={f.cloudflareToken} onChange={set("cloudflareToken")} maxLength={400} placeholder={view.cloudflare.keySet ? "••••••••" : ""} />
+        </Field>
+        <Field label={t("Image model")} htmlFor="ai-cf-model" hint={t("Empty = {0}", view.cloudflare.imageModel)} error={err("cloudflareImageModel")}>
+          <Input id="ai-cf-model" value={f.cloudflareImageModel} onChange={set("cloudflareImageModel")} maxLength={100} spellCheck={false} placeholder="@cf/black-forest-labs/flux-1-schnell" />
+        </Field>
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="grid gap-2">
+            <div>
+              <Button type="button" size="sm" variant="outline" onClick={testCloudflare} disabled={busy}>
+                {testing === "cloudflare" ? <LoaderCircle className="animate-spin" /> : cfUnsaved ? <Save /> : <PlugZap />} {cfUnsaved ? t("Save & test connection") : t("Test connection")}
+              </Button>
+            </div>
+            {cfTest && <Alert kind={cfTest.ok ? "success" : "error"}>{cfTest.text}</Alert>}
+          </div>
+          {view.sources.cloudflareToken === "dashboard" && (
+            <Button type="button" size="sm" variant="ghost" onClick={() => removeKey("cloudflare")} disabled={busy}>
               <Trash2 /> {t("Remove saved key")}
             </Button>
           )}

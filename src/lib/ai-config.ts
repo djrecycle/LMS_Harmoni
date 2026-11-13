@@ -23,6 +23,7 @@ const DEFAULT_GEMINI_MODEL = "";
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 const DEFAULT_OLLAMA_MODEL = "qwen2.5:3b";
 const DEFAULT_DAILY_LIMIT = 50;
+export const DEFAULT_CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
 const PROVIDERS: readonly ProviderPref[] = ["auto", "claude-cli", "anthropic", "gemini", "ollama"];
 
 /** What is saved in the database. Every field is optional: missing = use the environment. */
@@ -37,6 +38,10 @@ type Stored = {
   ollamaModel?: string;
   cliModel?: string;
   dailyLimit?: number;
+  /** Cloudflare Workers AI: makes pictures (free daily allowance). */
+  cloudflareAccountId?: string;
+  cloudflareTokenEnc?: string;
+  cloudflareImageModel?: string;
 };
 
 export type AiConfig = {
@@ -47,11 +52,16 @@ export type AiConfig = {
   gemini: { key: string; model: string };
   /** No key: Ollama is a local server. */
   ollama: { baseUrl: string; model: string };
+  /** Pictures only. Usable when both the account id and the token are set. */
+  cloudflare: { accountId: string; token: string; imageModel: string };
   cliModel: string | undefined;
   dailyLimit: number;
-  sources: Record<"provider" | "anthropicKey" | "anthropicModel" | "anthropicFallback" | "geminiKey" | "geminiModel" | "ollamaBaseUrl" | "ollamaModel" | "cliModel" | "dailyLimit", Source>;
+  sources: Record<
+    "provider" | "anthropicKey" | "anthropicModel" | "anthropicFallback" | "geminiKey" | "geminiModel" | "ollamaBaseUrl" | "ollamaModel" | "cliModel" | "dailyLimit" | "cloudflareAccountId" | "cloudflareToken",
+    Source
+  >;
   /** A key is saved but cannot be decrypted (BETTER_AUTH_SECRET changed): it has to be entered again. */
-  unreadableKeys: ("anthropic" | "gemini")[];
+  unreadableKeys: ("anthropic" | "gemini" | "cloudflare")[];
 };
 
 /** The providers a teacher (not the Super Admin) may use: their own API keys only. */
@@ -92,6 +102,8 @@ async function teacherConfig(ownerId: string): Promise<AiConfig> {
   if (s.anthropicKeyEnc && anthropicKey === null) unreadableKeys.push("anthropic");
   const geminiKey = decryptSecret(s.geminiKeyEnc);
   if (s.geminiKeyEnc && geminiKey === null) unreadableKeys.push("gemini");
+  const cloudflareToken = decryptSecret(s.cloudflareTokenEnc);
+  if (s.cloudflareTokenEnc && cloudflareToken === null) unreadableKeys.push("cloudflare");
   const src = (v: unknown): Source => (v === undefined || v === "" ? "default" : "dashboard");
   const provider: ProviderPref = s.provider === "anthropic" || s.provider === "gemini" ? s.provider : "auto";
   return {
@@ -100,6 +112,7 @@ async function teacherConfig(ownerId: string): Promise<AiConfig> {
     anthropic: { key: anthropicKey ?? "", model: s.anthropicModel || DEFAULT_ANTHROPIC_MODEL, fallback: s.anthropicFallback ?? true },
     gemini: { key: geminiKey ?? "", model: s.geminiModel || DEFAULT_GEMINI_MODEL },
     ollama: { baseUrl: "", model: "" },
+    cloudflare: { accountId: s.cloudflareAccountId ?? "", token: cloudflareToken ?? "", imageModel: s.cloudflareImageModel || DEFAULT_CLOUDFLARE_IMAGE_MODEL },
     cliModel: undefined,
     dailyLimit: s.dailyLimit ?? DEFAULT_DAILY_LIMIT,
     sources: {
@@ -113,6 +126,8 @@ async function teacherConfig(ownerId: string): Promise<AiConfig> {
       ollamaModel: "default",
       cliModel: "default",
       dailyLimit: src(s.dailyLimit),
+      cloudflareAccountId: src(s.cloudflareAccountId),
+      cloudflareToken: src(s.cloudflareTokenEnc),
     },
     unreadableKeys,
   };
@@ -128,6 +143,8 @@ async function serverConfig(): Promise<AiConfig> {
   if (s.anthropicKeyEnc && savedAnthropicKey === null) unreadableKeys.push("anthropic");
   const savedGeminiKey = decryptSecret(s.geminiKeyEnc);
   if (s.geminiKeyEnc && savedGeminiKey === null) unreadableKeys.push("gemini");
+  const savedCloudflareToken = decryptSecret(s.cloudflareTokenEnc);
+  if (s.cloudflareTokenEnc && savedCloudflareToken === null) unreadableKeys.push("cloudflare");
 
   const envProvider = env("AI_PROVIDER").toLowerCase() as ProviderPref;
   const [provider, provider_src] = pick<ProviderPref>(s.provider && PROVIDERS.includes(s.provider) ? s.provider : undefined, PROVIDERS.includes(envProvider) ? envProvider : undefined, "auto");
@@ -139,6 +156,9 @@ async function serverConfig(): Promise<AiConfig> {
   const [ollamaBaseUrl, ollamaBaseUrl_src] = pick<string>(s.ollamaBaseUrl, env("OLLAMA_BASE_URL"), DEFAULT_OLLAMA_URL);
   const [ollamaModel, ollamaModel_src] = pick<string>(s.ollamaModel, env("AI_OLLAMA_MODEL"), DEFAULT_OLLAMA_MODEL);
   const [cliModel, cliModel_src] = pick<string>(s.cliModel, env("AI_CLI_MODEL"), "");
+  const [cloudflareAccountId, cloudflareAccountId_src] = pick<string>(s.cloudflareAccountId, env("CLOUDFLARE_ACCOUNT_ID"), "");
+  const [cloudflareToken, cloudflareToken_src] = pick<string>(savedCloudflareToken ?? undefined, env("CLOUDFLARE_API_TOKEN"), "");
+  const cloudflareImageModel = s.cloudflareImageModel || env("AI_CLOUDFLARE_IMAGE_MODEL") || DEFAULT_CLOUDFLARE_IMAGE_MODEL;
   const envLimit = Number(env("AI_DAILY_LIMIT"));
   const [dailyLimit, dailyLimit_src] = pick<number>(s.dailyLimit, Number.isFinite(envLimit) && envLimit > 0 ? Math.floor(envLimit) : undefined, DEFAULT_DAILY_LIMIT);
 
@@ -148,6 +168,7 @@ async function serverConfig(): Promise<AiConfig> {
     anthropic: { key: anthropicKey, model: anthropicModel, fallback: anthropicFallback },
     gemini: { key: geminiKey, model: geminiModel },
     ollama: { baseUrl: ollamaBaseUrl, model: ollamaModel },
+    cloudflare: { accountId: cloudflareAccountId, token: cloudflareToken, imageModel: cloudflareImageModel },
     cliModel: cliModel || undefined,
     dailyLimit,
     sources: {
@@ -161,6 +182,8 @@ async function serverConfig(): Promise<AiConfig> {
       ollamaModel: ollamaModel_src,
       cliModel: cliModel_src,
       dailyLimit: dailyLimit_src,
+      cloudflareAccountId: cloudflareAccountId_src,
+      cloudflareToken: cloudflareToken_src,
     },
     unreadableKeys,
   };
@@ -176,10 +199,22 @@ export type AiConfigView = {
   scope: AiConfig["scope"];
   provider: ProviderPref;
   /** What is saved in the dashboard itself ("" = not set, follow the server default). */
-  saved: { provider: string; anthropicModel: string; anthropicFallback: "" | "on" | "off"; geminiModel: string; ollamaBaseUrl: string; ollamaModel: string; cliModel: string; dailyLimit: string };
+  saved: {
+    provider: string;
+    anthropicModel: string;
+    anthropicFallback: "" | "on" | "off";
+    geminiModel: string;
+    ollamaBaseUrl: string;
+    ollamaModel: string;
+    cliModel: string;
+    dailyLimit: string;
+    cloudflareAccountId: string;
+    cloudflareImageModel: string;
+  };
   anthropic: { keySet: boolean; keyHint: string; model: string; fallback: boolean };
   gemini: { keySet: boolean; keyHint: string; model: string };
   ollama: { baseUrl: string; model: string };
+  cloudflare: { keySet: boolean; keyHint: string; accountId: string; imageModel: string };
   cliModel: string;
   dailyLimit: number;
   sources: AiConfig["sources"];
@@ -201,10 +236,13 @@ export async function getAiConfigView(userId: string): Promise<AiConfigView> {
       ollamaModel: s.ollamaModel ?? "",
       cliModel: s.cliModel ?? "",
       dailyLimit: s.dailyLimit === undefined ? "" : String(s.dailyLimit),
+      cloudflareAccountId: s.cloudflareAccountId ?? "",
+      cloudflareImageModel: s.cloudflareImageModel ?? "",
     },
     anthropic: { keySet: c.anthropic.key !== "", keyHint: keyHint(c.anthropic.key), model: c.anthropic.model, fallback: c.anthropic.fallback },
     gemini: { keySet: c.gemini.key !== "", keyHint: keyHint(c.gemini.key), model: c.gemini.model },
     ollama: c.ollama,
+    cloudflare: { keySet: c.cloudflare.token !== "", keyHint: keyHint(c.cloudflare.token), accountId: c.cloudflare.accountId, imageModel: c.cloudflare.imageModel },
     cliModel: c.cliModel ?? "",
     dailyLimit: c.dailyLimit,
     sources: c.sources,
@@ -232,6 +270,19 @@ export const aiSettingsSchema = z.object({
     .refine((v) => v === "" || /^https?:\/\/[^\s/]+[^\s]*$/i.test(v), "The Ollama address must start with http:// or https://"),
   ollamaModel: z.string().trim().max(100),
   cliModel: z.string().trim().max(100),
+  cloudflareAccountId: z
+    .string()
+    .trim()
+    .max(64)
+    .refine((v) => v === "" || /^[0-9a-f]{32}$/i.test(v), "The Cloudflare Account ID is 32 letters/digits (see the Workers AI page)")
+    .default(""),
+  cloudflareToken: optionalKey.optional(),
+  cloudflareImageModel: z
+    .string()
+    .trim()
+    .max(100)
+    .refine((v) => v === "" || /^@cf\/[\w.-]+\/[\w.-]+$/.test(v), "A Workers AI model looks like @cf/black-forest-labs/flux-1-schnell")
+    .default(""),
   dailyLimit: z.string().trim().regex(/^\d{0,5}$/, "The daily limit must be a whole number").refine((v) => v === "" || Number(v) >= 1, "The daily limit must be at least 1"),
 });
 export type AiSettingsInput = z.infer<typeof aiSettingsSchema>;
@@ -253,6 +304,9 @@ export async function saveAiConfig(input: AiSettingsInput, userId: string): Prom
     ollamaModel: input.ollamaModel || undefined,
     cliModel: input.cliModel || undefined,
     dailyLimit: input.dailyLimit === "" ? undefined : Number(input.dailyLimit),
+    cloudflareAccountId: input.cloudflareAccountId || undefined,
+    cloudflareImageModel: input.cloudflareImageModel || undefined,
+    cloudflareTokenEnc: input.cloudflareToken ? encryptSecret(input.cloudflareToken) : cur.cloudflareTokenEnc,
     // a blank key field keeps the saved key; a new one replaces it
     anthropicKeyEnc: input.anthropicKey ? encryptSecret(input.anthropicKey) : cur.anthropicKeyEnc,
     geminiKeyEnc: input.geminiKey ? encryptSecret(input.geminiKey) : cur.geminiKeyEnc,
@@ -261,11 +315,12 @@ export async function saveAiConfig(input: AiSettingsInput, userId: string): Prom
 }
 
 /** Forget a saved key (for the Super Admin, that provider goes back to its environment variable, if any). */
-export async function clearAiKey(provider: "anthropic" | "gemini", userId: string): Promise<void> {
+export async function clearAiKey(provider: "anthropic" | "gemini" | "cloudflare", userId: string): Promise<void> {
   const owner = await personalOwner(userId);
   const cur = await readStored(owner);
   if (provider === "anthropic") delete cur.anthropicKeyEnc;
-  else delete cur.geminiKeyEnc;
+  else if (provider === "gemini") delete cur.geminiKeyEnc;
+  else delete cur.cloudflareTokenEnc;
   await writeStored(owner, cur, userId);
 }
 

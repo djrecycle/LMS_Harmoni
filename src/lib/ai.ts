@@ -6,6 +6,7 @@ import { AiError } from "./ai-error";
 import { isClaudeCliAvailable, runClaudeCli } from "./ai-cli";
 import { ambilJson } from "./ai-json";
 import { autoGeminiModel, listGeminiModels, runGemini, runGeminiImage } from "./ai-gemini";
+import { runCloudflareImage } from "./ai-cloudflare";
 import { isOllamaReachable, listOllamaModels, ollamaSupportsVision, runOllama } from "./ai-ollama";
 import { getAiConfig, type AiConfig } from "./ai-config";
 
@@ -290,8 +291,17 @@ export async function generateJson<T>({
 /* Image generation                                                    */
 /* ------------------------------------------------------------------ */
 
-/** Whether `userId` can make images: only Gemini makes pictures (Anthropic and the others only write text). */
-export const canMakeImages = async (userId: string) => (await getAiConfig(userId)).gemini.key !== "";
+/** The service that makes realistic pictures: Cloudflare Workers AI first (free daily allowance), else Gemini. Claude cannot make pictures. */
+export type PhotoProvider = "cloudflare" | "gemini";
+export async function photoProvider(userId: string): Promise<PhotoProvider | null> {
+  const cfg = await getAiConfig(userId);
+  if (cfg.cloudflare.accountId && cfg.cloudflare.token) return "cloudflare";
+  if (cfg.gemini.key) return "gemini";
+  return null;
+}
+
+/** Whether `userId` can make realistic pictures (Cloudflare Workers AI or Gemini is set up). */
+export const canMakeImages = async (userId: string) => (await photoProvider(userId)) !== null;
 
 /**
  * The text AI that draws illustrations as SVG code: Claude (Claude Code or the Anthropic API, the teacher's default
@@ -305,21 +315,22 @@ export async function illustrationProvider(userId: string): Promise<AiProvider |
 }
 
 export type ImageReady = {
-  /** Realistic pictures: needs a Gemini key. */
-  photo: boolean;
+  /** Realistic pictures: "Cloudflare" or "Gemini"; null = neither is set up. */
+  photo: string | null;
   /** Name of the AI that draws illustrations as SVG ("Claude", or the teacher's other text AI); null = none. */
   illustration: string | null;
 };
 
 /** Which kinds of AI pictures `userId` can make. */
 export async function imageReadyFor(userId: string): Promise<ImageReady> {
-  const [photo, p] = await Promise.all([canMakeImages(userId), illustrationProvider(userId)]);
-  return { photo, illustration: p === "claude-cli" || p === "anthropic" ? "Claude" : p === "gemini" ? "Gemini" : p === "ollama" ? "Ollama" : null };
+  const [photo, p] = await Promise.all([photoProvider(userId), illustrationProvider(userId)]);
+  return { photo: photo === "cloudflare" ? "Cloudflare" : photo === "gemini" ? "Gemini" : null, illustration: p === "claude-cli" || p === "anthropic" ? "Claude" : p === "gemini" ? "Gemini" : p === "ollama" ? "Ollama" : null };
 }
 
-/** One picture from a description, made with the Gemini key of the teacher using the AI. */
-export async function generateImage({ prompt, owner, aspectRatio }: { prompt: string; owner: string; aspectRatio?: "1:1" | "4:3" }) {
+/** One picture from a prompt, with the teacher's own Cloudflare Workers AI or Gemini settings. */
+export async function generateImage({ prompt, owner, aspectRatio, provider, steps }: { prompt: string; owner: string; aspectRatio?: "1:1" | "4:3"; provider: PhotoProvider; steps?: number }) {
   const cfg = await getAiConfig(owner);
+  if (provider === "cloudflare") return runCloudflareImage({ prompt, accountId: cfg.cloudflare.accountId, token: cfg.cloudflare.token, model: cfg.cloudflare.imageModel, steps });
   if (!cfg.gemini.key) throw new AiError("Making images needs a Gemini API key (Anthropic cannot make images). Add your Gemini key in AI Settings.");
   return runGeminiImage({ prompt, apiKey: cfg.gemini.key, aspectRatio });
 }
