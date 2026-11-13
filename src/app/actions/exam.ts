@@ -389,6 +389,52 @@ export async function deleteExamItem(itemId: string): Promise<ActionResult> {
 }
 
 /** Put a bank question on a blueprint row (null removes it). The question type must fit the row's section. */
+/**
+ * AI writes a new question for ONE blueprint row (same TP, material, indicator and level) and puts it in the row.
+ * The previous question is shown to the AI so the new one is different; it stays in the question bank.
+ */
+export async function rewriteExamItem(itemId: string, data: unknown): Promise<ActionResult> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const p = jobSchema.safeParse(data);
+  if (!p.success) return zodError(p.error);
+  const item = await getOwnedItem(teacher.id, itemId);
+  if (!item) return fail(t("Row not found."));
+  const e = await getOwnedExam(teacher.id, item.examId);
+  if (!e) return fail(t("Exam not found."));
+  if (e.job) return fail(t("The AI is still working on this exam. Wait until it finishes."));
+  const { provider, catatan, gambar } = p.data;
+  if (!(await canUseAi(teacher.id, provider))) return fail(t(providerUnavailableMessage(provider)));
+  if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
+
+  const comp = readComposition(e.composition);
+  const meta = { kelas: e.info.kelas || null, semester: semesterGanjilGenap(e.info.semester), pgOptions: comp.pgOptions };
+  const target: SoalTarget = { no: 1, section: item.section, tp: item.tp, materi: item.materi, indikator: item.indikator, level: item.level };
+  const [old] = item.questionId ? await db.select({ prompt: S.question.prompt, options: S.question.options }).from(S.question).where(eq(S.question.id, item.questionId)).limit(1) : [];
+  const notes = [
+    catatan,
+    old ? `Soal sebelumnya untuk baris ini (JANGAN diulang; tulis soal yang berbeda dan lebih baik): ${old.prompt}${old.options?.length ? ` | Pilihan: ${old.options.join(" / ")}` : ""}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  try {
+    const got = await ask(teacher.id, provider, soalPrompt(e.info, comp, item.section, [target], notes, gambar), parseSoal);
+    const raw = got.get(1) ?? [...got.values()][0];
+    const q = raw ? toExamQuestion(raw, item.section, target, meta) : null;
+    if (!q) {
+      await refundAllowance(teacher.id).catch(() => undefined);
+      return fail(t("The AI could not write the questions. Try again."));
+    }
+    const [fresh] = await db.insert(S.question).values({ teacherId: teacher.id, ...toDbValues(normalize(q)) }).returning({ id: S.question.id });
+    await db.update(S.examItem).set({ questionId: fresh.id }).where(eq(S.examItem.id, item.id));
+    refresh();
+    return succeed(old ? t("New question written. The old one stays in the question bank.") : t("Question written."));
+  } catch (err) {
+    await refundAllowance(teacher.id).catch(() => undefined);
+    return fail(t(aiErrorMessage(err)));
+  }
+}
+
 export async function linkExamQuestion(itemId: string, questionId: string | null): Promise<ActionResult> {
   const t = await getT();
   const teacher = await requireTeacher();

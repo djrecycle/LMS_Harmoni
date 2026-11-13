@@ -5,9 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, CircleCheck, Download, ImageIcon, ImageOff, ImagePlus, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
-import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, linkExamQuestion, publishExam, saveExamItem, setOptionImage, setQuestionImage, startGambar, startKisi, startSoal } from "@/app/actions/exam";
+import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, linkExamQuestion, publishExam, rewriteExamItem, saveExamItem, setOptionImage, setQuestionImage, startGambar, startKisi, startSoal } from "@/app/actions/exam";
 import { DeleteButton } from "@/components/delete-button";
-import { ProviderSelect, providerReady, useProviderPick, type ProviderOption } from "@/components/provider-select";
+import { ProviderSelect, providerReady, useProviderPick, type ProviderOption, type ProviderPick } from "@/components/provider-select";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { Alert, Badge } from "@/components/ui/misc";
@@ -292,7 +292,7 @@ export function ExamWorkspace({
       )}
 
       {tab === "kisi" && <KisiTab examId={exam.id} groups={bySection} tps={exam.tps} comp={comp} locked={Boolean(job)} />}
-      {tab === "soal" && <SoalTab examId={exam.id} groups={bySection} bank={bank} quizzes={quizzes} locked={Boolean(job)} imageAi={imageAi} />}
+      {tab === "soal" && <SoalTab examId={exam.id} groups={bySection} bank={bank} quizzes={quizzes} locked={Boolean(job)} imageAi={imageAi} provider={pick} />}
       {tab === "publish" && <PublishTab exam={exam} items={items} groups={bySection} classrooms={classrooms} linked={linked} locked={Boolean(job)} />}
     </div>
   );
@@ -458,6 +458,7 @@ function SoalTab({
   quizzes,
   locked,
   imageAi,
+  provider,
 }: {
   examId: string;
   groups: Group[];
@@ -465,6 +466,8 @@ function SoalTab({
   quizzes: { id: string; title: string; classroomName: string; n: number }[];
   locked: boolean;
   imageAi: ImageReady;
+  /** The AI provider picked at the top of the page. */
+  provider: ProviderPick;
 }) {
   const t = useT();
   const router = useRouter();
@@ -511,7 +514,7 @@ function SoalTab({
               {letter(gi)}. {t(SECTION_META[g.section].label)} <span className="text-muted-foreground">({range(g)})</span>
             </h3>
             {g.items.map((it) => (
-              <SoalCard key={it.id} examId={examId} item={it} bank={bank.filter((b) => b.type === SECTION_META[g.section].type && !used.has(b.id))} locked={locked} imageAi={imageAi} />
+              <SoalCard key={it.id} examId={examId} item={it} bank={bank.filter((b) => b.type === SECTION_META[g.section].type && !used.has(b.id))} locked={locked} imageAi={imageAi} provider={provider} />
             ))}
           </section>
         ))}
@@ -520,10 +523,29 @@ function SoalTab({
   );
 }
 
-function SoalCard({ examId, item, bank, locked, imageAi }: { examId: string; item: WorkspaceItem & { no: number }; bank: BankQuestion[]; locked: boolean; imageAi: ImageReady }) {
+function SoalCard({
+  examId,
+  item,
+  bank,
+  locked,
+  imageAi,
+  provider,
+}: {
+  examId: string;
+  item: WorkspaceItem & { no: number };
+  bank: BankQuestion[];
+  locked: boolean;
+  imageAi: ImageReady;
+  provider: ProviderPick;
+}) {
   const t = useT();
   const router = useRouter();
   const [picking, setPicking] = useState(false);
+  /** The "write again with AI" panel. */
+  const [rewriting, setRewriting] = useState(false);
+  const [note, setNote] = useState("");
+  const [rewriteImages, setRewriteImages] = useState(true);
+  const [writing, startWriting] = useTransition();
   const [uploading, setUploading] = useState(false);
   /** Open AI picture panel: "q" = the question, "o<i>" = choice i; null = closed. */
   const [aiTarget, setAiTarget] = useState<string | null>(null);
@@ -566,6 +588,18 @@ function SoalCard({ examId, item, bank, locked, imageAi }: { examId: string; ite
       if (!r.ok) return void toast.error(r.error);
       toast.success(r.message);
       setUploading(false);
+      router.refresh();
+    });
+  }
+
+  function rewrite() {
+    startWriting(async () => {
+      const r = await rewriteExamItem(item.id, { provider, catatan: note, gambar: rewriteImages });
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(r.message);
+      setRewriting(false);
+      setNote("");
+      setAiTarget(null);
       router.refresh();
     });
   }
@@ -616,6 +650,9 @@ function SoalCard({ examId, item, bank, locked, imageAi }: { examId: string; ite
         <Button variant="outline" size="sm" disabled={busy || locked} onClick={() => setPicking((x) => !x)}>
           <Search /> {q ? t("Replace from bank") : t("Choose from bank")}
         </Button>
+        <Button variant={rewriting ? "secondary" : "outline"} size="sm" disabled={busy || locked || writing} onClick={() => setRewriting((x) => !x)}>
+          {writing ? <LoaderCircle className="animate-spin" /> : <Sparkles />} {q ? t("Rewrite with AI") : t("Write with AI")}
+        </Button>
         {q && (
           <>
             <Button asChild variant="outline" size="sm">
@@ -641,6 +678,40 @@ function SoalCard({ examId, item, bank, locked, imageAi }: { examId: string; ite
           </>
         )}
       </div>
+      {rewriting && !locked && (
+        <div className="mt-3 grid gap-2 rounded-xl border border-primary/30 bg-primary-soft/40 p-3">
+          <p className="flex items-center gap-2 text-sm font-bold">
+            <Sparkles className="size-4 text-primary" /> {q ? t("Rewrite this question with AI") : t("Write this question with AI")}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {q
+              ? t("The AI writes a new, different question for the same TP, indicator and level. The old question stays in the question bank.")
+              : t("The AI writes a question for this row's TP, indicator and level.")}
+          </p>
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            maxLength={1500}
+            disabled={writing}
+            className="min-h-16 bg-card text-sm"
+            placeholder={t("Optional note for the AI, e.g. about recorder fingering, without a picture, a simpler sentence…")}
+            aria-label={t("Note for the AI")}
+          />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={rewriteImages} onChange={(e) => setRewriteImages(e.target.checked)} disabled={writing} />
+            {t("Add images where they fit")}
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={rewrite} disabled={writing}>
+              {writing ? <LoaderCircle className="animate-spin" /> : <Sparkles />} {writing ? t("The AI is writing…") : q ? t("Rewrite") : t("Write")}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setRewriting(false)} disabled={writing}>
+              {t("Cancel")}
+            </Button>
+            <p className="text-xs text-muted-foreground">{t("Uses the AI provider chosen above and 1 AI allowance.")}</p>
+          </div>
+        </div>
+      )}
       {q && aiTarget && !locked && <AiImagePanel key={q.id + aiTarget} targets={targets} initial={aiTarget} ready={imageAi} disabled={busy} onApply={applyImage} onClose={() => setAiTarget(null)} />}
       {picking && <BankPicker bank={bank} tp={item.tp} onPick={link} onClose={() => setPicking(false)} busy={busy} />}
     </div>
