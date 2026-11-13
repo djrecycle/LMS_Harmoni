@@ -2562,4 +2562,5 @@ export const id: Record<string, string> = {
   "Graded by the teacher": "Dinilai guru",
   "No questions yet": "Belum ada soal",
   "Add questions first, then try them as a student.": "Tambahkan soal dulu, lalu coba kerjakan sebagai siswa.",
+  "Exam saved. The class/semester of {0} questions was updated too.": "Ujian disimpan. Kelas/semester pada {0} soal ikut diperbarui.",
 };

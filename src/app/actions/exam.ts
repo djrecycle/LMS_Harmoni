@@ -1,7 +1,7 @@
 "use server";
 
 import { after } from "next/server";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, isNull, ne, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db, schema } from "@/db";
@@ -62,12 +62,46 @@ export async function saveExam(data: unknown, id?: string): Promise<ActionResult
     const e = await getOwnedExam(teacher.id, id);
     if (!e) return fail(t("Exam not found."));
     await db.update(S.exam).set(values).where(eq(S.exam.id, e.id));
+    const moved = await carryIdentityToQuestions(teacher.id, e, e.info, info);
     refresh();
-    return succeed(t("Exam saved."), { id: e.id });
+    return succeed(moved ? t("Exam saved. The class/semester of {0} questions was updated too.", moved) : t("Exam saved."), { id: e.id });
   }
   const [fresh] = await db.insert(S.exam).values({ teacherId: teacher.id, ...values }).returning({ id: S.exam.id });
   refresh();
   return succeed(t("Exam created."), { id: fresh.id });
+}
+
+/**
+ * The AI copies the exam's class and semester onto each question it writes. When the settings are saved, the exam's
+ * questions follow them if they still carry the old value (or none), or were written after the exam was created
+ * (i.e. for this exam). A question taken from the bank for another class keeps its own. Safe to repeat: saving
+ * again also fixes questions left behind earlier. Returns how many questions changed.
+ */
+async function carryIdentityToQuestions(teacherId: string, exam: { id: string; createdAt: Date }, before: { kelas?: string; semester?: string }, after: { kelas?: string; semester?: string }) {
+  const oldKelas = before.kelas?.trim() || null;
+  const newKelas = after.kelas?.trim() || null;
+  const oldSem = semesterGanjilGenap(before.semester ?? "");
+  const newSem = semesterGanjilGenap(after.semester ?? "");
+  const ids = (await db.select({ id: S.examItem.questionId }).from(S.examItem).where(and(eq(S.examItem.examId, exam.id), isNotNull(S.examItem.questionId))))
+    .map((r) => r.id)
+    .filter((x): x is string => Boolean(x));
+  if (ids.length === 0) return 0;
+  // A question follows this exam when it was written for it, or when it carries the exam's old class AND semester
+  // (or none). Anything else came from the bank for another class and keeps its own values.
+  const sameKelas = oldKelas ? or(isNull(S.question.kelas), eq(S.question.kelas, oldKelas)) : isNull(S.question.kelas);
+  const sameSem = oldSem ? or(isNull(S.question.semester), eq(S.question.semester, oldSem)) : isNull(S.question.semester);
+  const follows = or(gte(S.question.createdAt, exam.createdAt), and(sameKelas, sameSem));
+  const differs = or(
+    newKelas ? or(isNull(S.question.kelas), ne(S.question.kelas, newKelas)) : undefined,
+    newSem ? or(isNull(S.question.semester), ne(S.question.semester, newSem)) : undefined,
+  );
+  if (!differs) return 0;
+  const rows = await db
+    .update(S.question)
+    .set({ ...(newKelas ? { kelas: newKelas } : {}), ...(newSem ? { semester: newSem } : {}), updatedAt: new Date() })
+    .where(and(inArray(S.question.id, ids), eq(S.question.teacherId, teacherId), follows, differs))
+    .returning({ id: S.question.id });
+  return rows.length;
 }
 
 export async function deleteExam(id: string): Promise<ActionResult> {
