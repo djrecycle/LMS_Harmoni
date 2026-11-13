@@ -4,8 +4,9 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
-import { aiErrorMessage, generateImage, generateText, illustrationProvider, imageReadyFor, photoProvider, refundAllowance, takeAllowance, type ImageReady } from "@/lib/ai";
-import { ILLUSTRATION_SYSTEM, cleanSvg, illustrationPrompt } from "@/lib/ai-illustration";
+import { aiErrorMessage, generateImage, generateJson, generateText, illustrationProvider, imageReadyFor, photoProvider, refundAllowance, takeAllowance, type ImageReady } from "@/lib/ai";
+import { ILLUSTRATION_SYSTEM, NOTATION_SCHEMA, NOTATION_SYSTEM, cleanSvg, illustrationPrompt, notationPrompt } from "@/lib/ai-illustration";
+import { notationError, type Notation } from "@/lib/notation";
 import { storageQuotaBytes } from "@/lib/platform";
 import { requireTeacher } from "@/lib/session";
 import { saveFile, usedBytes } from "@/lib/storage";
@@ -15,6 +16,8 @@ const schema = z.object({
   prompt: z.string().trim().min(3, "Describe the picture (at least 3 characters)").max(1500, "The description is too long"),
   /** "question": the picture of the question itself; "option": a small picture for one answer choice. */
   shape: z.enum(["question", "option"]),
+  /** Realistic pictures only: which service makes it (default: Cloudflare when set up, else Gemini). */
+  engine: z.enum(["cloudflare", "gemini"]).optional(),
 });
 
 const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" };
@@ -69,7 +72,10 @@ export async function generateAiImage(data: unknown): Promise<ActionResult<{ key
   const teacher = await requireTeacher();
   const p = schema.safeParse(data);
   if (!p.success) return zodError(p.error);
-  const provider = await photoProvider(teacher.id);
+  const ready = await imageReadyFor(teacher.id);
+  const provider = p.data.engine ? (ready[p.data.engine] ? p.data.engine : null) : await photoProvider(teacher.id);
+  if (p.data.engine === "gemini" && !provider) return fail(t("Making images needs a Gemini API key (Anthropic cannot make images). Add your Gemini key in AI Settings."));
+  if (p.data.engine === "cloudflare" && !provider) return fail(t("Cloudflare Workers AI is not set up. Add the Account ID and API token in AI Settings."));
   if (!provider) return fail(t("Realistic pictures need Cloudflare Workers AI (free daily allowance) or a Gemini key with an image quota. Set one up in AI Settings."));
 
   const quota = await storageQuotaBytes(teacher.id);
@@ -107,6 +113,48 @@ export async function generateAiIllustration(data: unknown): Promise<ActionResul
   try {
     const { text } = await generateText({ system: ILLUSTRATION_SYSTEM, prompt: illustrationPrompt(p.data.prompt, p.data.shape), maxTokens: 16000, provider, owner: teacher.id });
     return succeed(undefined, { svg: cleanSvg(text, p.data.shape) });
+  } catch (e) {
+    await refundAllowance(teacher.id).catch(() => undefined);
+    return fail(t(aiErrorMessage(e)));
+  }
+}
+
+/**
+ * Music notation for a picture: the AI writes the code, the browser draws it with the app's score renderer and
+ * uploads the PNG. A request that cannot be shown as notation comes back as an error explaining why.
+ */
+export async function generateAiNotation(data: unknown): Promise<ActionResult<{ notation: Notation }>> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const p = schema.safeParse(data);
+  if (!p.success) return zodError(p.error);
+  const provider = await illustrationProvider(teacher.id);
+  if (!provider) return fail(t("AI is not set up yet. Add your own Gemini or Anthropic API key in AI Settings first."));
+  if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
+
+  try {
+    let retry: { text: string; error: string } | undefined;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const { data: r } = await generateJson<{ kind?: string; text?: string; reason?: string }>({
+        system: NOTATION_SYSTEM,
+        user: notationPrompt(p.data.prompt, p.data.shape, retry),
+        schema: NOTATION_SCHEMA,
+        maxTokens: 2000,
+        effort: "low",
+        provider,
+        owner: teacher.id,
+      });
+      if (r.kind === "none" || !(r.kind === "staff" || r.kind === "angka")) {
+        await refundAllowance(teacher.id).catch(() => undefined);
+        return fail(t("This cannot be drawn as music notation{0}. Use the illustration style instead.", r.reason?.trim() ? ` (${r.reason.trim().slice(0, 200)})` : ""));
+      }
+      const notation: Notation = { kind: r.kind, text: (r.text ?? "").trim().slice(0, 2000) };
+      const bad = notationError(notation);
+      if (!bad) return succeed(undefined, { notation });
+      retry = { text: notation.text, error: bad.arg ? bad.error.replace("{0}", bad.arg) : bad.error };
+    }
+    await refundAllowance(teacher.id).catch(() => undefined);
+    return fail(t("The notation the AI wrote could not be drawn. Try again."));
   } catch (e) {
     await refundAllowance(teacher.id).catch(() => undefined);
     return fail(t(aiErrorMessage(e)));

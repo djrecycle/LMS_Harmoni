@@ -43,7 +43,14 @@ export type StaffNote = {
   label: string;
 };
 export type StaffBar = { notes: StaffNote[]; final: boolean };
-export type StaffScore = { clef: "treble" | "bass"; time: string; key: string; bars: StaffBar[] };
+export type StaffScore = {
+  clef: "treble" | "bass";
+  time: string;
+  key: string;
+  bars: StaffBar[];
+  /** Draw the time signature: only when it is written (time=…) or the notation has bar lines, so a single symbol (e.g. "B4/h") is shown alone. */
+  showTime: boolean;
+};
 
 const KEYS = ["C", "G", "D", "A", "E", "B", "F#", "C#", "F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb", "Am", "Em", "Bm", "F#m", "C#m", "Dm", "Gm", "Cm", "Fm"];
 const NOTE_RE = /^([A-Ga-g])(#|b|n)?([1-7])$/;
@@ -51,7 +58,7 @@ const NOTE_RE = /^([A-Ga-g])(#|b|n)?([1-7])$/;
 const STAFF_TOKEN_RE = /^([^/"[]+)(?:\/(w|h|q|8|16)(\.{0,2}))?(?:"([^"]*)"|\[([^\]]*)\])?$/;
 
 export function parseStaff(text: string): { ok: true; score: StaffScore } | { ok: false; error: string; arg?: string } {
-  const score: StaffScore = { clef: "treble", time: "4/4", key: "C", bars: [] };
+  const score: StaffScore = { clef: "treble", time: "4/4", key: "C", bars: [], showTime: false };
   let bar: StaffNote[] = [];
   const close = (final: boolean) => {
     if (bar.length) score.bars.push({ notes: bar, final });
@@ -59,9 +66,16 @@ export function parseStaff(text: string): { ok: true; score: StaffScore } | { ok
     bar = [];
   };
   for (const tok of tokens(text)) {
-    if (tok === "|") close(false);
-    else if (tok === "||") close(true);
-    else if (/^time=\d{1,2}\/(2|4|8|16)$/.test(tok)) score.time = tok.slice(5);
+    if (tok === "|") {
+      close(false);
+      score.showTime = true;
+    } else if (tok === "||") {
+      close(true);
+      score.showTime = true;
+    } else if (/^time=\d{1,2}\/(2|4|8|16)$/.test(tok)) {
+      score.time = tok.slice(5);
+      score.showTime = true;
+    }
     else if (/^key=/.test(tok)) {
       const k = tok.slice(4);
       if (!KEYS.includes(k)) return { ok: false, error: "Unknown key \"{0}\"", arg: k };

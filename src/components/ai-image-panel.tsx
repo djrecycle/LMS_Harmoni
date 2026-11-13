@@ -4,9 +4,10 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { LoaderCircle, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
-import { aiImageReady, generateAiIllustration, generateAiImage } from "@/app/actions/ai-image";
+import { aiImageReady, generateAiIllustration, generateAiImage, generateAiNotation } from "@/app/actions/ai-image";
 import type { ImageReady } from "@/lib/ai";
-import { uploadMedia } from "@/lib/notation-render";
+import type { Notation } from "@/lib/notation";
+import { notationPng, uploadMedia } from "@/lib/notation-render";
 import { svgToPng } from "@/lib/svg-render";
 import { MediaUploader } from "@/components/media-uploader";
 import { Button } from "@/components/ui/button";
@@ -18,13 +19,16 @@ import { useT } from "@/i18n/client";
 /** Where a picture can go: the question itself, or one answer choice. */
 export type ImageTarget = { id: string; label: string; shape: "question" | "option"; prefill: string };
 
-type Style = "illustration" | "photo";
+type Style = "illustration" | "notation" | "cloudflare" | "gemini";
+const STYLES: Style[] = ["illustration", "notation", "cloudflare", "gemini"];
 
 /**
  * The teacher writes what the picture should show and the AI draws it, or uploads their own file instead:
  *  - illustration: Claude draws it as SVG code, the browser turns it into a PNG;
- *  - photo: a realistic picture from Cloudflare Workers AI (FLUX, free daily allowance) or a Gemini image model.
- * `onApply` puts the new media key on the chosen target (the question, or a choice).
+ *  - notation: the AI writes notation code and the app's score renderer draws it (music symbols always look right);
+ *  - cloudflare / gemini: a realistic picture from Cloudflare Workers AI (FLUX, free daily allowance) or a Gemini image model.
+ * `onApply` puts the new media key on the chosen target (the question, or a choice); `notation` is passed along when
+ * the picture was drawn from notation, so the question can keep it for editing.
  */
 export function AiImagePanel({
   targets,
@@ -39,7 +43,7 @@ export function AiImagePanel({
   /** Which AI pictures the teacher can make. Left out = asked from the server. */
   ready?: ImageReady;
   disabled?: boolean;
-  onApply: (targetId: string, key: string) => Promise<boolean> | boolean;
+  onApply: (targetId: string, key: string, notation?: Notation) => Promise<boolean> | boolean;
   onClose: () => void;
 }) {
   const t = useT();
@@ -54,15 +58,18 @@ export function AiImagePanel({
     let live = true;
     aiImageReady()
       .then((r) => live && setAsked(r))
-      .catch(() => live && setAsked({ photo: null, illustration: null }));
+      .catch(() => live && setAsked({ cloudflare: false, gemini: false, illustration: null }));
     return () => {
       live = false;
     };
   }, [ready]);
   const can = ready ?? asked;
   const [chosenStyle, setStyle] = useState<Style | null>(null);
-  const style: Style = chosenStyle ?? (can && !can.illustration && can.photo ? "photo" : "illustration");
-  const canMake = can === null ? null : style === "photo" ? Boolean(can.photo) : Boolean(can.illustration);
+  const usable = (x: Style) => (can ? (x === "cloudflare" ? can.cloudflare : x === "gemini" ? can.gemini : Boolean(can.illustration)) : false);
+  const style: Style = chosenStyle ?? STYLES.find(usable) ?? "illustration";
+  const canMake = can === null ? null : usable(style);
+  const styleLabel = (x: Style) =>
+    x === "illustration" ? t("Illustration ({0})", can?.illustration ?? "Claude") : x === "notation" ? t("Notation (app score)") : t("Realistic ({0})", x === "cloudflare" ? "Cloudflare" : "Gemini");
   const current = targets.find((x) => x.id === target) ?? first;
   if (!current) return null;
 
@@ -77,10 +84,20 @@ export function AiImagePanel({
   function generate() {
     start(async () => {
       let key: string;
-      if (style === "photo") {
-        const r = await generateAiImage({ prompt, shape: current.shape });
+      let notation: Notation | undefined;
+      if (style === "cloudflare" || style === "gemini") {
+        const r = await generateAiImage({ prompt, shape: current.shape, engine: style });
         if (!r.ok || !r.data) return void toast.error(r.error ?? t("Could not make the image"));
         key = r.data.key;
+      } else if (style === "notation") {
+        const r = await generateAiNotation({ prompt, shape: current.shape });
+        if (!r.ok || !r.data) return void toast.error(r.error ?? t("Could not make the image"));
+        notation = r.data.notation;
+        try {
+          key = await uploadMedia(await notationPng(notation));
+        } catch (e) {
+          return void toast.error(t(e instanceof Error ? e.message : "Could not make the image"));
+        }
       } else {
         const r = await generateAiIllustration({ prompt, shape: current.shape });
         if (!r.ok || !r.data) return void toast.error(r.error ?? t("Could not make the image"));
@@ -90,7 +107,7 @@ export function AiImagePanel({
           return void toast.error(t(e instanceof Error ? e.message : "Could not make the image"));
         }
       }
-      if (await onApply(current.id, key)) toast.success(t("The AI picture is ready."));
+      if (await onApply(current.id, key, notation)) toast.success(t("The AI picture is ready."));
     });
   }
 
@@ -126,7 +143,7 @@ export function AiImagePanel({
       {can && (
         <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={t("Picture style")}>
           <span className="text-xs font-semibold text-muted-foreground">{t("Style")}:</span>
-          {(["illustration", "photo"] as const).map((x) => (
+          {STYLES.map((x) => (
             <button
               key={x}
               type="button"
@@ -136,7 +153,8 @@ export function AiImagePanel({
               onClick={() => setStyle(x)}
               className={cn("rounded-full border px-3 py-1 text-xs font-semibold transition-colors", style === x ? "border-primary bg-primary-soft text-primary" : "bg-card hover:bg-muted")}
             >
-              {x === "illustration" ? t("Illustration ({0})", can.illustration ?? "Claude") : t("Realistic ({0})", can.photo ?? "Cloudflare / Gemini")}
+              {styleLabel(x)}
+              {!usable(x) && <span className="ml-1 opacity-60">✕</span>}
             </button>
           ))}
         </div>
@@ -155,7 +173,11 @@ export function AiImagePanel({
             disabled={busy}
             className="min-h-20 bg-card text-sm"
             placeholder={
-              style === "illustration"
+              style === "notation"
+                ? current.shape === "option"
+                  ? t("e.g. a half note, or a quarter rest, or the note F sharp")
+                  : t("e.g. the C major scale going up in quarter notes, 4/4 time")
+                : style === "illustration"
                 ? current.shape === "option"
                   ? t("e.g. a soprano recorder seen from the front, the holes for the note G covered")
                   : t("e.g. a piano keyboard of one octave with the key D marked in red")
@@ -170,7 +192,9 @@ export function AiImagePanel({
               {busy ? <LoaderCircle className="animate-spin" /> : <Sparkles />} {busy ? t("Making the picture…") : t("Make picture")}
             </Button>
             <p className="text-xs text-muted-foreground">
-              {style === "illustration"
+              {style === "notation"
+                ? t("The AI only writes the notes; the app's score maker draws them, so music symbols are always correct. Uses 1 AI allowance.")
+                : style === "illustration"
                 ? t("Simple drawings (instruments, keyboards, diagrams). Uses 1 AI allowance. Check the result: AI pictures can contain mistakes.")
                 : t("Describe what the picture shows. Uses 1 AI allowance. Check the result: AI pictures can contain mistakes.")}
             </p>
@@ -178,7 +202,11 @@ export function AiImagePanel({
         </>
       ) : (
         <Alert kind="info">
-          {style === "photo" ? t("Realistic pictures need Cloudflare Workers AI (free daily allowance) or a Gemini key with an image quota. Set one up in AI Settings.") : t("AI is not set up yet. Add your own Gemini or Anthropic API key in AI Settings first.")}{" "}
+          {style === "cloudflare"
+            ? t("Cloudflare Workers AI is not set up. Add the Account ID and API token in AI Settings.")
+            : style === "gemini"
+              ? t("Making images needs a Gemini API key (Anthropic cannot make images). Add your Gemini key in AI Settings.")
+              : t("AI is not set up yet. Add your own Gemini or Anthropic API key in AI Settings first.")}{" "}
           <Link href="/teacher/ai-settings" className="font-semibold underline">
             {t("AI Settings")}
           </Link>

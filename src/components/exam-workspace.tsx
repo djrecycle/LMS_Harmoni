@@ -538,9 +538,9 @@ function SoalCard({ examId, item, bank, locked, imageAi }: { examId: string; ite
     : [];
 
   /** Put a new picture (AI or uploaded) on the question or one choice. */
-  async function applyImage(target: string, key: string): Promise<boolean> {
+  async function applyImage(target: string, key: string, notation?: Notation): Promise<boolean> {
     if (!q) return false;
-    const r = target === "q" ? await setQuestionImage(q.id, key, false) : await setOptionImage(q.id, Number(target.slice(1)), key);
+    const r = target === "q" ? await setQuestionImage(q.id, key, false, notation) : await setOptionImage(q.id, Number(target.slice(1)), key);
     if (!r.ok) {
       toast.error(r.error);
       return false;

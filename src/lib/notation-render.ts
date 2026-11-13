@@ -71,7 +71,7 @@ async function drawStaff(score: StaffScore): Promise<HTMLCanvasElement> {
       if (bi === 0) {
         stave.addClef(score.clef);
         if (score.key !== "C") stave.addKeySignature(score.key);
-        if (ri === 0) stave.addTimeSignature(score.time);
+        if (ri === 0 && score.showTime) stave.addTimeSignature(score.time);
       } else stave.setBegBarType(BarlineType.NONE);
       if (bar.final) stave.setEndBarType(BarlineType.END);
       stave.setContext(context).draw();

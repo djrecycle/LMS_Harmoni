@@ -15,6 +15,7 @@ import { EXAM_SYSTEM, gambarPrompt, kisiPrompt, parseKisi, parseSoal, readGambar
 import { getOwnedExam, listExamItems, nextPosition } from "@/lib/exam-store";
 import { semesterGanjilGenap } from "@/lib/perangkat/generator";
 import { normalize, toDbValues } from "@/lib/question-db";
+import { NOTATION_KINDS, notationError, type Notation } from "@/lib/notation";
 import { requireTeacher } from "@/lib/session";
 import { fromWibInput } from "@/lib/utils";
 import { getT } from "@/i18n/server";
@@ -273,16 +274,22 @@ export async function startGambar(examId: string, data: unknown): Promise<Action
 }
 
 /** Put an uploaded/drawn image on a question of this teacher (null removes it). A real image replaces the "picture needed" note. */
-export async function setQuestionImage(questionId: string, key: string | null, keepNotation = true): Promise<ActionResult> {
+export async function setQuestionImage(questionId: string, key: string | null, keepNotation = true, notation?: Notation | null): Promise<ActionResult> {
   const t = await getT();
   const teacher = await requireTeacher();
   const q = await getOwnedQuestion(teacher.id, questionId);
   if (!q) return fail(t("Question not found."));
   if (key !== null && !isValidMediaKey(key, teacher.id)) return fail(t("Invalid media file."));
+  // The picture was drawn from this notation (AI "notation" style): keep it so the teacher can edit it later.
+  const drawnFrom = key && notation && NOTATION_KINDS.includes(notation.kind) && typeof notation.text === "string" && !notationError(notation) ? { kind: notation.kind, text: notation.text.slice(0, 2000) } : null;
   await db
     .update(S.question)
     // A picture not drawn from the notation (AI picture, own file) replaces the notation too.
-    .set(key ? { mediaKey: key, imageHint: null, ...(keepNotation ? {} : { notation: null }), updatedAt: new Date() } : { mediaKey: null, notation: null, imageHint: null, updatedAt: new Date() })
+    .set(
+      key
+        ? { mediaKey: key, imageHint: null, ...(drawnFrom ? { notation: drawnFrom } : keepNotation ? {} : { notation: null }), updatedAt: new Date() }
+        : { mediaKey: null, notation: null, imageHint: null, updatedAt: new Date() },
+    )
     .where(eq(S.question.id, q.id));
   if (q.mediaKey && q.mediaKey !== key) await deleteMediaIfOrphaned(q.mediaKey);
   refresh();

@@ -5,7 +5,7 @@ import { Cpu } from "lucide-react";
 import { Select } from "@/components/ui/input";
 import { useT } from "@/i18n/client";
 
-export type ProviderOption = { id: "claude-cli" | "anthropic" | "gemini" | "ollama"; label: string; available: boolean };
+export type ProviderOption = { id: "claude-cli" | "anthropic" | "gemini" | "cloudflare" | "ollama"; label: string; available: boolean };
 export type ProviderPick = "auto" | ProviderOption["id"];
 
 const KEY = "harmoni.aiProvider";
@@ -16,7 +16,7 @@ export function useProviderPick(): [ProviderPick, (v: ProviderPick) => void] {
   useEffect(() => {
     try {
       const v = localStorage.getItem(KEY);
-      if (v === "auto" || v === "claude-cli" || v === "anthropic" || v === "gemini" || v === "ollama") setPick(v);
+      if (v === "auto" || v === "claude-cli" || v === "anthropic" || v === "gemini" || v === "cloudflare" || v === "ollama") setPick(v);
     } catch {
       /* storage blocked: keep "auto" */
     }

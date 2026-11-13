@@ -13,7 +13,7 @@ import { getT } from "@/i18n/server";
 // Server actions are public POST endpoints, so each one checks requireTeacher() itself. A key sent in `data` is never echoed back.
 
 const refresh = () => revalidatePath("/", "layout");
-const providerField = z.enum(["claude-cli", "anthropic", "gemini", "ollama"]);
+const providerField = z.enum(["claude-cli", "anthropic", "gemini", "cloudflare", "ollama"]);
 
 export async function saveAiSettings(data: unknown): Promise<ActionResult> {
   const t = await getT();

@@ -69,3 +69,48 @@ export function cleanSvg(reply: string, shape: IllustrationShape): string {
   });
   return svg;
 }
+
+/* ------------------------------------------------------------------ */
+/* Music notation drawn by the app's own score renderer                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The AI only writes notation code (notation.ts); the app draws it with its score renderer (VexFlow / numbered
+ * notation), so notes, rests, clefs and accidentals always look right.
+ */
+export const NOTATION_SYSTEM = `Anda menuliskan notasi musik untuk gambar soal ujian musik sekolah. Gambar dibuat oleh aplikasi dari kode notasi yang Anda tulis, jadi Anda HANYA menulis kode notasinya.
+Pilih salah satu:
+- Not balok ("kind": "staff"): token dipisah spasi. Header opsional: time=3/4 key=G clef=bass (bawaan 4/4, C, treble).
+  Nada = huruf + oktaf (C4 = do tengah, F#4, Bb3, En4 = natural) lalu /w /h /q /8 /16 (w = not penuh 4 ketuk, h = setengah 2 ketuk, q = seperempat 1 ketuk, 8 = seperdelapan, 16 = seperenambelas); titik di akhir = not bertitik (G4/h.).
+  Akor: C4+E4+G4/h. Tanda istirahat: R/w R/h R/q R/8 R/16. Label di bawah not: C4/q[A] (kurung siku). Garis birama: | ; akhir: ||.
+  Contoh: "time=4/4 | C4/q D4/q E4/q F4/q | G4/h R/h ||"
+- Not angka ("kind": "angka"): header opsional do=G time=4/4. Angka 1-7, 0 = tanda diam, . = tahan satu ketuk.
+  Oktaf tinggi 1' , oktaf rendah 5, ; nada naik 4# , turun 7b ; setengah ketuk 6_ , seperempat ketuk 6__ ; label 1[A]. Garis birama | dan ||.
+  Contoh: "do=C time=4/4 | 1 2 3 4 | 5 . 5 . | 1' . . . ||"
+Aturan:
+- Tulis notasi sesingkat mungkin yang tepat menunjukkan yang diminta. Untuk satu simbol (mis. "not seperempat", "tanda istirahat setengah", "tanda kres") cukup satu not/tanda tanpa garis birama di awal, mis. "C5/q" atau "R/h" atau "F#4/q".
+- Pakai not angka hanya bila diminta not angka; selain itu not balok.
+- Hitung ketukan setiap birama dengan teliti.
+- Bila permintaan TIDAK bisa digambar sebagai notasi (mis. gambar alat musik, orang, simbol dinamika, tempo, atau tanda yang tidak ada di format ini), isi "kind": "none" dan "reason" berisi alasan singkat dalam bahasa Indonesia.`;
+
+export const NOTATION_SCHEMA = {
+  type: "object",
+  properties: {
+    kind: { type: "string", enum: ["staff", "angka", "none"] },
+    text: { type: "string" },
+    reason: { type: "string" },
+  },
+  required: ["kind", "text", "reason"],
+  additionalProperties: false,
+};
+
+export function notationPrompt(description: string, shape: IllustrationShape, retry?: { text: string; error: string }) {
+  return [
+    `Permintaan guru: ${description}`,
+    shape === "option" ? "Gambar ini adalah SATU pilihan jawaban: tunjukkan hanya yang diminta, tanpa label huruf." : "Gambar ini menyertai teks soal.",
+    retry ? `Kode Anda sebelumnya "${retry.text}" tidak bisa digambar (${retry.error}). Perbaiki.` : "",
+    `Balas JSON: {"kind": "staff" | "angka" | "none", "text": "kode notasi (kosong bila none)", "reason": "kosong, atau alasan bila none"}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}

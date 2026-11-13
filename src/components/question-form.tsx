@@ -209,10 +209,10 @@ export function QuestionForm({
       ? options.map((o, i): ImageTarget => ({ id: `o${i}`, label: t("Choice {0}", String.fromCharCode(65 + i)), shape: "option", prefill: o }))
       : []),
   ];
-  function applyImage(target: string, key: string) {
+  function applyImage(target: string, key: string, drawnFrom?: Notation) {
     if (target === "q") {
       setMediaKey(key);
-      setNotation(null);
+      setNotation(drawnFrom ?? null);
       setUploaderVersion((v) => v + 1);
     } else {
       const i = Number(target.slice(1));
