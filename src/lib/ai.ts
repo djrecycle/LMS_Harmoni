@@ -5,7 +5,7 @@ import { today } from "./utils";
 import { AiError } from "./ai-error";
 import { isClaudeCliAvailable, runClaudeCli } from "./ai-cli";
 import { ambilJson } from "./ai-json";
-import { autoGeminiModel, listGeminiModels, runGemini } from "./ai-gemini";
+import { autoGeminiModel, listGeminiModels, runGemini, runGeminiImage } from "./ai-gemini";
 import { isOllamaReachable, listOllamaModels, ollamaSupportsVision, runOllama } from "./ai-ollama";
 import { getAiConfig, type AiConfig } from "./ai-config";
 
@@ -284,6 +284,20 @@ export async function generateJson<T>({
       if (attempt >= 2) throw e;
     }
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Image generation                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Whether `userId` can make images: only Gemini makes pictures (Anthropic and the others only write text). */
+export const canMakeImages = async (userId: string) => (await getAiConfig(userId)).gemini.key !== "";
+
+/** One picture from a description, made with the Gemini key of the teacher using the AI. */
+export async function generateImage({ prompt, owner, aspectRatio }: { prompt: string; owner: string; aspectRatio?: "1:1" | "4:3" }) {
+  const cfg = await getAiConfig(owner);
+  if (!cfg.gemini.key) throw new AiError("Making images needs a Gemini API key (Anthropic cannot make images). Add your Gemini key in AI Settings.");
+  return runGeminiImage({ prompt, apiKey: cfg.gemini.key, aspectRatio });
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,4 +1,4 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { deleteFile } from "./storage";
@@ -92,6 +92,8 @@ export async function deleteMediaIfOrphaned(key: string | null | undefined) {
   if (m) return;
   const [s] = await db.select({ id: S.question.id }).from(S.question).where(eq(S.question.mediaKey, key)).limit(1);
   if (s) return;
+  const [c] = await db.select({ id: S.question.id }).from(S.question).where(sql`${S.question.optionImages} @> ${JSON.stringify([key])}::jsonb`).limit(1);
+  if (c) return;
   const [p] = await db.select({ id: S.practiceMaterial.id }).from(S.practiceMaterial).where(eq(S.practiceMaterial.mediaKey, key)).limit(1);
   if (p) return;
   await deleteFile(key);

@@ -273,7 +273,7 @@ export async function startGambar(examId: string, data: unknown): Promise<Action
 }
 
 /** Put an uploaded/drawn image on a question of this teacher (null removes it). A real image replaces the "picture needed" note. */
-export async function setQuestionImage(questionId: string, key: string | null): Promise<ActionResult> {
+export async function setQuestionImage(questionId: string, key: string | null, keepNotation = true): Promise<ActionResult> {
   const t = await getT();
   const teacher = await requireTeacher();
   const q = await getOwnedQuestion(teacher.id, questionId);
@@ -281,11 +281,33 @@ export async function setQuestionImage(questionId: string, key: string | null): 
   if (key !== null && !isValidMediaKey(key, teacher.id)) return fail(t("Invalid media file."));
   await db
     .update(S.question)
-    .set(key ? { mediaKey: key, imageHint: null, updatedAt: new Date() } : { mediaKey: null, notation: null, imageHint: null, updatedAt: new Date() })
+    // A picture not drawn from the notation (AI picture, own file) replaces the notation too.
+    .set(key ? { mediaKey: key, imageHint: null, ...(keepNotation ? {} : { notation: null }), updatedAt: new Date() } : { mediaKey: null, notation: null, imageHint: null, updatedAt: new Date() })
     .where(eq(S.question.id, q.id));
   if (q.mediaKey && q.mediaKey !== key) await deleteMediaIfOrphaned(q.mediaKey);
   refresh();
   return succeed(key ? t("Image added to the question.") : t("Image removed from the question."));
+}
+
+/** Put an image on one answer choice (multiple choice / complex multiple choice) of this teacher's question; null removes it. */
+export async function setOptionImage(questionId: string, index: number, key: string | null): Promise<ActionResult> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const q = await getOwnedQuestion(teacher.id, questionId);
+  if (!q) return fail(t("Question not found."));
+  const n = q.options?.length ?? 0;
+  if (!(q.answerType === "multiple_choice" || q.answerType === "multiple_select") || !Number.isInteger(index) || index < 0 || index >= n) return fail(t("Choice not found."));
+  if (key !== null && !isValidMediaKey(key, teacher.id)) return fail(t("Invalid media file."));
+  const images = Array.from({ length: n }, (_, i) => q.optionImages?.[i] ?? null);
+  const previous = images[index];
+  images[index] = key;
+  await db
+    .update(S.question)
+    .set({ optionImages: images.some(Boolean) ? images : null, updatedAt: new Date() })
+    .where(eq(S.question.id, q.id));
+  if (previous && previous !== key) await deleteMediaIfOrphaned(previous);
+  refresh();
+  return succeed(key ? t("Image added to choice {0}.", String.fromCharCode(65 + index)) : t("Image removed from choice {0}.", String.fromCharCode(65 + index)));
 }
 
 /** Polled by the exam page while a job runs. */

@@ -124,6 +124,8 @@ export const questionInputSchema = z
     options: z.array(z.string().trim().min(1, "A choice cannot be empty").max(300)).max(8).nullable().optional(),
     /** Statements of a matching question. */
     matchRows: z.array(z.string().trim().min(1, "A statement cannot be empty").max(500)).max(12).nullable().optional(),
+    /** Image per answer choice (same order as `options`, null = none). Left out = keep what is saved. */
+    optionImages: z.array(z.string().trim().max(600).nullable()).max(8).nullable().optional(),
     answerKey: answerKeySchema,
     explanation: z.string().trim().max(2000).nullable().optional(),
     topic: z.string().trim().max(300).nullable().optional(),
@@ -330,6 +332,8 @@ export type StudentQuestion = {
   prompt: string;
   mediaKey: string | null;
   options: string[] | null;
+  /** Image per answer choice (multiple choice / complex multiple choice), same order as `options`. */
+  optionImages: (string | null)[] | null;
   /** Statements of a matching question. */
   matchRows: string[] | null;
   points: number;
@@ -346,6 +350,7 @@ type QuestionRow = {
   prompt: string;
   mediaKey: string | null;
   options: string[] | null;
+  optionImages?: (string | null)[] | null;
   matchRows?: string[] | null;
   points: number;
   answerKey: AnswerKey | null;
@@ -360,6 +365,7 @@ export function toStudentQuestion(s: QuestionRow): StudentQuestion {
     prompt: s.prompt,
     mediaKey: s.mediaKey,
     options: s.options,
+    optionImages: s.answerType === "multiple_choice" || s.answerType === "multiple_select" ? (s.optionImages ?? null) : null,
     matchRows: s.matchRows ?? null,
     points: s.points,
     sound: s.sound ?? null,

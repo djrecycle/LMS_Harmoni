@@ -52,6 +52,8 @@ export type DocQuestion = {
   image?: DocImage | null;
   prompt: string;
   options: string[] | null;
+  /** Image per choice (same order as `options`). */
+  optionImages?: (DocImage | null)[] | null;
   matchRows: string[] | null;
   answerKey: AnswerKey | null;
 };
@@ -179,7 +181,7 @@ function choiceTable(items: { no: number; question: DocQuestion | null }[], jeni
             cell(q?.prompt ?? "", W[1], { merge, image: q?.image }),
             cell(String(jenis), W[2], { center: true, merge }),
             cell(i < options.length || jenis === 1 ? letter(i) : "", W[3], { center: true }),
-            cell(options[i] ?? "", W[4]),
+            cell(options[i] ?? "", W[4], { image: q?.optionImages?.[i] }),
             cell(v(i < options.length && isKey(i)), W[5], { center: true }),
           ],
         }),

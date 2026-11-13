@@ -27,10 +27,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string; fi
   const images = new Map<string, DocImage | null>();
   if (file === "cbt") {
     for (const { question } of rows) {
-      const key = question?.mediaKey;
-      if (!key || images.has(key) || mimeFromKey(key).split("/")[0] !== "image") continue;
-      const bytes = await readFileBytes(key);
-      images.set(key, bytes ? imageInfo(bytes) : null);
+      for (const key of [question?.mediaKey, ...(question?.optionImages ?? [])]) {
+        if (!key || images.has(key) || mimeFromKey(key).split("/")[0] !== "image") continue;
+        const bytes = await readFileBytes(key);
+        images.set(key, bytes ? imageInfo(bytes) : null);
+      }
     }
   }
   const items: DocItem[] = rows.map(({ item, question }) => ({
@@ -40,7 +41,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string; fi
     indikator: item.indikator,
     level: item.level,
     question: question
-      ? { prompt: question.prompt, options: question.options, matchRows: question.matchRows, answerKey: question.answerKey, image: question.mediaKey ? atSize(images.get(question.mediaKey) ?? null, Boolean(question.notation)) : null }
+      ? {
+          prompt: question.prompt,
+          options: question.options, matchRows: question.matchRows, answerKey: question.answerKey, image: question.mediaKey ? atSize(images.get(question.mediaKey) ?? null, Boolean(question.notation)) : null,
+          optionImages: question.optionImages?.map((k) => (k ? (images.get(k) ?? null) : null)) ?? null,
+        }
       : null,
   }));
   const buffer = file === "kisi" ? await kisiDocx(exam.title, exam.info, items) : await cbtDocx(items);

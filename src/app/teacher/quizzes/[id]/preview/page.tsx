@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/misc";
 import { db, schema } from "@/db";
 import { getOwnedQuiz } from "@/lib/access";
-import { QUESTION_TYPE_LABELS, formatAnswerKey } from "@/lib/questions";
+import { QUESTION_TYPE_LABELS, formatAnswerKey, mediaUrl } from "@/lib/questions";
 import { requireTeacher } from "@/lib/session";
 import { formatDateTime } from "@/lib/utils";
 import { getT } from "@/i18n/server";
@@ -103,8 +103,12 @@ export default async function QuizPreview({ params }: { params: Promise<{ id: st
                       return (
                         <li key={j} className={correct ? "flex items-start gap-2 rounded-lg border border-success/40 bg-success-soft p-2.5 font-semibold" : "flex items-start gap-2 rounded-lg border p-2.5"}>
                           <span className="font-bold">{String.fromCharCode(65 + j)}.</span>
-                          <span className="min-w-0 flex-1 break-words">
+                          <span className="grid min-w-0 flex-1 gap-1.5 break-words">
                             <ChoiceLabel text={opt} sound={s.sound} />
+                            {s.optionImages?.[j] && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={mediaUrl(s.optionImages[j])!} alt={t("Image for choice {0}", String.fromCharCode(65 + j))} className="max-h-32 w-auto max-w-full rounded-md border bg-white object-contain" />
+                            )}
                           </span>
                           {correct && <CircleCheck className="size-4 shrink-0 text-success" />}
                         </li>

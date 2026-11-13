@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, CircleCheck, Download, ImageIcon, ImageOff, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
+import { ChevronDown, CircleCheck, Download, ImageIcon, ImageOff, ImagePlus, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
-import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, linkExamQuestion, publishExam, saveExamItem, setQuestionImage, startGambar, startKisi, startSoal } from "@/app/actions/exam";
+import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, linkExamQuestion, publishExam, saveExamItem, setOptionImage, setQuestionImage, startGambar, startKisi, startSoal } from "@/app/actions/exam";
 import { DeleteButton } from "@/components/delete-button";
 import { ProviderSelect, providerReady, useProviderPick, type ProviderOption } from "@/components/provider-select";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { mediaUrl, type AnswerKey, type QuestionType } from "@/lib/questions";
 import type { Notation } from "@/lib/notation";
 import { notationPng, uploadMedia } from "@/lib/notation-render";
 import { MediaUploader } from "@/components/media-uploader";
+import { AiImagePanel, type ImageTarget } from "@/components/ai-image-panel";
 import { NotationPreview } from "@/components/notation-editor";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
@@ -25,6 +26,7 @@ export type WorkspaceQuestion = {
   type: QuestionType;
   prompt: string;
   options: string[] | null;
+  optionImages: (string | null)[] | null;
   matchRows: string[] | null;
   answerKey: AnswerKey | null;
   explanation: string | null;
@@ -47,6 +49,7 @@ export function ExamWorkspace({
   classrooms,
   linked,
   providers,
+  imageAi,
 }: {
   exam: ExamView;
   items: WorkspaceItem[];
@@ -55,6 +58,8 @@ export function ExamWorkspace({
   classrooms: { id: string; name: string }[];
   linked: { id: string; title: string; published: boolean; classroomName: string; attempts: number }[];
   providers: ProviderOption[];
+  /** The teacher has a Gemini key, so the AI can make pictures. */
+  imageAi: boolean;
 }) {
   const t = useT();
   const router = useRouter();
@@ -286,7 +291,7 @@ export function ExamWorkspace({
       )}
 
       {tab === "kisi" && <KisiTab examId={exam.id} groups={bySection} tps={exam.tps} comp={comp} locked={Boolean(job)} />}
-      {tab === "soal" && <SoalTab examId={exam.id} groups={bySection} bank={bank} quizzes={quizzes} locked={Boolean(job)} />}
+      {tab === "soal" && <SoalTab examId={exam.id} groups={bySection} bank={bank} quizzes={quizzes} locked={Boolean(job)} imageAi={imageAi} />}
       {tab === "publish" && <PublishTab exam={exam} items={items} groups={bySection} classrooms={classrooms} linked={linked} locked={Boolean(job)} />}
     </div>
   );
@@ -445,7 +450,21 @@ function KisiRow({ item, tps, locked }: { item: WorkspaceItem & { no: number }; 
 
 /* ------------------------------------------------------------------ questions */
 
-function SoalTab({ examId, groups, bank, quizzes, locked }: { examId: string; groups: Group[]; bank: BankQuestion[]; quizzes: { id: string; title: string; classroomName: string; n: number }[]; locked: boolean }) {
+function SoalTab({
+  examId,
+  groups,
+  bank,
+  quizzes,
+  locked,
+  imageAi,
+}: {
+  examId: string;
+  groups: Group[];
+  bank: BankQuestion[];
+  quizzes: { id: string; title: string; classroomName: string; n: number }[];
+  locked: boolean;
+  imageAi: boolean;
+}) {
   const t = useT();
   const router = useRouter();
   const [quizId, setQuizId] = useState("");
@@ -491,7 +510,7 @@ function SoalTab({ examId, groups, bank, quizzes, locked }: { examId: string; gr
               {letter(gi)}. {t(SECTION_META[g.section].label)} <span className="text-muted-foreground">({range(g)})</span>
             </h3>
             {g.items.map((it) => (
-              <SoalCard key={it.id} examId={examId} item={it} bank={bank.filter((b) => b.type === SECTION_META[g.section].type && !used.has(b.id))} locked={locked} />
+              <SoalCard key={it.id} examId={examId} item={it} bank={bank.filter((b) => b.type === SECTION_META[g.section].type && !used.has(b.id))} locked={locked} imageAi={imageAi} />
             ))}
           </section>
         ))}
@@ -500,13 +519,44 @@ function SoalTab({ examId, groups, bank, quizzes, locked }: { examId: string; gr
   );
 }
 
-function SoalCard({ examId, item, bank, locked }: { examId: string; item: WorkspaceItem & { no: number }; bank: BankQuestion[]; locked: boolean }) {
+function SoalCard({ examId, item, bank, locked, imageAi }: { examId: string; item: WorkspaceItem & { no: number }; bank: BankQuestion[]; locked: boolean; imageAi: boolean }) {
   const t = useT();
   const router = useRouter();
   const [picking, setPicking] = useState(false);
   const [uploading, setUploading] = useState(false);
+  /** Open AI picture panel: "q" = the question, "o<i>" = choice i; null = closed. */
+  const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [busy, start] = useTransition();
   const q = item.question;
+  const choiceImages = q && (q.type === "multiple_choice" || q.type === "multiple_select");
+  const targets: ImageTarget[] = q
+    ? [
+        { id: "q", label: t("Question"), shape: "question", prefill: q.imageHint ?? "" },
+        ...(choiceImages ? (q.options ?? []).map((o, i): ImageTarget => ({ id: `o${i}`, label: t("Choice {0}", letter(i)), shape: "option", prefill: o })) : []),
+      ]
+    : [];
+
+  /** Put a new picture (AI or uploaded) on the question or one choice. */
+  async function applyImage(target: string, key: string): Promise<boolean> {
+    if (!q) return false;
+    const r = target === "q" ? await setQuestionImage(q.id, key, false) : await setOptionImage(q.id, Number(target.slice(1)), key);
+    if (!r.ok) {
+      toast.error(r.error);
+      return false;
+    }
+    router.refresh();
+    return true;
+  }
+
+  function removeOptionImage(i: number) {
+    if (!q) return;
+    start(async () => {
+      const r = await setOptionImage(q.id, i, null);
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(r.message);
+      router.refresh();
+    });
+  }
 
   function image(key: string | null) {
     if (!q) return;
@@ -539,7 +589,15 @@ function SoalCard({ examId, item, bank, locked }: { examId: string; item: Worksp
         </span>
       </div>
 
-      {q ? <QuestionView q={q} /> : <p className="text-sm font-semibold text-muted-foreground">{t("No question yet.")}</p>}
+      {q ? (
+        <QuestionView
+          q={q}
+          onOptionImage={choiceImages && !locked ? (i) => setAiTarget(`o${i}`) : undefined}
+          onRemoveOptionImage={choiceImages && !locked && !busy ? removeOptionImage : undefined}
+        />
+      ) : (
+        <p className="text-sm font-semibold text-muted-foreground">{t("No question yet.")}</p>
+      )}
 
       {q?.imageHint && !q.mediaKey && (
         <Alert kind="warning" className="mt-3" title={t("This question needs a picture")}>
@@ -573,21 +631,26 @@ function SoalCard({ examId, item, bank, locked }: { examId: string; item: Worksp
                 <ImageIcon /> {t("Add own image")}
               </Button>
             )}
+            <Button variant={aiTarget ? "secondary" : "ghost"} size="sm" disabled={locked} onClick={() => setAiTarget((x) => (x ? null : "q"))}>
+              <Sparkles /> {t("AI picture")}
+            </Button>
             <Button variant="ghost" size="sm" disabled={busy || locked} onClick={() => link(null)}>
               <Unlink /> {t("Remove")}
             </Button>
           </>
         )}
       </div>
+      {q && aiTarget && !locked && <AiImagePanel key={q.id + aiTarget} targets={targets} initial={aiTarget} ready={imageAi} disabled={busy} onApply={applyImage} onClose={() => setAiTarget(null)} />}
       {picking && <BankPicker bank={bank} tp={item.tp} onPick={link} onClose={() => setPicking(false)} busy={busy} />}
     </div>
   );
 }
 
 /** The question as the student will see it, with the key marked. */
-function QuestionView({ q }: { q: WorkspaceQuestion }) {
+function QuestionView({ q, onOptionImage, onRemoveOptionImage }: { q: WorkspaceQuestion; onOptionImage?: (i: number) => void; onRemoveOptionImage?: (i: number) => void }) {
   const t = useT();
   const key = q.answerKey;
+  const image = (i: number) => q.optionImages?.[i] ?? null;
   return (
     <div className="grid gap-2 text-sm">
       <p className="font-semibold break-words whitespace-pre-line">{q.prompt}</p>
@@ -602,9 +665,39 @@ function QuestionView({ q }: { q: WorkspaceQuestion }) {
           {(q.options ?? []).map((o, i) => {
             const right = (key?.kind === "multiple_choice" && key.correct === i) || (key?.kind === "multiple_select" && key.correct.includes(i));
             return (
-              <li key={i} className={cn("flex gap-2 rounded-lg px-2 py-1", right && "bg-success-soft font-semibold")}>
+              <li key={i} className={cn("group flex gap-2 rounded-lg px-2 py-1", right && "bg-success-soft font-semibold")}>
                 <span className="font-bold">{letter(i)}.</span>
-                <span className="min-w-0 flex-1 break-words">{o}</span>
+                <span className="grid min-w-0 flex-1 gap-1">
+                  <span className="break-words">{o}</span>
+                  {image(i) && (
+                    <span className="relative inline-block justify-self-start">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={mediaUrl(image(i))!} alt={t("Image for choice {0}", letter(i))} className="max-h-28 w-auto max-w-full rounded-md border bg-white object-contain" />
+                      {onRemoveOptionImage && (
+                        <button
+                          type="button"
+                          onClick={() => onRemoveOptionImage(i)}
+                          className="absolute -top-2 -right-2 grid size-6 place-items-center rounded-full border bg-card text-muted-foreground shadow-sm hover:text-danger"
+                          aria-label={t("Remove the image of choice {0}", letter(i))}
+                          title={t("Remove image")}
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </span>
+                {onOptionImage && (
+                  <button
+                    type="button"
+                    onClick={() => onOptionImage(i)}
+                    className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-primary"
+                    aria-label={t("Picture for choice {0}", letter(i))}
+                    title={t("Picture for choice {0}", letter(i))}
+                  >
+                    <ImagePlus className="size-4" />
+                  </button>
+                )}
                 {right && <CircleCheck className="size-4 shrink-0 text-success" />}
               </li>
             );

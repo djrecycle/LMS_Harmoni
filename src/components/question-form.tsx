@@ -2,10 +2,11 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Play, Plus, Trash, Undo2, X } from "lucide-react";
+import { ImagePlus, Play, Plus, Sparkles, Trash, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import { saveQuestion } from "@/app/actions/question";
 import { MediaUploader } from "@/components/media-uploader";
+import { AiImagePanel, type ImageTarget } from "@/components/ai-image-panel";
 import { Piano } from "@/components/piano";
 import { TopicPicker } from "@/components/topic-picker";
 import { Alert } from "@/components/ui/misc";
@@ -14,7 +15,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { playSequence } from "@/lib/audio";
 import type { TopicSuggestions } from "@/lib/form-data";
 import { midiToNote, noteToMidi, parseNoteList, solfegeOf, solfegeVariants } from "@/lib/music";
-import { QUESTION_TYPE_LABELS, QUESTION_TYPES, SOUND_VOICES, type AnswerType, type AnswerKey, type QuestionSound, type QuestionType } from "@/lib/questions";
+import { QUESTION_TYPE_LABELS, QUESTION_TYPES, SOUND_VOICES, mediaUrl, type AnswerType, type AnswerKey, type QuestionSound, type QuestionType } from "@/lib/questions";
 import { RhythmGlyphs, SoundPlayer } from "@/components/sound-player";
 import { RhythmTapRecorder } from "@/components/rhythm-tap-recorder";
 import { parseRhythm, rhythmToText, rhythmVariants } from "@/lib/rhythm";
@@ -32,6 +33,7 @@ export type QuestionDraft = {
   mediaKey: string | null;
   sound?: QuestionSound | null;
   options: string[] | null;
+  optionImages?: (string | null)[] | null;
   matchRows?: string[] | null;
   answerKey: AnswerKey | null;
   explanation: string | null;
@@ -123,6 +125,9 @@ export function QuestionForm({
   const [mediaKey, setMediaKey] = useState(initialState.mediaKey ?? "");
   const [sound, setSound] = useState<QuestionSound | null>(initialState.sound ?? null);
   const [options, setOptions] = useState<string[]>(initialState.options?.length ? initialState.options : ["", "", "", ""]);
+  const [optionImages, setOptionImages] = useState<(string | null)[]>(initialState.optionImages ?? []);
+  /** AI picture panel: "q" = the question image, "o<i>" = choice i; null = closed. */
+  const [imgTarget, setImgTarget] = useState<string | null>(null);
   const [matchRows, setMatchRows] = useState<string[]>(initialState.matchRows?.length ? initialState.matchRows : ["", "", "", ""]);
   const [level, setLevel] = useState(initialState.level ?? "");
   const [notation, setNotation] = useState<Notation | null>(initialState.notation ?? null);
@@ -169,6 +174,58 @@ export function QuestionForm({
   const kindMedia: "image" | "audio" | "video" = type === "audio" || type === "midi" ? "audio" : type === "video" ? "video" : "image";
   const mediaRequire = type === "audio" || type === "video";
 
+  /** Choice images apply to multiple choice and complex multiple choice only. */
+  const choiceImageButton = (i: number) => (
+    <Button
+      variant={imgTarget === `o${i}` ? "secondary" : "ghost"}
+      size="icon"
+      className="size-9 shrink-0"
+      aria-label={t("Picture for choice {0}", String.fromCharCode(65 + i))}
+      title={t("Picture for choice {0}", String.fromCharCode(65 + i))}
+      onClick={() => setImgTarget((x) => (x === `o${i}` ? null : `o${i}`))}
+    >
+      <ImagePlus />
+    </Button>
+  );
+  const choiceImageThumb = (i: number) =>
+    optionImages[i] ? (
+      <div className="relative ml-7 justify-self-start">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={mediaUrl(optionImages[i])!} alt={t("Image for choice {0}", String.fromCharCode(65 + i))} className="max-h-28 w-auto max-w-full rounded-md border bg-white object-contain" />
+        <button
+          type="button"
+          onClick={() => setOptionImages((a) => a.map((x, j) => (j === i ? null : x)))}
+          className="absolute -top-2 -right-2 grid size-6 place-items-center rounded-full border bg-card text-muted-foreground shadow-sm hover:text-danger"
+          aria-label={t("Remove the image of choice {0}", String.fromCharCode(65 + i))}
+          title={t("Remove image")}
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
+    ) : null;
+  const imageTargets: ImageTarget[] = [
+    { id: "q", label: t("Question"), shape: "question", prefill: imageHint },
+    ...(answerShape === "multiple_choice" || answerShape === "multiple_select"
+      ? options.map((o, i): ImageTarget => ({ id: `o${i}`, label: t("Choice {0}", String.fromCharCode(65 + i)), shape: "option", prefill: o }))
+      : []),
+  ];
+  function applyImage(target: string, key: string) {
+    if (target === "q") {
+      setMediaKey(key);
+      setNotation(null);
+      setUploaderVersion((v) => v + 1);
+    } else {
+      const i = Number(target.slice(1));
+      setOptionImages((a) => {
+        const next = Array.from({ length: Math.max(a.length, i + 1) }, (_, j) => a[j] ?? null);
+        next[i] = key;
+        return next;
+      });
+    }
+    return true;
+  }
+  const choicePanel = imgTarget?.startsWith("o") ? <AiImagePanel key={imgTarget} targets={imageTargets} initial={imgTarget} onApply={applyImage} onClose={() => setImgTarget(null)} /> : null;
+
   function send(e: React.FormEvent) {
     e.preventDefault();
     setError({});
@@ -180,6 +237,7 @@ export function QuestionForm({
       mediaKey: type === "audio" && sound ? null : mediaKey || null,
       sound: type === "audio" ? sound : null,
       options: answerShape === "multiple_choice" || answerShape === "multiple_select" || answerShape === "matching" ? options.map((o) => o.trim()) : null,
+      optionImages: answerShape === "multiple_choice" || answerShape === "multiple_select" ? options.map((_, i) => optionImages[i] ?? null) : null,
       matchRows: answerShape === "matching" ? matchRows.map((o) => o.trim()) : null,
       answerKey: answerKey.kind === "matching" ? { kind: "matching", pairs: matchRows.map((_, i) => answerKey.pairs[i] ?? -1) } : answerKey,
       level: level || null,
@@ -289,6 +347,14 @@ export function QuestionForm({
           <MediaUploader key={`${kindMedia}-${uploaderVersion}`} name="mediaKey" kind={kindMedia} defaultValue={mediaKey} onChange={setMediaKey} />
           {error.mediaKey && <p className="mt-1 text-xs font-medium text-danger">{error.mediaKey}</p>}
           {kindMedia === "image" && (
+            <div className="mt-2">
+              <Button variant={imgTarget === "q" ? "secondary" : "outline"} size="sm" onClick={() => setImgTarget((x) => (x === "q" ? null : "q"))}>
+                <Sparkles /> {t("Make the question image with AI")}
+              </Button>
+              {imgTarget === "q" && <AiImagePanel targets={imageTargets.slice(0, 1)} initial="q" onApply={applyImage} onClose={() => setImgTarget(null)} />}
+            </div>
+          )}
+          {kindMedia === "image" && (
             <div className="mt-3">
               <p className="mb-1.5 text-sm font-semibold">{t("Or draw music notation as the image")}</p>
               <NotationEditor
@@ -332,7 +398,8 @@ export function QuestionForm({
         {answerShape === "multiple_choice" && answerKey.kind === "multiple_choice" && (
           <div className="grid gap-2">
             {options.map((o, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="grid gap-1.5">
+                <div className="flex items-center gap-2">
                 <input
                   type="radio"
                   name="correct"
@@ -342,6 +409,7 @@ export function QuestionForm({
                   className="size-5 shrink-0 accent-[var(--success)]"
                 />
                 <Input value={o} onChange={(e) => setOptions((a) => a.map((x, j) => (j === i ? e.target.value : x)))} placeholder={t("Choice {0}", String.fromCharCode(65 + i))} aria-label={t("Choice {0}", i + 1)} />
+                {choiceImageButton(i)}
                 {options.length > 2 && (
                   <Button
                     variant="ghost"
@@ -350,14 +418,18 @@ export function QuestionForm({
                     aria-label={t("Remove choice")}
                     onClick={() => {
                       setOptions((a) => a.filter((_, j) => j !== i));
+                      setOptionImages((a) => a.filter((_, j) => j !== i));
                       setAnswerKey((k) => (k.kind === "multiple_choice" ? { kind: "multiple_choice", correct: k.correct === i ? 0 : k.correct > i ? k.correct - 1 : k.correct } : k));
                     }}
                   >
                     <X />
                   </Button>
                 )}
+                </div>
+                {choiceImageThumb(i)}
               </div>
             ))}
+            {choicePanel}
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">{t("Select the circle on the left to mark the correct answer.")}</p>
               {options.length < 6 && (
@@ -373,7 +445,8 @@ export function QuestionForm({
         {answerShape === "multiple_select" && answerKey.kind === "multiple_select" && (
           <div className="grid gap-2">
             {options.map((o, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="grid gap-1.5">
+                <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   checked={answerKey.correct.includes(i)}
@@ -382,6 +455,7 @@ export function QuestionForm({
                   className="size-5 shrink-0 accent-[var(--success)]"
                 />
                 <Input value={o} onChange={(e) => setOptions((a) => a.map((x, j) => (j === i ? e.target.value : x)))} placeholder={t("Choice {0}", String.fromCharCode(65 + i))} aria-label={t("Choice {0}", i + 1)} />
+                {choiceImageButton(i)}
                 {options.length > 2 && (
                   <Button
                     variant="ghost"
@@ -390,14 +464,18 @@ export function QuestionForm({
                     aria-label={t("Remove choice")}
                     onClick={() => {
                       setOptions((a) => a.filter((_, j) => j !== i));
+                      setOptionImages((a) => a.filter((_, j) => j !== i));
                       setAnswerKey((k) => (k.kind === "multiple_select" ? { kind: "multiple_select", correct: k.correct.filter((x) => x !== i).map((x) => (x > i ? x - 1 : x)) } : k));
                     }}
                   >
                     <X />
                   </Button>
                 )}
+                </div>
+                {choiceImageThumb(i)}
               </div>
             ))}
+            {choicePanel}
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">{t("Tick every correct answer. Students get partial points for each correct tick.")}</p>
               {options.length < 8 && (

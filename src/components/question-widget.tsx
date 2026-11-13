@@ -9,9 +9,17 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { playSequence } from "@/lib/audio";
 import { midiToNote, noteToMidi } from "@/lib/music";
-import type { StudentAnswer, StudentQuestion } from "@/lib/questions";
+import { mediaUrl, type StudentAnswer, type StudentQuestion } from "@/lib/questions";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
+
+/** The picture of one answer choice (if it has one). */
+function ChoiceImage({ mediaKey, alt }: { mediaKey: string | null | undefined; alt: string }) {
+  const src = mediaUrl(mediaKey);
+  if (!src) return null;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt={alt} loading="lazy" className="max-h-40 w-auto max-w-full rounded-lg border bg-white object-contain" />;
+}
 
 export type FeedbackView = { correct: boolean | null; answerKey: string | null; explanation: string | null } | null;
 
@@ -62,8 +70,9 @@ export function QuestionWidget({
                 )}
               >
                 <span className={cn("grid size-8 shrink-0 place-items-center rounded-full text-sm font-bold", selected ? "bg-primary text-primary-foreground" : "bg-muted")}>{String.fromCharCode(65 + i)}</span>
-                <span className="min-w-0 break-words">
+                <span className="grid min-w-0 gap-2 break-words">
                   <ChoiceLabel text={o} sound={question.sound} />
+                  <ChoiceImage mediaKey={question.optionImages?.[i]} alt={t("Image for choice {0}", String.fromCharCode(65 + i))} />
                 </span>
               </button>
             );
@@ -138,7 +147,10 @@ export function QuestionWidget({
                 )}
               >
                 <span className={cn("grid size-8 shrink-0 place-items-center rounded-md border-2 text-sm font-bold", ticked ? "border-primary bg-primary text-primary-foreground" : "bg-muted")}>{ticked ? "✓" : String.fromCharCode(65 + i)}</span>
-                <span className="min-w-0 break-words">{o}</span>
+                <span className="grid min-w-0 gap-2 break-words">
+                  {o}
+                  <ChoiceImage mediaKey={question.optionImages?.[i]} alt={t("Image for choice {0}", String.fromCharCode(65 + i))} />
+                </span>
               </button>
             );
           })}

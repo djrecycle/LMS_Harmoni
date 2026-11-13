@@ -306,6 +306,8 @@ export const question = pgTable(
     notation: jsonb("notation").$type<Notation | null>(),
     /** A picture the question needs but the AI cannot draw (e.g. a photo of an instrument): what the teacher should upload. */
     imageHint: text("image_hint"),
+    /** Image per answer choice (multiple_choice / multiple_select), same order as `options`; null = that choice has no image. */
+    optionImages: jsonb("option_images").$type<(string | null)[] | null>(),
     /** Answer key. MUST NOT be sent to the student before the question is answered. */
     answerKey: jsonb("answerKey").$type<AnswerKey | null>(),
     explanation: text("explanation"),

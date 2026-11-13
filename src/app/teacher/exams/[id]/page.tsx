@@ -5,7 +5,7 @@ import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import { ExamWorkspace, type WorkspaceItem } from "@/components/exam-workspace";
 import { db, schema } from "@/db";
-import { providerOptions } from "@/lib/ai";
+import { canMakeImages, providerOptions } from "@/lib/ai";
 import { EXAM_SECTIONS, SECTION_META, readComposition } from "@/lib/exam";
 import { expireStaleExamJob, getOwnedExam, listExamItems } from "@/lib/exam-store";
 import { requireTeacher } from "@/lib/session";
@@ -28,7 +28,7 @@ export default async function ExamPage({ params }: { params: Promise<{ id: strin
   await expireStaleExamJob(found.id);
   const exam = (await getOwnedExam(teacher.id, id))!;
 
-  const [rows, bank, quizzes, classrooms, linked, providers] = await Promise.all([
+  const [rows, bank, quizzes, classrooms, linked, providers, imageAi] = await Promise.all([
     listExamItems(exam.id),
     db
       .select({ id: S.question.id, type: S.question.type, prompt: S.question.prompt, topic: S.question.topic, kelas: S.question.kelas, level: S.question.level })
@@ -53,6 +53,7 @@ export default async function ExamPage({ params }: { params: Promise<{ id: strin
       .groupBy(S.quiz.id, S.classroom.name)
       .orderBy(desc(S.quiz.createdAt)),
     providerOptions(teacher.id),
+    canMakeImages(teacher.id),
   ]);
 
   const items: WorkspaceItem[] = rows.map(({ item, question }) => ({
@@ -68,6 +69,7 @@ export default async function ExamPage({ params }: { params: Promise<{ id: strin
           type: question.type,
           prompt: question.prompt,
           options: question.options,
+          optionImages: question.optionImages,
           matchRows: question.matchRows,
           answerKey: question.answerKey,
           explanation: question.explanation,
@@ -91,6 +93,7 @@ export default async function ExamPage({ params }: { params: Promise<{ id: strin
         classrooms={classrooms}
         linked={linked.map((q) => ({ ...q, attempts: Number(q.attempts) }))}
         providers={providers}
+        imageAi={imageAi}
       />
     </>
   );

@@ -9,7 +9,7 @@ import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
 import { requireTeacher } from "@/lib/session";
 import { questionInputSchema, type QuestionInput } from "@/lib/questions";
-import { normalize, toDbValues } from "@/lib/question-db";
+import { alignOptionImages, normalize, toDbValues } from "@/lib/question-db";
 import { topicSuggestions } from "@/lib/form-data";
 import { semesterGanjilGenap } from "@/lib/perangkat/generator";
 import { docContext } from "@/lib/perangkat/store";
@@ -26,13 +26,17 @@ export async function saveQuestion(data: unknown, id?: string): Promise<ActionRe
   const p = questionInputSchema.safeParse(data);
   if (!p.success) return zodError(p.error);
   const v = normalize(p.data);
-  if (!isValidMediaKey(v.mediaKey, teacher.id)) return fail(t("Invalid media file."));
+  if (!isValidMediaKey(v.mediaKey, teacher.id) || (v.optionImages ?? []).some((k) => !isValidMediaKey(k, teacher.id))) return fail(t("Invalid media file."));
 
   if (id) {
     const current = await getOwnedQuestion(teacher.id, id);
     if (!current) return fail(t("Question not found."));
     await db.update(S.question).set({ ...toDbValues(v), updatedAt: new Date() }).where(eq(S.question.id, current.id));
     if (current.mediaKey && current.mediaKey !== v.mediaKey) await deleteMediaIfOrphaned(current.mediaKey);
+    if (v.optionImages !== undefined) {
+      const kept = new Set(alignOptionImages(v) ?? []);
+      for (const k of current.optionImages ?? []) if (k && !kept.has(k)) await deleteMediaIfOrphaned(k);
+    }
     refresh();
     return succeed(t("Question updated."), { id: current.id });
   }
@@ -50,7 +54,7 @@ export async function saveQuestionMany(list: unknown[]): Promise<ActionResult<{ 
   for (let i = 0; i < list.length; i++) {
     const p = questionInputSchema.safeParse(list[i]);
     if (!p.success) return fail(t("Question {0}: {1}", i + 1, p.error.issues[0]?.message ?? t("invalid")));
-    if (!isValidMediaKey(p.data.mediaKey, teacher.id)) return fail(t("Question {0}: invalid media file.", i + 1));
+    if (!isValidMediaKey(p.data.mediaKey, teacher.id) || (p.data.optionImages ?? []).some((k) => !isValidMediaKey(k, teacher.id))) return fail(t("Question {0}: invalid media file.", i + 1));
     valid.push(normalize(p.data));
   }
   await db.insert(S.question).values(valid.map((v) => ({ teacherId: teacher.id, ...toDbValues(v) })));
@@ -182,6 +186,7 @@ export async function deleteQuestion(id: string): Promise<ActionResult> {
 
   await db.delete(S.question).where(eq(S.question.id, question.id));
   await deleteMediaIfOrphaned(question.mediaKey);
+  for (const k of question.optionImages ?? []) await deleteMediaIfOrphaned(k);
   refresh();
   return succeed(t("Question deleted."));
 }

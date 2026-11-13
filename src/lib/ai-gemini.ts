@@ -132,3 +132,87 @@ export async function runGemini({
   if (cand?.finishReason === "MAX_TOKENS") throw new AiError("The AI answer was cut off because it was too long. Try again with a narrower topic.");
   return reply;
 }
+
+/* ------------------------------------------------------------------ */
+/* Image generation (Gemini image models, e.g. gemini-*-flash-image)   */
+/* ------------------------------------------------------------------ */
+
+const imageModelCache = new Map<string, { model: string; at: number }>();
+
+/**
+ * The image model used for this key: AI_GEMINI_IMAGE_MODEL when set, else the newest stable Gemini image model the key
+ * can use (Flash before Pro: cheaper and fast enough for exam pictures).
+ */
+export async function autoGeminiImageModel(apiKey: string): Promise<string> {
+  const fixed = process.env.AI_GEMINI_IMAGE_MODEL?.trim();
+  if (fixed) return fixed;
+  const hit = imageModelCache.get(apiKey);
+  if (hit && Date.now() - hit.at < AUTO_TTL_MS) return hit.model;
+  const models = (await listGeminiModels(apiKey)).filter((m) => /^gemini-.*image/i.test(m) && !/tts|audio|live|embedding/i.test(m));
+  const version = (m: string) => Number(/^gemini-(\d+(?:\.\d+)?)/.exec(m)?.[1] ?? 0);
+  const score = (m: string) => (/preview|exp/i.test(m) ? 0 : 2) + (/flash/i.test(m) ? 1 : 0);
+  const model = models.sort((a, b) => score(b) - score(a) || version(b) - version(a))[0];
+  if (!model) throw new AiError("This Gemini API key cannot make images (no Gemini image model is available for it).");
+  imageModelCache.set(apiKey, { model, at: Date.now() });
+  return model;
+}
+
+type GeminiImagePart = { text?: string; inlineData?: { mimeType?: string; data?: string }; inline_data?: { mime_type?: string; data?: string } };
+
+/** One picture from a text prompt. Returns the image bytes and their type (PNG or JPEG). */
+export async function runGeminiImage({ prompt, apiKey: key, aspectRatio = "1:1" }: { prompt: string; apiKey: string; aspectRatio?: "1:1" | "4:3" | "3:4" | "16:9" }): Promise<{ data: Buffer; mediaType: string }> {
+  if (!key) throw new AiError("Making images needs a Gemini API key. Add your Gemini key in AI Settings.");
+  const model = await autoGeminiImageModel(key);
+  const body = {
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig: { aspectRatio } },
+  };
+  const send = async (b: unknown) => {
+    try {
+      return await fetch(endpoint(model), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify(b),
+        signal: AbortSignal.timeout(180_000),
+      });
+    } catch (e) {
+      if (e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError")) throw new AiError("Gemini did not make the image within the time limit. Try again.");
+      console.error("[ai] gemini image connection", e);
+      throw new AiError("Could not reach Gemini. Check the server connection and try again.");
+    }
+  };
+
+  let res = await send(body);
+  // Older image models do not know imageConfig: ask again without it.
+  if (res.status === 400) {
+    const peek = (await res.clone().json().catch(() => ({}))) as GeminiResponse;
+    if (/image_?config|aspect/i.test(peek.error?.message ?? "")) res = await send({ ...body, generationConfig: { responseModalities: ["TEXT", "IMAGE"] } });
+  }
+  let data: GeminiResponse & { candidates?: { content?: { parts?: GeminiImagePart[] }; finishReason?: string }[] };
+  try {
+    data = (await res.json()) as typeof data;
+  } catch {
+    throw new AiError("The Gemini answer could not be read. Try again.");
+  }
+  if (!res.ok) {
+    console.error("[ai] gemini image error", res.status, model, data.error?.message?.slice(0, 300));
+    const reason = (data.error?.message ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+    if (res.status === 400 && /api key/i.test(reason)) throw new AiError("The Gemini API key is invalid. Check the key in AI Settings.");
+    if (res.status === 401 || res.status === 403) throw new AiError("The Gemini API key is invalid or lacks permission. Check the key in AI Settings.");
+    if (res.status === 404) {
+      imageModelCache.clear();
+      throw new AiError(`The Gemini image model “${model}” can't be used with this key. Try again in a moment.`);
+    }
+    if (res.status === 429 && /free_tier|limit: 0\b/i.test(data.error?.message ?? ""))
+      throw new AiError("This Gemini key has no quota for making images (free plan). Turn on billing for the key in Google AI Studio, then try again.");
+    if (res.status === 429) throw new AiError("Gemini is busy or the image quota is used up (image models usually need a paid Gemini plan). Wait a moment and try again.");
+    throw new AiError(`Gemini could not make the image${reason ? `: ${reason}` : "."}`);
+  }
+  const parts = data.candidates?.[0]?.content?.parts ?? [];
+  for (const p of parts) {
+    const inline = p.inlineData ? { mime: p.inlineData.mimeType, data: p.inlineData.data } : p.inline_data ? { mime: p.inline_data.mime_type, data: p.inline_data.data } : null;
+    if (inline?.data) return { data: Buffer.from(inline.data, "base64"), mediaType: inline.mime || "image/png" };
+  }
+  console.error("[ai] gemini image: no picture", data.candidates?.[0]?.finishReason, data.promptFeedback, parts.map((p) => p.text).join(" ").slice(0, 200));
+  throw new AiError("Gemini did not make a picture for this prompt. Try describing the picture differently.");
+}

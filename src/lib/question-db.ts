@@ -17,8 +17,17 @@ export function normalize(v: QuestionInput): QuestionInput {
   return v;
 }
 
+/** Choice images lined up with the choices (only for multiple choice / complex multiple choice); null when there are none. */
+export function alignOptionImages(v: Pick<QuestionInput, "answerType" | "options" | "optionImages">): (string | null)[] | null {
+  if (!(v.answerType === "multiple_choice" || v.answerType === "multiple_select") || !v.optionImages) return null;
+  const images = (v.options ?? []).map((_, i) => v.optionImages?.[i] || null);
+  return images.some(Boolean) ? images : null;
+}
+
 export function toDbValues(v: QuestionInput) {
   return {
+    // Not sent = keep the saved choice images (e.g. AI-written questions, which have none yet).
+    ...(v.optionImages !== undefined ? { optionImages: alignOptionImages(v) } : {}),
     type: v.type,
     answerType: v.answerType,
     prompt: v.prompt,

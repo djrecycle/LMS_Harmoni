@@ -1,0 +1,1 @@
+ALTER TABLE "question" ADD COLUMN "option_images" jsonb;
