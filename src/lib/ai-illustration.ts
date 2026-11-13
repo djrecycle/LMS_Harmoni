@@ -83,6 +83,9 @@ Pilih salah satu:
 - Not balok ("kind": "staff"): token dipisah spasi. Header opsional: time=3/4 key=G clef=bass (bawaan 4/4, C, treble).
   Nada = huruf + oktaf (C4 = do tengah, F#4, Bb3, En4 = natural) lalu /w /h /q /8 /16 (w = not penuh 4 ketuk, h = setengah 2 ketuk, q = seperempat 1 ketuk, 8 = seperdelapan, 16 = seperenambelas); titik di akhir = not bertitik (G4/h.).
   Akor: C4+E4+G4/h. Tanda istirahat: R/w R/h R/q R/8 R/16. Label di bawah not: C4/q[A] (kurung siku). Garis birama: | ; akhir: ||.
+  Dinamika di bawah not: C4/q{f} (ppp pp p mp mf f ff fff sf sfz sffz fz fp rf rfz), dengan label: C4/q[A]{mf}.
+  Crescendo / decrescendo (hairpin): C4/q{p,<} D4/q E4/q F4/q{f} = crescendo dari C sampai f; {>} = decrescendo; {!} mengakhirinya tanpa dinamika baru.
+  Simbol dinamika SAJA tanpa not (mis. satu pilihan jawaban "tanda forte"): tulis hanya "{f}", atau "{<}" untuk tanda crescendo, "{>}" untuk decrescendo; beberapa sekaligus: "{p} {<} {f}".
   Contoh: "time=4/4 | C4/q D4/q E4/q F4/q | G4/h R/h ||"
 - Not angka ("kind": "angka"): header opsional do=G time=4/4. Angka 1-7, 0 = tanda diam, . = tahan satu ketuk.
   Oktaf tinggi 1' , oktaf rendah 5, ; nada naik 4# , turun 7b ; setengah ketuk 6_ , seperempat ketuk 6__ ; label 1[A]. Garis birama | dan ||.
@@ -91,7 +94,8 @@ Aturan:
 - Tulis notasi sesingkat mungkin yang tepat menunjukkan yang diminta. Untuk satu simbol (mis. "not seperempat", "tanda istirahat setengah", "tanda kres") cukup satu not/tanda tanpa garis birama di awal, mis. "C5/q" atau "R/h" atau "F#4/q".
 - Pakai not angka hanya bila diminta not angka; selain itu not balok.
 - Hitung ketukan setiap birama dengan teliti.
-- Bila permintaan TIDAK bisa digambar sebagai notasi (mis. gambar alat musik, orang, simbol dinamika, tempo, atau tanda yang tidak ada di format ini), isi "kind": "none" dan "reason" berisi alasan singkat dalam bahasa Indonesia.`;
+- Untuk tanda dinamika (forte, piano, crescendo, dll.) selalu pakai not balok.
+- Bila permintaan TIDAK bisa digambar sebagai notasi (mis. gambar alat musik, orang, tanda tempo, atau tanda yang tidak ada di format ini), isi "kind": "none" dan "reason" berisi alasan singkat dalam bahasa Indonesia.`;
 
 export const NOTATION_SCHEMA = {
   type: "object",

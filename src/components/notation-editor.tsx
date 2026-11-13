@@ -49,7 +49,7 @@ export function NotationPreview({ notation, className }: { notation: Notation; c
 }
 
 const SYNTAX_HINT: Record<NotationKind, string> = {
-  staff: "Notes: C4 D#4 Bb3, then /w /h /q /8 /16 (a dot = dotted). Chord: C4+E4+G4/h. Rest: R/q. Label under a note: C4/q[A]. Bars: | and || at the end. Header: time=3/4 key=G clef=bass",
+  staff: "Notes: C4 D#4 Bb3, then /w /h /q /8 /16 (a dot = dotted). Chord: C4+E4+G4/h. Rest: R/q. Label under a note: C4/q[A]. Dynamics: C4/q{f}, crescendo C4/q{p,<} … F4/q{f}, a symbol alone: {mf}. Bars: | and || at the end. Header: time=3/4 key=G clef=bass",
   angka: "Digits 1-7, 0 = rest, . = hold one beat. High octave 1' , low octave 5, . Raised 4# , lowered 7b . Half beat 6_ , quarter beat 6__ . Label: 1[do]. Bars: | and ||. Header: do=G time=4/4",
 };
 

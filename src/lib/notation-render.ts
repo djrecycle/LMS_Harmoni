@@ -19,13 +19,73 @@ function makeCanvas(width: number, height: number) {
   return { canvas, ctx };
 }
 
+/* ------------------------------------------------------------------ dynamics (SMuFL glyphs of the Bravura font) */
+
+/** SMuFL code points of the dynamic letters; a mark like "mf" is written letter by letter. */
+const DYNAMIC_GLYPH: Record<string, string> = { p: "\uE520", m: "\uE521", f: "\uE522", r: "\uE523", s: "\uE524", z: "\uE525", n: "\uE526" };
+const dynamicText = (mark: string) => [...mark].map((c) => DYNAMIC_GLYPH[c] ?? "").join("");
+
+function drawDynamic(ctx: CanvasRenderingContext2D, mark: string, x: number, y: number, size: number) {
+  ctx.save();
+  ctx.font = `${size}px Bravura`;
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(dynamicText(mark), x, y);
+  const w = ctx.measureText(dynamicText(mark)).width;
+  ctx.restore();
+  return w;
+}
+
+/** A crescendo (<) or decrescendo (>) wedge from x1 to x2, centred on y. */
+function drawHairpin(ctx: CanvasRenderingContext2D, kind: "<" | ">", x1: number, x2: number, y: number, open: number) {
+  if (x2 - x1 < 8) return;
+  const [narrow, wide] = kind === "<" ? [x1, x2] : [x2, x1];
+  ctx.save();
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(wide, y - open);
+  ctx.lineTo(narrow, y);
+  ctx.lineTo(wide, y + open);
+  ctx.stroke();
+  ctx.restore();
+}
+
+async function loadMusicFont() {
+  const { VexFlow } = await import("vexflow");
+  await VexFlow.loadFonts("Bravura", "Academico");
+  await document.fonts.load("40px Bravura");
+  await document.fonts.ready;
+}
+
+/** Dynamics / hairpins written on their own ("{f}", "{<}"): drawn large, without a staff (e.g. one answer choice). */
+async function drawSymbols(symbols: string[]): Promise<HTMLCanvasElement> {
+  await loadMusicFont();
+  const SIZE = 80;
+  const GAP = 28;
+  const WEDGE = 140;
+  const probe = document.createElement("canvas").getContext("2d")!;
+  probe.font = `${SIZE}px Bravura`;
+  const widths = symbols.map((m) => (m === "<" || m === ">" ? WEDGE : probe.measureText(dynamicText(m)).width));
+  const width = Math.ceil(widths.reduce((a, b) => a + b, 0) + GAP * (symbols.length - 1) + 60);
+  const height = 120;
+  const { canvas, ctx } = makeCanvas(width, height);
+  ctx.fillStyle = INK;
+  ctx.strokeStyle = INK;
+  let x = 30;
+  symbols.forEach((m, i) => {
+    if (m === "<" || m === ">") drawHairpin(ctx, m, x, x + WEDGE, height / 2, 22);
+    else drawDynamic(ctx, m, x, height / 2 + SIZE * 0.22, SIZE);
+    x += widths[i] + GAP;
+  });
+  return canvas;
+}
+
 /* ------------------------------------------------------------------ staff (VexFlow) */
 
 async function drawStaff(score: StaffScore): Promise<HTMLCanvasElement> {
+  if (score.bars.length === 0) return drawSymbols(score.symbols);
   const VF = await import("vexflow");
-  const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, Dot, Beam, BarlineType, VexFlow } = VF;
-  await VexFlow.loadFonts("Bravura", "Academico");
-  await document.fonts.ready;
+  const { Renderer, Stave, StaveNote, Voice, Formatter, Accidental, Dot, Beam, BarlineType } = VF;
+  await loadMusicFont();
 
   const [beats, beatValue] = score.time.split("/").map(Number);
   const hasLabels = score.bars.some((b) => b.notes.some((n) => n.label));
@@ -50,7 +110,9 @@ async function drawStaff(score: StaffScore): Promise<HTMLCanvasElement> {
   }
   rows.push(row);
 
-  const rowHeight = hasLabels ? 140 : 115;
+  const hasDynamics = score.bars.some((b) => b.notes.some((n) => n.dynamic || n.hairpin));
+  const DYN = hasDynamics ? 34 : 0; // room for the dynamics line under the stave
+  const rowHeight = (hasLabels ? 140 : 115) + DYN;
   const width = Math.min(MAX_WIDTH, Math.max(...rows.map((r) => r.widths.reduce((a, b) => a + b, 0))) + 20);
   const height = rows.length * rowHeight + 10;
   const canvas = document.createElement("canvas");
@@ -63,7 +125,11 @@ async function drawStaff(score: StaffScore): Promise<HTMLCanvasElement> {
   context.setStrokeStyle(INK);
 
   // One label line per row, under the stave and two ledger lines below it.
-  const labelLine = (ri: number) => 10 + ri * rowHeight + 122;
+  const labelLine = (ri: number) => 10 + ri * rowHeight + 122 + DYN;
+  // Dynamics sit on one line under the stave (below two ledger lines), above the labels.
+  const dynamicLine = (ri: number) => 10 + ri * rowHeight + 122;
+  const placed: { ri: number; x: number; right: number; dynamic: string; hairpin: string }[] = [];
+  const rowEnd: number[] = [];
   rows.forEach((r, ri) => {
     let x = 10;
     r.bars.forEach((bar, bi) => {
@@ -91,6 +157,10 @@ async function drawStaff(score: StaffScore): Promise<HTMLCanvasElement> {
       beams.forEach((b) => b.setContext(context).draw());
       // Labels on one line under the whole row (VexFlow annotations sit at a different height under each note).
       notes.forEach((sn, i) => {
+        const box = sn.getBoundingBox();
+        placed.push({ ri, x: sn.getAbsoluteX(), right: box.getX() + box.getW(), dynamic: bar.notes[i].dynamic, hairpin: bar.notes[i].hairpin });
+      });
+      notes.forEach((sn, i) => {
         const label = bar.notes[i].label;
         if (!label) return;
         const box = sn.getBoundingBox();
@@ -102,7 +172,30 @@ async function drawStaff(score: StaffScore): Promise<HTMLCanvasElement> {
       });
       x += r.widths[bi];
     });
+    rowEnd[ri] = x;
   });
+
+  if (hasDynamics) {
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = INK;
+    ctx.strokeStyle = INK;
+    const dynWidth: number[] = placed.map((p) => (p.dynamic ? drawDynamic(ctx, p.dynamic, p.x - 2, dynamicLine(p.ri), 34) : 0));
+    // A hairpin runs from its note to the next note with a dynamic (stopping before it), a "!" note, or the last note.
+    placed.forEach((p, i) => {
+      if (p.hairpin !== "<" && p.hairpin !== ">") return;
+      let j = i + 1;
+      while (j < placed.length && !placed[j].dynamic && placed[j].hairpin !== "!") j++;
+      const end = j < placed.length ? (placed[j].dynamic ? { ri: placed[j].ri, x: placed[j].x - 8 } : { ri: placed[j].ri, x: placed[j].right }) : { ri: placed[placed.length - 1].ri, x: placed[placed.length - 1].right };
+      const y = dynamicLine(p.ri) - 9;
+      const startX = p.x + (dynWidth[i] ? dynWidth[i] + 6 : 0);
+      if (end.ri === p.ri) drawHairpin(ctx, p.hairpin, startX, end.x, y, 7);
+      else {
+        // Across rows: the wedge continues on the next row(s).
+        drawHairpin(ctx, p.hairpin, startX, rowEnd[p.ri] - 6, y, 7);
+        for (let ri = p.ri + 1; ri <= end.ri; ri++) drawHairpin(ctx, p.hairpin, 70, ri === end.ri ? end.x : rowEnd[ri] - 6, dynamicLine(ri) - 9, 7);
+      }
+    });
+  }
   return canvas;
 }
 

@@ -2436,7 +2436,7 @@ export const id: Record<string, string> = {
   "No notation": "Tanpa notasi",
   "No notes": "Belum ada not",
   "No questions to check: they already have an image or have been answered by students.": "Tidak ada soal yang perlu diperiksa: semuanya sudah bergambar atau sudah dijawab siswa.",
-  "Notes: C4 D#4 Bb3, then /w /h /q /8 /16 (a dot = dotted). Chord: C4+E4+G4/h. Rest: R/q. Label under a note: C4/q[A]. Bars: | and || at the end. Header: time=3/4 key=G clef=bass": "Nada: C4 D#4 Bb3, lalu /w /h /q /8 /16 (titik = not bertitik). Akor: C4+E4+G4/h. Tanda istirahat: R/q. Label di bawah not: C4/q[A]. Garis birama: | dan || di akhir. Judul: time=3/4 key=G clef=bass",
+  "Notes: C4 D#4 Bb3, then /w /h /q /8 /16 (a dot = dotted). Chord: C4+E4+G4/h. Rest: R/q. Label under a note: C4/q[A]. Dynamics: C4/q{f}, crescendo C4/q{p,<} … F4/q{f}, a symbol alone: {mf}. Bars: | and || at the end. Header: time=3/4 key=G clef=bass": "Nada: C4 D#4 Bb3, lalu /w /h /q /8 /16 (titik = not bertitik). Akor: C4+E4+G4/h. Tanda istirahat: R/q. Label di bawah not: C4/q[A]. Dinamika: C4/q{f}, crescendo C4/q{p,<} … F4/q{f}, simbol saja: {mf}. Garis birama: | dan || di akhir. Judul: time=3/4 key=G clef=bass",
   "Numbered notation": "Notasi angka",
   "Or draw music notation as the image": "Atau gambar notasi musik sebagai gambar soal",
   "Remove image": "Hapus gambar",

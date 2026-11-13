@@ -8,6 +8,9 @@
  *   C4+E4+G4/h                      chord
  *   R/q                             rest
  *   C4/q[A]                         label under the note (a letter to point at, or a lyric syllable); C4/q"A" also works
+ *   C4/q{f}  C4/q[A]{mf}            dynamic under the note: ppp pp p mp mf f ff fff sf sfz sffz fz fp rf rfz
+ *   C4/q{p,<} D4/q E4/q{f}          hairpin: < crescendo, > decrescendo, from this note to the next dynamic ({!} ends it)
+ *   {f}  {<}                        on their own (no notes at all): just the symbol, drawn large without a staff
  *   |  ||                           bar line, final bar line
  *
  * Numbered notation ("not angka"):
@@ -41,6 +44,10 @@ export type StaffNote = {
   dots: number;
   rest: boolean;
   label: string;
+  /** Dynamic mark under the note ("" = none), e.g. "mf". */
+  dynamic: string;
+  /** A hairpin starts at this note ("<" crescendo, ">" decrescendo), or one ends here ("!"). */
+  hairpin: "" | "<" | ">" | "!";
 };
 export type StaffBar = { notes: StaffNote[]; final: boolean };
 export type StaffScore = {
@@ -50,7 +57,23 @@ export type StaffScore = {
   bars: StaffBar[];
   /** Draw the time signature: only when it is written (time=…) or the notation has bar lines, so a single symbol (e.g. "B4/h") is shown alone. */
   showTime: boolean;
+  /** Dynamics / hairpins written without any note ("{f}", "{<}"): drawn on their own, without a staff. */
+  symbols: string[];
 };
+
+export const DYNAMICS = ["ppp", "pp", "p", "mp", "mf", "f", "ff", "fff", "sf", "sfz", "sffz", "fz", "fp", "rf", "rfz"];
+
+/** The marks inside {…}: dynamics and hairpin signs, separated by commas. */
+function readMarks(inside: string): { dynamic: string; hairpin: StaffNote["hairpin"] } | null {
+  let dynamic = "";
+  let hairpin: StaffNote["hairpin"] = "";
+  for (const m of inside.split(",").map((x) => x.trim()).filter(Boolean)) {
+    if (DYNAMICS.includes(m) && !dynamic) dynamic = m;
+    else if ((m === "<" || m === ">" || m === "!") && !hairpin) hairpin = m;
+    else return null;
+  }
+  return dynamic || hairpin ? { dynamic, hairpin } : null;
+}
 
 const KEYS = ["C", "G", "D", "A", "E", "B", "F#", "C#", "F", "Bb", "Eb", "Ab", "Db", "Gb", "Cb", "Am", "Em", "Bm", "F#m", "C#m", "Dm", "Gm", "Cm", "Fm"];
 const NOTE_RE = /^([A-Ga-g])(#|b|n)?([1-7])$/;
@@ -58,14 +81,27 @@ const NOTE_RE = /^([A-Ga-g])(#|b|n)?([1-7])$/;
 const STAFF_TOKEN_RE = /^([^/"[]+)(?:\/(w|h|q|8|16)(\.{0,2}))?(?:"([^"]*)"|\[([^\]]*)\])?$/;
 
 export function parseStaff(text: string): { ok: true; score: StaffScore } | { ok: false; error: string; arg?: string } {
-  const score: StaffScore = { clef: "treble", time: "4/4", key: "C", bars: [], showTime: false };
+  const score: StaffScore = { clef: "treble", time: "4/4", key: "C", bars: [], showTime: false, symbols: [] };
   let bar: StaffNote[] = [];
   const close = (final: boolean) => {
     if (bar.length) score.bars.push({ notes: bar, final });
     else if (final && score.bars.length) score.bars[score.bars.length - 1].final = true;
     bar = [];
   };
-  for (const tok of tokens(text)) {
+  for (const raw of tokens(text)) {
+    // Dynamics written after the note ("C4/q{f}", "C4/q[A]{f}" which splits into two tokens, or "{f}" on its own).
+    const marked = /^(.*?)\{([^}]*)\}$/.exec(raw);
+    const marks = marked ? readMarks(marked[2]) : null;
+    if (marked && !marks) return { ok: false, error: "Cannot read \"{0}\"", arg: raw };
+    const tok = marked ? marked[1] : raw;
+    if (marks && !tok) {
+      const prev = bar[bar.length - 1] ?? score.bars[score.bars.length - 1]?.notes.at(-1);
+      if (prev) {
+        prev.dynamic ||= marks.dynamic;
+        prev.hairpin ||= marks.hairpin;
+      } else score.symbols.push(...[marks.dynamic, marks.hairpin].filter((x) => x && x !== "!"));
+      continue;
+    }
     if (tok === "|") {
       close(false);
       score.showTime = true;
@@ -86,7 +122,7 @@ export function parseStaff(text: string): { ok: true; score: StaffScore } | { ok
       if (!m) return { ok: false, error: "Cannot read \"{0}\"", arg: tok };
       const [, body, duration = "q", dots = "", quoted, bracketed] = m;
       const label = quoted ?? bracketed ?? "";
-      const note: StaffNote = { keys: [], accidentals: [], duration: duration as StaffNote["duration"], dots: dots.length, rest: false, label };
+      const note: StaffNote = { keys: [], accidentals: [], duration: duration as StaffNote["duration"], dots: dots.length, rest: false, label, dynamic: marks?.dynamic ?? "", hairpin: marks?.hairpin ?? "" };
       if (body === "R" || body === "r") {
         note.rest = true;
         note.keys = [score.clef === "bass" ? "d/3" : "b/4"];
@@ -104,6 +140,7 @@ export function parseStaff(text: string): { ok: true; score: StaffScore } | { ok
     }
   }
   close(false);
+  if (score.bars.length === 0 && score.symbols.length > 0) return { ok: true, score };
   if (score.bars.length === 0) return { ok: false, error: "No notes" };
   if (score.bars.reduce((n, b) => n + b.notes.length, 0) > 64) return { ok: false, error: "Too many notes (at most 64)" };
   return { ok: true, score };
