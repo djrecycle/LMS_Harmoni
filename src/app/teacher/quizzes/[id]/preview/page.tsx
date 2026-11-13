@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
-import { ArrowLeft, CircleCheck, Pencil } from "lucide-react";
+import { ArrowLeft, CircleCheck, Pencil, UserRoundPen } from "lucide-react";
 import { MediaPlayer } from "@/components/media-player";
 import { ChoiceLabel, SoundPlayer } from "@/components/sound-player";
 import { MidiKeyPreview } from "@/components/midi-key-preview";
@@ -57,11 +57,18 @@ export default async function QuizPreview({ params }: { params: Promise<{ id: st
           </span>
         }
         action={
-          <Button asChild variant="outline">
-            <Link href={`/teacher/quizzes/${quiz.id}/edit`}>
-              <Pencil /> {t("Edit")}
-            </Link>
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href={`/teacher/quizzes/${quiz.id}/try`}>
+                <UserRoundPen /> {t("Try as a student")}
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href={`/teacher/quizzes/${quiz.id}/edit`}>
+                <Pencil /> {t("Edit")}
+              </Link>
+            </Button>
+          </>
         }
       />
 

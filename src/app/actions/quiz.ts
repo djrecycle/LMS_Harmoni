@@ -7,10 +7,10 @@ import { db, schema } from "@/db";
 import { isUuid, getOwnedClassroom, getOwnedQuiz, isStudentInClassroom } from "@/lib/access";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
-import { noteToMidi } from "@/lib/music";
+import { clearAnswer } from "@/lib/answer-check";
 import { attemptDeadline, recalculateAttempt, finishAttempt } from "@/lib/grading";
 import { requireTeacher, requireStudent } from "@/lib/session";
-import { gradeAnswer, formatAnswerKey, type AnswerType } from "@/lib/questions";
+import { gradeAnswer, formatAnswerKey } from "@/lib/questions";
 import { fromWibInput } from "@/lib/utils";
 import { getT } from "@/i18n/server";
 
@@ -216,27 +216,6 @@ export type Feedback = {
   explanation: string | null;
 };
 
-function clearAnswer(answerShape: AnswerType, answer: unknown, optionCount: number, rowCount: number): { ok: true; grade: unknown } | { ok: false } {
-  const ints = (a: unknown): a is number[] => Array.isArray(a) && a.every((n) => typeof n === "number" && Number.isInteger(n));
-  switch (answerShape) {
-    case "multiple_select":
-      return ints(answer) && answer.length <= optionCount && answer.every((n) => n >= 0 && n < optionCount) ? { ok: true, grade: [...new Set(answer)].sort((a, b) => a - b) } : { ok: false };
-    case "matching":
-      return ints(answer) && answer.length === rowCount && answer.every((n) => n >= -1 && n < optionCount) ? { ok: true, grade: answer } : { ok: false };
-    case "essay":
-      return typeof answer === "string" ? { ok: true, grade: answer.trim().slice(0, 5000) } : { ok: false };
-    case "multiple_choice":
-      return typeof answer === "number" && Number.isInteger(answer) && answer >= 0 && answer < optionCount ? { ok: true, grade: answer } : { ok: false };
-    case "true_false":
-      return typeof answer === "boolean" ? { ok: true, grade: answer } : { ok: false };
-    case "fill_in":
-      return typeof answer === "string" ? { ok: true, grade: answer.trim().slice(0, 500) } : { ok: false };
-    case "midi":
-      return Array.isArray(answer) && answer.length <= 64 && answer.every((n) => typeof n === "string" && noteToMidi(n) !== null)
-        ? { ok: true, grade: answer }
-        : { ok: false };
-  }
-}
 
 /** Save + grade one answer. Grading always happens on the server; the key is never sent before the question is answered. */
 export async function saveAnswer(attemptId: string, questionId: string, answer: unknown): Promise<ActionResult<Feedback>> {

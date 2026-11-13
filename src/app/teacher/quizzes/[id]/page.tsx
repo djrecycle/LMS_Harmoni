@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { Eye, Pencil } from "lucide-react";
+import { Eye, Pencil, UserRoundPen } from "lucide-react";
 import { DeleteQuizButton, PublishButton, ResetAttemptsButton } from "@/components/quiz-actions";
 import { Button } from "@/components/ui/button";
 import { Badge, PageHeader, StatCard } from "@/components/ui/misc";
@@ -73,6 +73,11 @@ export default async function DetailQuiz({ params }: { params: Promise<{ id: str
             <Button asChild variant="outline">
               <Link href={`/teacher/quizzes/${quiz.id}/preview`}>
                 <Eye /> {t("Preview")}
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link href={`/teacher/quizzes/${quiz.id}/try`}>
+                <UserRoundPen /> {t("Try as a student")}
               </Link>
             </Button>
             <Button asChild variant="outline">

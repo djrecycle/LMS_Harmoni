@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, CircleCheck, Download, ImageIcon, ImageOff, ImagePlus, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
+import { UserRoundPen, ChevronDown, CircleCheck, Download, ImageIcon, ImageOff, ImagePlus, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
 import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, linkExamQuestion, publishExam, rewriteExamItem, saveExamItem, setOptionImage, setQuestionImage, startGambar, startKisi, startSoal } from "@/app/actions/exam";
 import { DeleteButton } from "@/components/delete-button";
@@ -177,6 +177,11 @@ export function ExamWorkspace({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/teacher/exams/${exam.id}/try`}>
+              <UserRoundPen /> {t("Try as a student")}
+            </Link>
+          </Button>
           <Button asChild variant="outline" size="sm">
             <Link href={`/teacher/exams/${exam.id}/edit`}>
               <Settings2 /> {t("Settings, TP & weights")}
