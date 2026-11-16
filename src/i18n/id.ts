@@ -2579,4 +2579,10 @@ export const id: Record<string, string> = {
   "Sustain pedal: plug it into the keyboard. It works here too, and a \"Pedal\" label lights up while it is pressed.": "Pedal sustain: colokkan ke keyboard. Pedal juga berfungsi di sini, dan label \"Pedal\" menyala saat diinjak.",
   "Keyboard not showing up? Turn it off and on, then reload this page.": "Keyboard tidak muncul? Matikan lalu nyalakan lagi, kemudian muat ulang halaman ini.",
   "Sound through Bluetooth headphones or speakers arrives late. When playing along, use wired headphones or the device's own speaker.": "Suara lewat headset atau speaker Bluetooth datang terlambat. Saat bermain mengikuti lagu, pakai headset kabel atau speaker bawaan perangkat.",
+  "Official assessments run online from the Exams menu. Their questions and weights follow the exam.": "Penilaian resmi yang dijalankan online dari menu Ujian. Soal dan bobotnya mengikuti ujian.",
+  "Open Exams": "Buka menu Ujian",
+  "Open exam": "Buka ujian",
+  "Classroom quizzes": "Kuis pembelajaran",
+  "Checks during learning. Free to build, change, and reschedule at any time.": "Penilaian selama pembelajaran. Bebas disusun, diubah, dan dijadwalkan kapan saja.",
+  "No classroom quizzes yet.": "Belum ada kuis pembelajaran.",
 };

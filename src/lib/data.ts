@@ -190,6 +190,8 @@ export type QuizSummary = {
   classroomId: string;
   classroomName: string;
   published: boolean;
+  /** Set when this quiz is the online run of an exam (an official assessment, not a classroom quiz). */
+  examId: string | null;
   questionCount: number;
   /** Distinct topics (TP from Perangkat Ajar, or free text) of the quiz's questions. */
   topics: string[];
@@ -230,6 +232,7 @@ export async function teacherQuizList(teacherId: string, limit?: number): Promis
       classroomId: quiz.classroomId,
       classroomName,
       published: quiz.published,
+      examId: quiz.examId,
       questionCount: question.length,
       topics: [...new Set(question.map((s) => s.topic).filter((x): x is string => Boolean(x)))].sort(),
       studentCount: classroomStudents.size,
