@@ -8,6 +8,7 @@ import { ambilJson } from "./ai-json";
 import { autoGeminiModel, listGeminiModels, runGemini, runGeminiImage } from "./ai-gemini";
 import { listCloudflareTextModels, runCloudflareImage, runCloudflareText } from "./ai-cloudflare";
 import { isOllamaReachable, listOllamaModels, ollamaSupportsVision, runOllama } from "./ai-ollama";
+import { listOpenAiModels, runOpenAi } from "./ai-openai";
 import { getAiConfig, type AiConfig } from "./ai-config";
 
 export { AiError };
@@ -28,6 +29,10 @@ const CLOUDFLARE_MAX_TOKENS = 8192;
 const runCloudflare = (cfg: AiConfig, o: { prompt: string; system: string; maxTokens: number; json?: boolean }) =>
   runCloudflareText({ ...o, maxTokens: Math.min(o.maxTokens, CLOUDFLARE_MAX_TOKENS), accountId: cfg.cloudflare.accountId, token: cfg.cloudflare.token, model: cfg.cloudflare.model });
 
+/** Teachers' addresses must be public (see ai-openai.ts); the Super Admin may use a local server. */
+const openAiTarget = (cfg: AiConfig) => ({ ...cfg.openai, publicOnly: cfg.scope === "teacher" });
+const runOpenAiText = (cfg: AiConfig, o: { prompt: string; system: string; maxTokens: number; json?: boolean }) => runOpenAi({ ...o, ...openAiTarget(cfg) });
+
 /** A missing model is a settings problem, so say which model was asked for. */
 function rethrowAnthropic(e: unknown, model: string): never {
   if (e instanceof Anthropic.NotFoundError) throw new AiError(`The AI model “${model}” was not found. Check the model name in AI Settings.`);
@@ -39,13 +44,13 @@ function rethrowAnthropic(e: unknown, model: string): never {
 /* (Claude Code CLI, Anthropic API, Gemini API or a local Ollama)                      */
 /* ------------------------------------------------------------------ */
 
-export type AiProvider = "claude-cli" | "anthropic" | "gemini" | "cloudflare" | "ollama";
+export type AiProvider = "claude-cli" | "anthropic" | "gemini" | "cloudflare" | "openai" | "ollama";
 
 /** What a user can pick in the UI: a specific provider, or "auto" (the server decides). */
 export type ProviderChoice = "auto" | AiProvider;
-export const PROVIDER_CHOICES: readonly ProviderChoice[] = ["auto", "claude-cli", "anthropic", "gemini", "cloudflare", "ollama"];
+export const PROVIDER_CHOICES: readonly ProviderChoice[] = ["auto", "claude-cli", "anthropic", "gemini", "cloudflare", "openai", "ollama"];
 
-const PROVIDER_LABEL: Record<AiProvider, string> = { "claude-cli": "Claude Code", anthropic: "Anthropic API", gemini: "Gemini API", cloudflare: "Cloudflare Workers AI", ollama: "Ollama (local)" };
+const PROVIDER_LABEL: Record<AiProvider, string> = { "claude-cli": "Claude Code", anthropic: "Anthropic API", gemini: "Gemini API", cloudflare: "Cloudflare Workers AI", openai: "OpenAI-compatible", ollama: "Ollama (local)" };
 /** Async because Ollama has no key to look for: it is available when its server answers. */
 const isAvailable = async (p: AiProvider, cfg: AiConfig): Promise<boolean> =>
   // Claude Code and Ollama run on the server itself: only for the Super Admin.
@@ -59,9 +64,13 @@ const isAvailable = async (p: AiProvider, cfg: AiConfig): Promise<boolean> =>
           ? cfg.gemini.key !== ""
           : p === "cloudflare"
             ? cfg.cloudflare.accountId !== "" && cfg.cloudflare.token !== ""
-            : isOllamaReachable(cfg.ollama.baseUrl);
+            : p === "openai"
+              ? cfg.openai.baseUrl !== "" && cfg.openai.model !== ""
+              : isOllamaReachable(cfg.ollama.baseUrl);
 /** "auto" prefers the account already logged in on the server, then the paid keys, then the local model. */
-const AUTO_ORDER: readonly AiProvider[] = ["claude-cli", "anthropic", "gemini", "cloudflare", "ollama"];
+const AUTO_ORDER: readonly AiProvider[] = ["claude-cli", "anthropic", "gemini", "openai", "cloudflare", "ollama"];
+/** What a teacher (not the Super Admin) can use: their own API keys. */
+const isTeacherProvider = (p: AiProvider) => p === "anthropic" || p === "gemini" || p === "cloudflare" || p === "openai";
 async function firstAvailable(cfg: AiConfig, accept: (p: AiProvider) => Promise<boolean> = async () => true): Promise<AiProvider | null> {
   for (const p of AUTO_ORDER) if ((await isAvailable(p, cfg)) && (await accept(p))) return p;
   return null;
@@ -70,7 +79,7 @@ async function firstAvailable(cfg: AiConfig, accept: (p: AiProvider) => Promise<
 /** Providers `userId` can use right now, for the provider picker (a teacher only sees the API providers). */
 export async function providerOptions(userId: string): Promise<{ id: AiProvider; label: string; available: boolean }[]> {
   const cfg = await getAiConfig(userId);
-  const ids = cfg.scope === "teacher" ? AUTO_ORDER.filter((p) => p === "anthropic" || p === "gemini" || p === "cloudflare") : AUTO_ORDER;
+  const ids = cfg.scope === "teacher" ? AUTO_ORDER.filter(isTeacherProvider) : AUTO_ORDER;
   return Promise.all(ids.map(async (id) => ({ id, label: PROVIDER_LABEL[id], available: await isAvailable(id, cfg) })));
 }
 
@@ -80,7 +89,8 @@ const CLI_MODELS = ["opus", "sonnet", "haiku"];
 /** The models a provider offers, for the model pickers in AI Settings. Uses the SAVED settings. Throws AiError when the provider cannot be asked. */
 export async function listModels(provider: AiProvider, userId: string): Promise<string[]> {
   const cfg = await getAiConfig(userId);
-  if (!(provider === "anthropic" || provider === "gemini" || provider === "cloudflare") && cfg.scope === "teacher") return [];
+  if (!isTeacherProvider(provider) && cfg.scope === "teacher") return [];
+  if (provider === "openai") return listOpenAiModels(openAiTarget(cfg));
   if (provider === "cloudflare") return listCloudflareTextModels(cfg.cloudflare.accountId, cfg.cloudflare.token);
   if (provider === "claude-cli") return CLI_MODELS;
   if (provider === "ollama") return listOllamaModels(cfg.ollama.baseUrl);
@@ -117,9 +127,11 @@ export const providerUnavailableMessage = (choice: ProviderChoice) =>
         ? "The Gemini API key is not set. Add your key in AI Settings."
         : choice === "cloudflare"
           ? "Cloudflare Workers AI is not set up. Add the Account ID and API token in AI Settings."
+          : choice === "openai"
+          ? "The OpenAI-compatible provider is not set up. Add the address and model in AI Settings."
           : choice === "ollama"
           ? "Ollama is not running or cannot be reached. Start Ollama on the server, or check its address in AI Settings."
-          : "AI is not set up yet. Add your own Gemini or Anthropic API key in AI Settings first.";
+          : "AI is not set up yet. Add your own API key (for example Gemini) in AI Settings first.";
 
 /**
  * One free-text generation. The JSON shape is requested in the prompt itself and parsed by the caller (ambilJson),
@@ -147,6 +159,7 @@ export async function generateText({
   if (provider === "gemini") return { text: await runGemini({ prompt, system, apiKey: cfg.gemini.key, model: cfg.gemini.model || (await autoGeminiModel(cfg.gemini.key)) }), provider };
   if (provider === "ollama") return { text: await runOllama({ prompt, system, maxTokens, baseUrl: cfg.ollama.baseUrl, model: cfg.ollama.model }), provider };
   if (provider === "cloudflare") return { text: await runCloudflare(cfg, { prompt, system, maxTokens }), provider };
+  if (provider === "openai") return { text: await runOpenAiText(cfg, { prompt, system, maxTokens }), provider };
 
   // Long documents: stream so the SDK accepts a large max_tokens.
   let response: Anthropic.Beta.BetaMessage;
@@ -294,6 +307,8 @@ export async function generateJson<T>({
         ? await runGemini({ prompt, system, json: true, image, apiKey: cfg.gemini.key, model: cfg.gemini.model || (await autoGeminiModel(cfg.gemini.key)) })
         : provider === "cloudflare"
           ? await runCloudflare(cfg, { prompt, system, maxTokens, json: true })
+          : provider === "openai"
+          ? await runOpenAiText(cfg, { prompt, system, maxTokens, json: true })
           : provider === "ollama"
           ? await runOllama({ prompt, system, maxTokens, json: true, image, baseUrl: cfg.ollama.baseUrl, model: cfg.ollama.model })
           : await runClaudeCli({ prompt, system, model: cfg.cliModel });
@@ -345,7 +360,7 @@ export type ImageReady = {
 /** Which kinds of AI pictures `userId` can make. */
 export async function imageReadyFor(userId: string): Promise<ImageReady> {
   const [cfg, p] = await Promise.all([getAiConfig(userId), illustrationProvider(userId)]);
-  return { cloudflare: Boolean(cfg.cloudflare.accountId && cfg.cloudflare.token), gemini: cfg.gemini.key !== "", illustration: p === "claude-cli" || p === "anthropic" ? "Claude" : p === "gemini" ? "Gemini" : p === "cloudflare" ? "Cloudflare" : p === "ollama" ? "Ollama" : null };
+  return { cloudflare: Boolean(cfg.cloudflare.accountId && cfg.cloudflare.token), gemini: cfg.gemini.key !== "", illustration: p === "claude-cli" || p === "anthropic" ? "Claude" : p === "gemini" ? "Gemini" : p === "cloudflare" ? "Cloudflare" : p === "openai" ? cfg.openai.model.split("/").pop() || "AI" : p === "ollama" ? "Ollama" : null };
 }
 
 /** One picture from a prompt, with the teacher's own Cloudflare Workers AI or Gemini settings. */

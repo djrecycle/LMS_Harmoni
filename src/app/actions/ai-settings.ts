@@ -5,7 +5,7 @@ import { z } from "zod";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
 import { zodError } from "@/lib/action-result-server";
 import { aiErrorMessage, generateImage, generateText, listModels } from "@/lib/ai";
-import { aiSettingsSchema, clearAiKey as forgetKey, saveAiConfig } from "@/lib/ai-config";
+import { aiSettingsSchema, AiSettingsError, clearAiKey as forgetKey, saveAiConfig } from "@/lib/ai-config";
 import { requireTeacher } from "@/lib/session";
 import { getT } from "@/i18n/server";
 
@@ -13,14 +13,19 @@ import { getT } from "@/i18n/server";
 // Server actions are public POST endpoints, so each one checks requireTeacher() itself. A key sent in `data` is never echoed back.
 
 const refresh = () => revalidatePath("/", "layout");
-const providerField = z.enum(["claude-cli", "anthropic", "gemini", "cloudflare", "ollama"]);
+const providerField = z.enum(["claude-cli", "anthropic", "gemini", "cloudflare", "openai", "ollama"]);
 
 export async function saveAiSettings(data: unknown): Promise<ActionResult> {
   const t = await getT();
   const teacher = await requireTeacher();
   const p = aiSettingsSchema.safeParse(data);
   if (!p.success) return zodError(p.error);
-  await saveAiConfig(p.data, teacher.id);
+  try {
+    await saveAiConfig(p.data, teacher.id);
+  } catch (e) {
+    if (e instanceof AiSettingsError) return { ok: false, error: t(e.message), fieldErrors: { [e.field]: t(e.message) } };
+    throw e;
+  }
   refresh();
   return succeed(t("AI settings saved."));
 }
@@ -28,7 +33,7 @@ export async function saveAiSettings(data: unknown): Promise<ActionResult> {
 export async function clearAiKey(provider: unknown): Promise<ActionResult> {
   const t = await getT();
   const teacher = await requireTeacher();
-  const p = z.enum(["anthropic", "gemini", "cloudflare"]).safeParse(provider);
+  const p = z.enum(["anthropic", "gemini", "cloudflare", "openai"]).safeParse(provider);
   if (!p.success) return fail(t("Unknown provider."));
   await forgetKey(p.data, teacher.id);
   refresh();

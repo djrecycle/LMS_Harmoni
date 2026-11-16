@@ -10,7 +10,17 @@ import { Alert, Badge } from "@/components/ui/misc";
 import type { AiConfigView, Source } from "@/lib/ai-config"; // type-only: this file must not pull server code into the browser bundle
 import { useT } from "@/i18n/client";
 
-type Provider = "claude-cli" | "anthropic" | "gemini" | "cloudflare" | "ollama";
+type Provider = "claude-cli" | "anthropic" | "gemini" | "cloudflare" | "openai" | "ollama";
+
+/** Ready-made addresses for the OpenAI-compatible provider (any other …/v1 address works too). */
+const OPENAI_PRESETS: readonly { label: string; url: string }[] = [
+  { label: "OpenRouter", url: "https://openrouter.ai/api/v1" },
+  { label: "Groq", url: "https://api.groq.com/openai/v1" },
+  { label: "NVIDIA NIM", url: "https://integrate.api.nvidia.com/v1" },
+  { label: "DeepSeek", url: "https://api.deepseek.com/v1" },
+  { label: "Mistral", url: "https://api.mistral.ai/v1" },
+  { label: "OpenAI", url: "https://api.openai.com/v1" },
+];
 
 function SourceBadge({ source }: { source: Source }) {
   const t = useT();
@@ -63,13 +73,13 @@ function ModelField({ id, label, hint, error, value, onChange, defaultLabel, lis
             <option value={CUSTOM}>{t("Other…")}</option>
           </Select>
         ) : (
-          <Input id={id} value={value} onChange={(e) => onChange(e.target.value)} maxLength={100} placeholder={defaultLabel} spellCheck={false} />
+          <Input id={id} value={value} onChange={(e) => onChange(e.target.value)} maxLength={200} placeholder={defaultLabel} spellCheck={false} />
         )}
         <Button type="button" size="sm" variant="outline" onClick={onReload} disabled={disabled || list?.loading} aria-label={t("Reload the model list")} title={t("Reload the model list")}>
           <RefreshCw className={list?.loading ? "animate-spin" : ""} />
         </Button>
       </div>
-      {custom && models && <Input className="mt-2" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} maxLength={100} placeholder={t("Type the model name")} spellCheck={false} />}
+      {custom && models && <Input className="mt-2" aria-label={label} value={value} onChange={(e) => onChange(e.target.value)} maxLength={200} placeholder={t("Type the model name")} spellCheck={false} />}
       {list?.error && !list.loading && <p className="mt-1 text-xs text-muted-foreground">{t("Could not load the model list:")} {list.error}</p>}
     </Field>
   );
@@ -111,6 +121,9 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
     cloudflareToken: "",
     cloudflareImageModel: view.saved.cloudflareImageModel,
     cloudflareModel: view.saved.cloudflareModel,
+    openaiBaseUrl: view.saved.openaiBaseUrl,
+    openaiKey: "",
+    openaiModel: view.saved.openaiModel,
   });
   const [cfTest, setCfTest] = useState<{ ok: boolean; text: string } | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string; fields?: Record<string, string> } | null>(null);
@@ -125,7 +138,8 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
     if (view.anthropic.keySet) void loadModels("anthropic");
     if (view.gemini.keySet) void loadModels("gemini");
     if (view.cloudflare.keySet && view.cloudflare.accountId) void loadModels("cloudflare");
-  }, [loadModels, personal, view.anthropic.keySet, view.gemini.keySet, view.cloudflare.keySet, view.cloudflare.accountId]);
+    if (view.openai.baseUrl) void loadModels("openai");
+  }, [loadModels, personal, view.anthropic.keySet, view.gemini.keySet, view.cloudflare.keySet, view.cloudflare.accountId, view.openai.baseUrl]);
   useEffect(loadAllModels, [loadAllModels]);
   const [tests, setTests] = useState<Partial<Record<Provider, { ok: boolean; text: string }>>>({});
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((s) => ({ ...s, [k]: e.target.value }));
@@ -133,12 +147,12 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
 
   /** Saves the form. Returns false (and shows the error at the top) when the server rejects it. */
   async function persist(): Promise<boolean> {
-    const r = await saveAiSettings({ ...f, anthropicKey: f.anthropicKey || undefined, geminiKey: f.geminiKey || undefined, cloudflareToken: f.cloudflareToken || undefined });
+    const r = await saveAiSettings({ ...f, anthropicKey: f.anthropicKey || undefined, geminiKey: f.geminiKey || undefined, cloudflareToken: f.cloudflareToken || undefined, openaiKey: f.openaiKey || undefined });
     if (!r.ok) {
       setMsg({ ok: false, text: r.error ?? t("Could not save the settings."), fields: r.fieldErrors });
       return false;
     }
-    setF((s) => ({ ...s, anthropicKey: "", geminiKey: "", cloudflareToken: "" }));
+    setF((s) => ({ ...s, anthropicKey: "", geminiKey: "", cloudflareToken: "", openaiKey: "" }));
     setMsg({ ok: true, text: r.message ?? "" });
     router.refresh();
     loadAllModels();
@@ -168,7 +182,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
     });
   }
 
-  function removeKey(p: "anthropic" | "gemini" | "cloudflare") {
+  function removeKey(p: "anthropic" | "gemini" | "cloudflare" | "openai") {
     setMsg(null);
     start(async () => {
       const r = await clearAiKey(p);
@@ -183,6 +197,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
     anthropic: f.anthropicKey !== "" || f.anthropicModel !== view.saved.anthropicModel || f.anthropicFallback !== view.saved.anthropicFallback,
     gemini: f.geminiKey !== "" || f.geminiModel !== view.saved.geminiModel,
     cloudflare: cfUnsaved,
+    openai: f.openaiKey !== "" || f.openaiBaseUrl !== view.saved.openaiBaseUrl || f.openaiModel !== view.saved.openaiModel,
     ollama: f.ollamaBaseUrl !== view.saved.ollamaBaseUrl || f.ollamaModel !== view.saved.ollamaModel,
   };
 
@@ -240,7 +255,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
 
       {personal && (
         <Alert kind="info" title={t("Use your own AI key")}>
-          {t("The AI features use your own Gemini or Anthropic API key, so the usage is billed to your account with that provider. Gemini has a free tier: create a key at aistudio.google.com/apikey. Your key is stored encrypted and is never shown again.")}
+          {t("The AI features use your own API key (Gemini, Anthropic, Cloudflare or an OpenAI-compatible service such as OpenRouter or Groq), so the usage is billed to your account with that provider. Gemini has a free tier: create a key at aistudio.google.com/apikey. Your key is stored encrypted and is never shown again.")}
         </Alert>
       )}
 
@@ -253,6 +268,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
                 <option value="anthropic">Anthropic API</option>
                 <option value="gemini">Gemini API</option>
                 <option value="cloudflare">Cloudflare Workers AI</option>
+                <option value="openai">{t("OpenAI-compatible")}</option>
               </>
             ) : (
               <>
@@ -262,6 +278,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
                 <option value="anthropic">Anthropic API</option>
                 <option value="gemini">Gemini API</option>
                 <option value="cloudflare">Cloudflare Workers AI</option>
+                <option value="openai">{t("OpenAI-compatible")}</option>
                 <option value="ollama">Ollama (local)</option>
               </>
             )}
@@ -405,6 +422,59 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
           </div>
           {view.sources.cloudflareToken === "dashboard" && (
             <Button type="button" size="sm" variant="ghost" onClick={() => removeKey("cloudflare")} disabled={busy}>
+              <Trash2 /> {t("Remove saved key")}
+            </Button>
+          )}
+        </div>
+      </Section>
+
+      <Section
+        title={t("OpenAI-compatible")}
+        badges={
+          <>
+            {view.openai.baseUrl && view.openai.model ? <Badge tone="success">{t("Set up")}</Badge> : <Badge tone="warning">{t("Not set up")}</Badge>}
+            {view.openai.keySet && (
+              <Badge tone="success">
+                {t("Key set")} {view.openai.keyHint}
+              </Badge>
+            )}
+            {view.openai.baseUrl && <SourceBadge source={view.sources.openaiBaseUrl} />}
+            {view.unreadableKeys.includes("openai") && <Badge tone="danger">{t("Saved key cannot be read — enter it again")}</Badge>}
+          </>
+        }
+      >
+        <p className="text-sm text-muted-foreground">
+          {t("Any AI service that offers the OpenAI API: OpenRouter, Groq, NVIDIA NIM, DeepSeek, Mistral, OpenAI and others. Several have free models. Create an API key on the service's website, then fill in its address, the key and a model.")}
+        </p>
+        <Field label={t("Address (base URL)")} htmlFor="ai-openai-url" hint={personal ? t("Usually ends in /v1. Pick a service from the list or type its address.") : t("Usually ends in /v1. A server on this machine (LM Studio, llama.cpp, vLLM) also works, e.g. http://host.docker.internal:1234/v1.")} error={err("openaiBaseUrl")}>
+          <Input id="ai-openai-url" list="ai-openai-presets" value={f.openaiBaseUrl} onChange={set("openaiBaseUrl")} maxLength={300} spellCheck={false} autoComplete="off" placeholder="https://openrouter.ai/api/v1" />
+          <datalist id="ai-openai-presets">
+            {OPENAI_PRESETS.map((p) => (
+              <option key={p.url} value={p.url}>
+                {p.label}
+              </option>
+            ))}
+          </datalist>
+        </Field>
+        <Field label={t("API key")} htmlFor="ai-openai-key" hint={view.sources.openaiKey === "dashboard" ? t("Leave empty to keep the saved key") : t("Stored encrypted. It is never shown again after saving.")} error={err("openaiKey")}>
+          <Input id="ai-openai-key" type="password" autoComplete="off" spellCheck={false} value={f.openaiKey} onChange={set("openaiKey")} maxLength={400} placeholder={view.openai.keySet ? "••••••••" : "sk-…"} />
+        </Field>
+        <ModelField
+          id="ai-openai-model"
+          label={t("Model")}
+          hint={t("Required. Save the address and key first to load the list. On OpenRouter, free models end in :free.")}
+          error={err("openaiModel")}
+          value={f.openaiModel}
+          onChange={(v) => setF((s) => ({ ...s, openaiModel: v }))}
+          defaultLabel={view.openai.model && !view.saved.openaiModel ? `${defaultWord} (${view.openai.model})` : t("Choose a model")}
+          list={lists.openai}
+          onReload={() => void loadModels("openai")}
+          disabled={busy}
+        />
+        <div className="flex flex-wrap items-start gap-3">
+          {testButton("openai")}
+          {view.sources.openaiKey === "dashboard" && (
+            <Button type="button" size="sm" variant="ghost" onClick={() => removeKey("openai")} disabled={busy}>
               <Trash2 /> {t("Remove saved key")}
             </Button>
           )}
