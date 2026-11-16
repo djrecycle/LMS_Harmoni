@@ -415,8 +415,8 @@ function KisiRow({ item, tps, locked }: { item: WorkspaceItem & { no: number }; 
           ))}
         </select>
       </div>
-      <Textarea rows={2} value={v.materi} disabled={locked} onChange={(e) => setV({ ...v, materi: e.target.value })} onBlur={() => save()} aria-label={t("Material")} placeholder={t("Material")} className="min-h-10 text-sm" maxLength={300} />
-      <Textarea rows={2} value={v.indikator} disabled={locked} onChange={(e) => setV({ ...v, indikator: e.target.value })} onBlur={() => save()} aria-label={t("Question indicator")} placeholder={t("Question indicator")} className="min-h-10 text-sm" maxLength={600} />
+      <Textarea rows={2} value={v.materi} disabled={locked} onChange={(e) => setV({ ...v, materi: e.target.value })} onBlur={() => save()} aria-label={t("Material")} placeholder={t("Material")} className="field-sizing-content min-h-10 text-sm" maxLength={300} />
+      <Textarea rows={2} value={v.indikator} disabled={locked} onChange={(e) => setV({ ...v, indikator: e.target.value })} onBlur={() => save()} aria-label={t("Question indicator")} placeholder={t("Question indicator")} className="field-sizing-content min-h-10 text-sm" maxLength={600} />
       <div className="grid gap-2">
         <Select
           value={v.level}
@@ -439,7 +439,7 @@ function KisiRow({ item, tps, locked }: { item: WorkspaceItem & { no: number }; 
         </Select>
         {verbs.length > 0 && (
           <Select
-            value={verbs.includes(verb) ? verb : ""}
+            value={verb}
             disabled={locked}
             onChange={(e) => {
               if (!e.target.value) return;
@@ -452,6 +452,7 @@ function KisiRow({ item, tps, locked }: { item: WorkspaceItem & { no: number }; 
             className="text-sm"
           >
             <option value="">{t("Verb…")}</option>
+            {verb && !verbs.includes(verb) && <option value={verb}>{verb.charAt(0).toUpperCase() + verb.slice(1)}</option>}
             {verbs.map((x) => (
               <option key={x} value={x}>
                 {x.charAt(0).toUpperCase() + x.slice(1)}

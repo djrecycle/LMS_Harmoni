@@ -66,7 +66,7 @@ export const COGNITIVE_LEVELS = ["C1", "C2", "C3", "C4", "C5", "C6"];
  * The first one is used when switching to that level; the teacher can pick any other.
  */
 export const LEVEL_VERBS: Record<string, string[]> = {
-  C1: ["menyebutkan", "mengidentifikasi", "mengenali", "menunjukkan", "menuliskan", "mendefinisikan", "menamai", "mendaftar", "menyatakan", "mengingat", "mencocokkan", "menandai", "mengutip", "mencatat", "menghafal", "mengenal", "menamakan", "melabeli"],
+  C1: ["menyebutkan", "mengidentifikasi", "mengenali", "menunjukkan", "menjodohkan", "memasangkan", "menuliskan", "mendefinisikan", "menamai", "mendaftar", "menyatakan", "mengingat", "mencocokkan", "menandai", "mengutip", "mencatat", "menghafal", "mengenal", "menamakan", "melabeli"],
   C2: ["menjelaskan", "mendeskripsikan", "membedakan", "mengklasifikasikan", "mengelompokkan", "menggolongkan", "menguraikan", "menafsirkan", "menginterpretasikan", "mencontohkan", "merangkum", "meringkas", "menerangkan", "mengartikan", "memaparkan", "menceritakan", "memperkirakan", "memahami"],
   C3: ["menentukan", "menerapkan", "menggunakan", "mendemonstrasikan", "memainkan", "menyanyikan", "membaca", "menghitung", "melengkapi", "mengurutkan", "menyelesaikan", "mempraktikkan", "memperagakan", "menirukan", "menyesuaikan", "melaksanakan", "melakukan", "mengimplementasikan", "mengoperasikan"],
   C4: ["menganalisis", "membandingkan", "menelaah", "menghubungkan", "mengaitkan", "mengkategorikan", "mengorganisasikan", "menemukan", "mendeteksi", "menguji", "menyeleksi", "menelusuri", "memerinci", "mendiagnosis", "mengkorelasikan", "memecahkan", "menstrukturkan"],
@@ -77,15 +77,22 @@ const ALL_VERBS = new Set(Object.values(LEVEL_VERBS).flat());
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-/** Where the indicator's operational verb is (within its first few words), or null. */
+/**
+ * Where the indicator's operational verb is (within its first few words), or null.
+ * A first word shaped like a "me-…-kan" verb counts too, so verbs missing from the list still get swapped.
+ */
 function findVerb(words: string[]): { i: number; pre: string; word: string; post: string } | null {
+  let first: { i: number; pre: string; word: string; post: string } | null = null;
   for (let i = 0, seen = 0; i < words.length && seen < 6; i++) {
     if (!words[i].trim()) continue;
     seen++;
     const m = /^([^\p{L}]*)(\p{L}+)(.*)$/u.exec(words[i]);
-    if (m && ALL_VERBS.has(m[2].toLowerCase())) return { i, pre: m[1], word: m[2], post: m[3] };
+    if (!m) continue;
+    const hit = { i, pre: m[1], word: m[2], post: m[3] };
+    if (ALL_VERBS.has(m[2].toLowerCase())) return hit;
+    if (seen === 1 && /^me\p{L}{3,}kan$/iu.test(m[2])) first = hit;
   }
-  return null;
+  return first;
 }
 
 /** The indicator's operational verb in lower case, or "" when none is found. */
