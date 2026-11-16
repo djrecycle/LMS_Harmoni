@@ -236,7 +236,7 @@ function matchingTable(items: { no: number; question: DocQuestion | null }[]): T
             cell(hasRow ? String(i + 1) : "", W[3], { center: true }),
             cell(statements[i] ?? "", W[4]),
             cell(i < columns.length ? letter(i) : "", W[5], { center: true }),
-            cell(columns[i] ?? "", W[6]),
+            cell(columns[i] ?? "", W[6], { image: q?.optionImages?.[i] }),
             cell(hasRow ? String(i + 1) : "", W[7], { center: true }),
             cell(hasRow && col !== undefined && col >= 0 ? letter(col) : "", W[8], { center: true }),
           ],

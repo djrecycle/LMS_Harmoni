@@ -15,6 +15,7 @@ import { EXAM_SYSTEM, gambarPrompt, kisiPrompt, parseKisi, parseSoal, readGambar
 import { getOwnedExam, listExamItems, nextPosition } from "@/lib/exam-store";
 import { semesterGanjilGenap } from "@/lib/perangkat/generator";
 import { normalize, toDbValues } from "@/lib/question-db";
+import { hasChoiceImages } from "@/lib/questions";
 import { NOTATION_KINDS, notationError, type Notation } from "@/lib/notation";
 import { requireTeacher } from "@/lib/session";
 import { fromWibInput } from "@/lib/utils";
@@ -330,14 +331,14 @@ export async function setQuestionImage(questionId: string, key: string | null, k
   return succeed(key ? t("Image added to the question.") : t("Image removed from the question."));
 }
 
-/** Put an image on one answer choice (multiple choice / complex multiple choice) of this teacher's question; null removes it. */
+/** Put an image on one answer choice (multiple choice / complex multiple choice / matching answer) of this teacher's question; null removes it. */
 export async function setOptionImage(questionId: string, index: number, key: string | null): Promise<ActionResult> {
   const t = await getT();
   const teacher = await requireTeacher();
   const q = await getOwnedQuestion(teacher.id, questionId);
   if (!q) return fail(t("Question not found."));
   const n = q.options?.length ?? 0;
-  if (!(q.answerType === "multiple_choice" || q.answerType === "multiple_select") || !Number.isInteger(index) || index < 0 || index >= n) return fail(t("Choice not found."));
+  if (!hasChoiceImages(q.answerType) || !Number.isInteger(index) || index < 0 || index >= n) return fail(t("Choice not found."));
   if (key !== null && !isValidMediaKey(key, teacher.id)) return fail(t("Invalid media file."));
   const images = Array.from({ length: n }, (_, i) => q.optionImages?.[i] ?? null);
   const previous = images[index];

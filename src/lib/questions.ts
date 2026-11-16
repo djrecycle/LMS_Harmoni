@@ -16,6 +16,10 @@ export const ANSWER_TYPES = ["multiple_choice", "fill_in", "true_false", "midi",
 export type AnswerType = (typeof ANSWER_TYPES)[number];
 /** Question types whose answer type is always the type itself. */
 const SELF_ANSWERED: QuestionType[] = ["multiple_choice", "fill_in", "true_false", "multiple_select", "matching", "essay"];
+/** Answer types whose answer choices (`options`) may each carry an image: multiple choice, complex multiple choice, and the answers of a matching question. */
+export function hasChoiceImages(answerType: AnswerType | QuestionType | null | undefined): boolean {
+  return answerType === "multiple_choice" || answerType === "multiple_select" || answerType === "matching";
+}
 
 export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   multiple_choice: "Multiple Choice",
@@ -332,7 +336,7 @@ export type StudentQuestion = {
   prompt: string;
   mediaKey: string | null;
   options: string[] | null;
-  /** Image per answer choice (multiple choice / complex multiple choice), same order as `options`. */
+  /** Image per answer choice (multiple choice / complex multiple choice / matching answers), same order as `options`. */
   optionImages: (string | null)[] | null;
   /** Statements of a matching question. */
   matchRows: string[] | null;
@@ -365,7 +369,7 @@ export function toStudentQuestion(s: QuestionRow): StudentQuestion {
     prompt: s.prompt,
     mediaKey: s.mediaKey,
     options: s.options,
-    optionImages: s.answerType === "multiple_choice" || s.answerType === "multiple_select" ? (s.optionImages ?? null) : null,
+    optionImages: hasChoiceImages(s.answerType) ? (s.optionImages ?? null) : null,
     matchRows: s.matchRows ?? null,
     points: s.points,
     sound: s.sound ?? null,

@@ -15,7 +15,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { playSequence } from "@/lib/audio";
 import type { TopicSuggestions } from "@/lib/form-data";
 import { midiToNote, noteToMidi, parseNoteList, solfegeOf, solfegeVariants } from "@/lib/music";
-import { QUESTION_TYPE_LABELS, QUESTION_TYPES, SOUND_VOICES, mediaUrl, type AnswerType, type AnswerKey, type QuestionSound, type QuestionType } from "@/lib/questions";
+import { QUESTION_TYPE_LABELS, QUESTION_TYPES, SOUND_VOICES, hasChoiceImages, mediaUrl, type AnswerType, type AnswerKey, type QuestionSound, type QuestionType } from "@/lib/questions";
 import { RhythmGlyphs, SoundPlayer } from "@/components/sound-player";
 import { RhythmTapRecorder } from "@/components/rhythm-tap-recorder";
 import { parseRhythm, rhythmToText, rhythmVariants } from "@/lib/rhythm";
@@ -174,7 +174,7 @@ export function QuestionForm({
   const kindMedia: "image" | "audio" | "video" = type === "audio" || type === "midi" ? "audio" : type === "video" ? "video" : "image";
   const mediaRequire = type === "audio" || type === "video";
 
-  /** Choice images apply to multiple choice and complex multiple choice only. */
+  /** Choice images apply to multiple choice, complex multiple choice and the answers of a matching question. */
   const choiceImageButton = (i: number) => (
     <Button
       variant={imgTarget === `o${i}` ? "secondary" : "ghost"}
@@ -205,7 +205,7 @@ export function QuestionForm({
     ) : null;
   const imageTargets: ImageTarget[] = [
     { id: "q", label: t("Question"), shape: "question", prefill: imageHint },
-    ...(answerShape === "multiple_choice" || answerShape === "multiple_select"
+    ...(hasChoiceImages(answerShape)
       ? options.map((o, i): ImageTarget => ({ id: `o${i}`, label: t("Choice {0}", String.fromCharCode(65 + i)), shape: "option", prefill: o }))
       : []),
   ];
@@ -237,7 +237,7 @@ export function QuestionForm({
       mediaKey: type === "audio" && sound ? null : mediaKey || null,
       sound: type === "audio" ? sound : null,
       options: answerShape === "multiple_choice" || answerShape === "multiple_select" || answerShape === "matching" ? options.map((o) => o.trim()) : null,
-      optionImages: answerShape === "multiple_choice" || answerShape === "multiple_select" ? options.map((_, i) => optionImages[i] ?? null) : null,
+      optionImages: hasChoiceImages(answerShape) ? options.map((_, i) => optionImages[i] ?? null) : null,
       matchRows: answerShape === "matching" ? matchRows.map((o) => o.trim()) : null,
       answerKey: answerKey.kind === "matching" ? { kind: "matching", pairs: matchRows.map((_, i) => answerKey.pairs[i] ?? -1) } : answerKey,
       level: level || null,
@@ -497,6 +497,11 @@ export function QuestionForm({
             pairs={answerKey.pairs}
             setPairs={(pairs) => setAnswerKey({ kind: "matching", pairs })}
             error={error.matchRows ?? error.options ?? error.answerKey}
+            imageButton={choiceImageButton}
+            imageThumb={choiceImageThumb}
+            imagePanel={choicePanel}
+            removeImage={(i) => setOptionImages((a) => a.filter((_, j) => j !== i))}
+            clearImages={() => setOptionImages([])}
           />
         )}
 
@@ -592,6 +597,11 @@ function MatchingKey({
   pairs,
   setPairs,
   error,
+  imageButton,
+  imageThumb,
+  imagePanel,
+  removeImage,
+  clearImages,
 }: {
   rows: string[];
   setRows: (r: string[]) => void;
@@ -600,10 +610,17 @@ function MatchingKey({
   pairs: number[];
   setPairs: (p: number[]) => void;
   error?: string;
+  /** Picture controls for answer column i (same as for multiple choice). */
+  imageButton: (i: number) => React.ReactNode;
+  imageThumb: (i: number) => React.ReactNode;
+  imagePanel: React.ReactNode;
+  removeImage: (i: number) => void;
+  clearImages: () => void;
 }) {
   const t = useT();
   function removeColumn(i: number) {
     setColumns(columns.filter((_, j) => j !== i));
+    removeImage(i);
     setPairs(rows.map((_, r) => (pairs[r] === i ? -1 : pairs[r] > i ? pairs[r] - 1 : (pairs[r] ?? -1))));
   }
   function removeRow(i: number) {
@@ -616,24 +633,37 @@ function MatchingKey({
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <p className="text-sm font-semibold">{t("Answer columns")}</p>
           {MATCHING_PRESETS.map((p) => (
-            <Button key={p.label} variant="outline" size="sm" onClick={() => setColumns(p.columns)}>
+            <Button
+              key={p.label}
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setColumns(p.columns);
+                clearImages();
+              }}
+            >
               {p.label}
             </Button>
           ))}
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           {columns.map((c, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-sm font-bold">{String.fromCharCode(65 + i)}</span>
-              <Input value={c} onChange={(e) => setColumns(columns.map((x, j) => (j === i ? e.target.value : x)))} aria-label={t("Column {0}", String.fromCharCode(65 + i))} />
-              {columns.length > 2 && (
-                <Button variant="ghost" size="icon" className="size-9 shrink-0" aria-label={t("Remove choice")} onClick={() => removeColumn(i)}>
-                  <X />
-                </Button>
-              )}
+            <div key={i} className="grid content-start gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-muted text-sm font-bold">{String.fromCharCode(65 + i)}</span>
+                <Input value={c} onChange={(e) => setColumns(columns.map((x, j) => (j === i ? e.target.value : x)))} aria-label={t("Column {0}", String.fromCharCode(65 + i))} />
+                {imageButton(i)}
+                {columns.length > 2 && (
+                  <Button variant="ghost" size="icon" className="size-9 shrink-0" aria-label={t("Remove choice")} onClick={() => removeColumn(i)}>
+                    <X />
+                  </Button>
+                )}
+              </div>
+              {imageThumb(i)}
             </div>
           ))}
         </div>
+        {imagePanel}
         {columns.length < 8 && (
           <Button variant="ghost" size="sm" className="mt-1" onClick={() => setColumns([...columns, ""])}>
             <Plus /> {t("Add column")}

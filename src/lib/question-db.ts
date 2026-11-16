@@ -1,6 +1,6 @@
 /** Turn a validated question input into the values stored in the database (shared by the question and exam actions). */
 import { midiToNote, noteToMidi } from "./music";
-import type { QuestionInput } from "./questions";
+import { hasChoiceImages, type QuestionInput } from "./questions";
 
 /** Normalize MIDI key notes to standard notation (e.g. Db4 -> C#4). */
 export function normalize(v: QuestionInput): QuestionInput {
@@ -17,9 +17,9 @@ export function normalize(v: QuestionInput): QuestionInput {
   return v;
 }
 
-/** Choice images lined up with the choices (only for multiple choice / complex multiple choice); null when there are none. */
+/** Choice images lined up with the choices (multiple choice, complex multiple choice, matching answers); null when there are none. */
 export function alignOptionImages(v: Pick<QuestionInput, "answerType" | "options" | "optionImages">): (string | null)[] | null {
-  if (!(v.answerType === "multiple_choice" || v.answerType === "multiple_select") || !v.optionImages) return null;
+  if (!hasChoiceImages(v.answerType) || !v.optionImages) return null;
   const images = (v.options ?? []).map((_, i) => v.optionImages?.[i] || null);
   return images.some(Boolean) ? images : null;
 }

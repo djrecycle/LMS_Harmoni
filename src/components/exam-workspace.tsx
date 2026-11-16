@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { Alert, Badge } from "@/components/ui/misc";
 import { COGNITIVE_LEVELS, EXAM_SECTIONS, LEVEL_VERBS, SECTION_META, indicatorForLevel, indicatorVerb, letter, withVerb, pointsPerQuestion, totalCount, type ExamComposition, type ExamInfo, type ExamSection } from "@/lib/exam";
-import { mediaUrl, type AnswerKey, type QuestionType } from "@/lib/questions";
+import { hasChoiceImages, mediaUrl, type AnswerKey, type QuestionType } from "@/lib/questions";
 import type { Notation } from "@/lib/notation";
 import { notationPng, uploadMedia } from "@/lib/notation-render";
 import { MediaUploader } from "@/components/media-uploader";
@@ -584,7 +584,7 @@ function SoalCard({
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [busy, start] = useTransition();
   const q = item.question;
-  const choiceImages = q && (q.type === "multiple_choice" || q.type === "multiple_select");
+  const choiceImages = q && hasChoiceImages(q.type);
   const targets: ImageTarget[] = q
     ? [
         { id: "q", label: t("Question"), shape: "question", prefill: q.imageHint ?? "" },
@@ -751,6 +751,62 @@ function SoalCard({
   );
 }
 
+/** One answer choice in the question view: its text, its picture, and the buttons to add or remove the picture. */
+function ChoiceRow({
+  index: i,
+  text,
+  image,
+  right,
+  onImage,
+  onRemoveImage,
+}: {
+  index: number;
+  text: string;
+  image: string | null;
+  right: boolean;
+  onImage?: (i: number) => void;
+  onRemoveImage?: (i: number) => void;
+}) {
+  const t = useT();
+  return (
+    <li className={cn("group flex gap-2 rounded-lg px-2 py-1", right && "bg-success-soft font-semibold")}>
+      <span className="font-bold">{letter(i)}.</span>
+      <span className="grid min-w-0 flex-1 gap-1">
+        <span className="break-words">{text}</span>
+        {image && (
+          <span className="relative inline-block justify-self-start">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={mediaUrl(image)!} alt={t("Image for choice {0}", letter(i))} className="max-h-28 w-auto max-w-full rounded-md border bg-white object-contain" />
+            {onRemoveImage && (
+              <button
+                type="button"
+                onClick={() => onRemoveImage(i)}
+                className="absolute -top-2 -right-2 grid size-6 place-items-center rounded-full border bg-card text-muted-foreground shadow-sm hover:text-danger"
+                aria-label={t("Remove the image of choice {0}", letter(i))}
+                title={t("Remove image")}
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </span>
+        )}
+      </span>
+      {onImage && (
+        <button
+          type="button"
+          onClick={() => onImage(i)}
+          className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-primary"
+          aria-label={t("Picture for choice {0}", letter(i))}
+          title={t("Picture for choice {0}", letter(i))}
+        >
+          <ImagePlus className="size-4" />
+        </button>
+      )}
+      {right && <CircleCheck className="size-4 shrink-0 text-success" />}
+    </li>
+  );
+}
+
 /** The question as the student will see it, with the key marked. */
 function QuestionView({ q, onOptionImage, onRemoveOptionImage }: { q: WorkspaceQuestion; onOptionImage?: (i: number) => void; onRemoveOptionImage?: (i: number) => void }) {
   const t = useT();
@@ -767,46 +823,17 @@ function QuestionView({ q, onOptionImage, onRemoveOptionImage }: { q: WorkspaceQ
       ) : null}
       {(q.type === "multiple_choice" || q.type === "multiple_select") && (
         <ol className="grid gap-1">
-          {(q.options ?? []).map((o, i) => {
-            const right = (key?.kind === "multiple_choice" && key.correct === i) || (key?.kind === "multiple_select" && key.correct.includes(i));
-            return (
-              <li key={i} className={cn("group flex gap-2 rounded-lg px-2 py-1", right && "bg-success-soft font-semibold")}>
-                <span className="font-bold">{letter(i)}.</span>
-                <span className="grid min-w-0 flex-1 gap-1">
-                  <span className="break-words">{o}</span>
-                  {image(i) && (
-                    <span className="relative inline-block justify-self-start">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={mediaUrl(image(i))!} alt={t("Image for choice {0}", letter(i))} className="max-h-28 w-auto max-w-full rounded-md border bg-white object-contain" />
-                      {onRemoveOptionImage && (
-                        <button
-                          type="button"
-                          onClick={() => onRemoveOptionImage(i)}
-                          className="absolute -top-2 -right-2 grid size-6 place-items-center rounded-full border bg-card text-muted-foreground shadow-sm hover:text-danger"
-                          aria-label={t("Remove the image of choice {0}", letter(i))}
-                          title={t("Remove image")}
-                        >
-                          <X className="size-3.5" />
-                        </button>
-                      )}
-                    </span>
-                  )}
-                </span>
-                {onOptionImage && (
-                  <button
-                    type="button"
-                    onClick={() => onOptionImage(i)}
-                    className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-primary"
-                    aria-label={t("Picture for choice {0}", letter(i))}
-                    title={t("Picture for choice {0}", letter(i))}
-                  >
-                    <ImagePlus className="size-4" />
-                  </button>
-                )}
-                {right && <CircleCheck className="size-4 shrink-0 text-success" />}
-              </li>
-            );
-          })}
+          {(q.options ?? []).map((o, i) => (
+            <ChoiceRow
+              key={i}
+              index={i}
+              text={o}
+              image={image(i)}
+              right={(key?.kind === "multiple_choice" && key.correct === i) || (key?.kind === "multiple_select" && key.correct.includes(i))}
+              onImage={onOptionImage}
+              onRemoveImage={onRemoveOptionImage}
+            />
+          ))}
         </ol>
       )}
       {q.type === "matching" && (
@@ -832,6 +859,17 @@ function QuestionView({ q, onOptionImage, onRemoveOptionImage }: { q: WorkspaceQ
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {/* The answers of a matching question as the student sees them, each of which can carry a picture. */}
+      {q.type === "matching" && (onOptionImage || q.optionImages?.some(Boolean)) && (
+        <div className="grid gap-1">
+          <p className="text-xs text-muted-foreground">{t("Answer choices")}</p>
+          <ol className="grid gap-1 sm:grid-cols-2">
+            {(q.options ?? []).map((o, i) => (
+              <ChoiceRow key={i} index={i} text={o} image={image(i)} right={false} onImage={onOptionImage} onRemoveImage={onRemoveOptionImage} />
+            ))}
+          </ol>
         </div>
       )}
       {q.type === "fill_in" && key?.kind === "fill_in" && (

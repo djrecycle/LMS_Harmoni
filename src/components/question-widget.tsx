@@ -184,14 +184,19 @@ function MatchingAnswer({ question, value, onEdit, locked }: { question: Student
   const columns = question.options ?? [];
   const chosen = rows.map((_, i) => (Array.isArray(value) && typeof value[i] === "number" ? (value[i] as number) : -1));
   const pick = (row: number, col: number) => onEdit(chosen.map((c, i) => (i === row ? col : c)));
-  const compact = columns.length <= 3 && columns.every((c) => c.length <= 12);
+  const images = question.optionImages?.some(Boolean) ? question.optionImages : null;
+  // Pictured answers are listed above (with their letter) so the picture is seen before choosing.
+  const compact = !images && columns.length <= 3 && columns.every((c) => c.length <= 12);
   return (
     <div className="grid gap-2.5">
       {!compact && (
-        <ol className="grid gap-1 rounded-xl bg-muted p-3 text-sm sm:grid-cols-2">
+        <ol className={cn("grid gap-1 rounded-xl bg-muted p-3 text-sm sm:grid-cols-2", images && "gap-3")}>
           {columns.map((c, j) => (
-            <li key={j}>
-              <b>{String.fromCharCode(65 + j)}.</b> {c}
+            <li key={j} className="grid min-w-0 content-start gap-1.5 break-words">
+              <span>
+                <b>{String.fromCharCode(65 + j)}.</b> {c}
+              </span>
+              <ChoiceImage mediaKey={images?.[j]} alt={t("Image for choice {0}", String.fromCharCode(65 + j))} />
             </li>
           ))}
         </ol>

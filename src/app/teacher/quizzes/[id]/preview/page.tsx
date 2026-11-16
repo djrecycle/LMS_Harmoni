@@ -138,6 +138,23 @@ export default async function QuizPreview({ params }: { params: Promise<{ id: st
                   </div>
                 )}
 
+                {s.answerType === "matching" && s.options && s.optionImages?.some(Boolean) && (
+                  <ul className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                    {s.options.map((opt, j) => (
+                      <li key={j} className="flex items-start gap-2 rounded-lg border p-2.5">
+                        <span className="font-bold">{String.fromCharCode(65 + j)}.</span>
+                        <span className="grid min-w-0 flex-1 gap-1.5 break-words">
+                          {opt}
+                          {s.optionImages?.[j] && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={mediaUrl(s.optionImages[j])!} alt={t("Image for choice {0}", String.fromCharCode(65 + j))} className="max-h-32 w-auto max-w-full rounded-md border bg-white object-contain" />
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
                 {(s.answerType === "fill_in" || s.answerType === "midi" || s.answerType === "matching" || s.answerType === "essay") && (
                   <div className="mt-3 rounded-lg bg-success-soft p-3 text-sm">
                     <p className="text-xs font-semibold text-muted-foreground">{t("Answer key")}</p>
