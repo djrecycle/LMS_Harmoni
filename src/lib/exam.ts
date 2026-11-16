@@ -62,6 +62,64 @@ export const EXAM_TYPES = ["PSAT", "PSAS", "PTS", "Sumatif Akhir Semester", "Sum
 export const COGNITIVE_LEVELS = ["C1", "C2", "C3", "C4", "C5", "C6"];
 
 /**
+ * Operational verbs (KKO, revised Bloom) per cognitive level, each verb in one level only.
+ * The first one is used when switching to that level; the teacher can pick any other.
+ */
+export const LEVEL_VERBS: Record<string, string[]> = {
+  C1: ["menyebutkan", "mengidentifikasi", "mengenali", "menunjukkan", "menuliskan", "mendefinisikan", "menamai", "mendaftar", "menyatakan", "mengingat", "mencocokkan", "menandai", "mengutip", "mencatat", "menghafal", "mengenal", "menamakan", "melabeli"],
+  C2: ["menjelaskan", "mendeskripsikan", "membedakan", "mengklasifikasikan", "mengelompokkan", "menggolongkan", "menguraikan", "menafsirkan", "menginterpretasikan", "mencontohkan", "merangkum", "meringkas", "menerangkan", "mengartikan", "memaparkan", "menceritakan", "memperkirakan", "memahami"],
+  C3: ["menentukan", "menerapkan", "menggunakan", "mendemonstrasikan", "memainkan", "menyanyikan", "membaca", "menghitung", "melengkapi", "mengurutkan", "menyelesaikan", "mempraktikkan", "memperagakan", "menirukan", "menyesuaikan", "melaksanakan", "melakukan", "mengimplementasikan", "mengoperasikan"],
+  C4: ["menganalisis", "membandingkan", "menelaah", "menghubungkan", "mengaitkan", "mengkategorikan", "mengorganisasikan", "menemukan", "mendeteksi", "menguji", "menyeleksi", "menelusuri", "memerinci", "mendiagnosis", "mengkorelasikan", "memecahkan", "menstrukturkan"],
+  C5: ["menilai", "mengevaluasi", "menyimpulkan", "mengkritik", "mengkritisi", "mengapresiasi", "memutuskan", "mempertimbangkan", "membuktikan", "memilih", "merekomendasikan", "memprediksi", "membenarkan", "menyanggah", "mempertahankan", "mengukur", "memvalidasi"],
+  C6: ["merancang", "menciptakan", "menyusun", "mengkreasikan", "mengarang", "membuat", "menggubah", "mengaransemen", "mengimprovisasi", "merencanakan", "mengembangkan", "merumuskan", "memodifikasi", "mengkombinasikan", "memadukan", "menggabungkan", "mendesain", "memproduksi", "mengomposisi"],
+};
+const ALL_VERBS = new Set(Object.values(LEVEL_VERBS).flat());
+
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** Where the indicator's operational verb is (within its first few words), or null. */
+function findVerb(words: string[]): { i: number; pre: string; word: string; post: string } | null {
+  for (let i = 0, seen = 0; i < words.length && seen < 6; i++) {
+    if (!words[i].trim()) continue;
+    seen++;
+    const m = /^([^\p{L}]*)(\p{L}+)(.*)$/u.exec(words[i]);
+    if (m && ALL_VERBS.has(m[2].toLowerCase())) return { i, pre: m[1], word: m[2], post: m[3] };
+  }
+  return null;
+}
+
+/** The indicator's operational verb in lower case, or "" when none is found. */
+export function indicatorVerb(indikator: string): string {
+  return findVerb(indikator.split(/(\s+)/))?.word.toLowerCase() ?? "";
+}
+
+/**
+ * Put `verb` in the indicator: it replaces the current operational verb (keeping its capitalisation),
+ * or starts the indicator when it has none.
+ */
+export function withVerb(indikator: string, verb: string): string {
+  const words = indikator.split(/(\s+)/);
+  const f = findVerb(words);
+  if (f) {
+    words[f.i] = f.pre + (f.word[0] === f.word[0].toUpperCase() ? capital(verb) : verb) + f.post;
+    return words.join("");
+  }
+  const rest = indikator.trim();
+  return rest ? `${capital(verb)} ${rest.charAt(0).toLowerCase()}${rest.slice(1)}` : `${capital(verb)} `;
+}
+
+/**
+ * Fit an indicator to a new cognitive level by swapping its operational verb for the level's main verb.
+ * Unchanged when the verb already belongs to that level, or when no known verb is found.
+ */
+export function indicatorForLevel(indikator: string, level: string): string {
+  const verbs = LEVEL_VERBS[level];
+  const verb = indicatorVerb(indikator);
+  if (!verbs || !verb || verbs.includes(verb)) return indikator;
+  return withVerb(indikator, verbs[0]);
+}
+
+/**
  * Points of one question in each section so that the sections add up to their weight:
  * a section of `n` questions worth `w`% gives each question w/n points. Sections without questions give nothing.
  */

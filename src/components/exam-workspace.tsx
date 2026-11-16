@@ -11,7 +11,7 @@ import { ProviderSelect, providerReady, useProviderPick, type ProviderOption, ty
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { Alert, Badge } from "@/components/ui/misc";
-import { COGNITIVE_LEVELS, EXAM_SECTIONS, SECTION_META, letter, pointsPerQuestion, totalCount, type ExamComposition, type ExamInfo, type ExamSection } from "@/lib/exam";
+import { COGNITIVE_LEVELS, EXAM_SECTIONS, LEVEL_VERBS, SECTION_META, indicatorForLevel, indicatorVerb, letter, withVerb, pointsPerQuestion, totalCount, type ExamComposition, type ExamInfo, type ExamSection } from "@/lib/exam";
 import { mediaUrl, type AnswerKey, type QuestionType } from "@/lib/questions";
 import type { Notation } from "@/lib/notation";
 import { notationPng, uploadMedia } from "@/lib/notation-render";
@@ -329,7 +329,7 @@ function KisiTab({ examId, groups, tps, comp, locked }: { examId: string; groups
             {letter(gi)}. {t(SECTION_META[g.section].label)} {g.items.length > 0 && <span className="text-muted-foreground">({range(g)})</span>}
           </h3>
           {g.items.length === 0 && <p className="text-sm text-muted-foreground">{t("No rows yet.")}</p>}
-          <div className={cn("hidden grid-cols-[3rem_1.3fr_1fr_1.6fr_5.5rem_2.5rem] gap-2 px-2 text-xs font-bold text-muted-foreground", g.items.length > 0 && "lg:grid")}>
+          <div className={cn("hidden grid-cols-[3rem_1.3fr_1fr_1.6fr_9rem_2.5rem] gap-2 px-2 text-xs font-bold text-muted-foreground", g.items.length > 0 && "lg:grid")}>
             <span>{t("No")}</span>
             <span>{t("Learning objective")}</span>
             <span>{t("Material")}</span>
@@ -383,9 +383,11 @@ function KisiRow({ item, tps, locked }: { item: WorkspaceItem & { no: number }; 
     });
   }
   const tpOptions = v.tp && !tps.includes(v.tp) ? [v.tp, ...tps] : tps;
+  const verbs = LEVEL_VERBS[v.level] ?? [];
+  const verb = indicatorVerb(v.indikator);
 
   return (
-    <div className="grid gap-2 rounded-xl border bg-card p-2 lg:grid-cols-[3rem_1.3fr_1fr_1.6fr_5.5rem_2.5rem] lg:items-start">
+    <div className="grid gap-2 rounded-xl border bg-card p-2 lg:grid-cols-[3rem_1.3fr_1fr_1.6fr_9rem_2.5rem] lg:items-start">
       <div className="flex items-center justify-between lg:block">
         <span className="grid size-8 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{item.no}</span>
         {item.question ? <CircleCheck className="size-4 text-success lg:mt-2 lg:ml-2" aria-label={t("Has a question")} /> : null}
@@ -415,24 +417,49 @@ function KisiRow({ item, tps, locked }: { item: WorkspaceItem & { no: number }; 
       </div>
       <Textarea rows={2} value={v.materi} disabled={locked} onChange={(e) => setV({ ...v, materi: e.target.value })} onBlur={() => save()} aria-label={t("Material")} placeholder={t("Material")} className="min-h-10 text-sm" maxLength={300} />
       <Textarea rows={2} value={v.indikator} disabled={locked} onChange={(e) => setV({ ...v, indikator: e.target.value })} onBlur={() => save()} aria-label={t("Question indicator")} placeholder={t("Question indicator")} className="min-h-10 text-sm" maxLength={600} />
-      <Select
-        value={v.level}
-        disabled={locked}
-        onChange={(e) => {
-          const next = { ...v, level: e.target.value };
-          setV(next);
-          save(next);
-        }}
-        aria-label={t("Cognitive level")}
-        className="text-sm"
-      >
-        <option value="">-</option>
-        {COGNITIVE_LEVELS.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
-      </Select>
+      <div className="grid gap-2">
+        <Select
+          value={v.level}
+          disabled={locked}
+          onChange={(e) => {
+            const level = e.target.value;
+            const next = { ...v, level, indikator: indicatorForLevel(v.indikator, level) };
+            setV(next);
+            save(next);
+          }}
+          aria-label={t("Cognitive level")}
+          className="text-sm"
+        >
+          <option value="">-</option>
+          {COGNITIVE_LEVELS.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </Select>
+        {verbs.length > 0 && (
+          <Select
+            value={verbs.includes(verb) ? verb : ""}
+            disabled={locked}
+            onChange={(e) => {
+              if (!e.target.value) return;
+              const next = { ...v, indikator: withVerb(v.indikator, e.target.value) };
+              setV(next);
+              save(next);
+            }}
+            aria-label={t("Operational verb")}
+            title={t("Operational verb")}
+            className="text-sm"
+          >
+            <option value="">{t("Verb…")}</option>
+            {verbs.map((x) => (
+              <option key={x} value={x}>
+                {x.charAt(0).toUpperCase() + x.slice(1)}
+              </option>
+            ))}
+          </Select>
+        )}
+      </div>
       <Button
         variant="ghost"
         size="icon"

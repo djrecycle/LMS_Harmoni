@@ -2276,6 +2276,8 @@ export const id: Record<string, string> = {
   "Changing a question in the bank also changes it in these quizzes. Adding or removing rows here does not; publish again for that.": "Mengubah soal di bank soal ikut mengubah soal di kuis ini. Menambah atau menghapus baris di sini tidak; terbitkan ulang untuk itu.",
   "Changing the TP or the number of questions does not change the blueprint already made. Make it again with the AI, or add/delete rows yourself.": "Mengubah TP atau jumlah soal tidak mengubah kisi-kisi yang sudah dibuat. Buat ulang dengan AI, atau tambah/hapus baris sendiri.",
   "Choose TP…": "Pilih TP…",
+  "Operational verb": "Kata kerja operasional (KKO)",
+  "Verb…": "Kata kerja…",
   "Choose a quiz…": "Pilih kuis…",
   "Choose at least one TP first.": "Pilih minimal satu TP terlebih dahulu.",
   "Choose at least one class": "Pilih minimal satu kelas",
