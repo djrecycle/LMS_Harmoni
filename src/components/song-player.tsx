@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Headphones, SlidersHorizontal, Minus, Pause, Play, Plus, RotateCcw, Timer, Usb } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Headphones, SlidersHorizontal, Minus, Pause, Play, Plus, RotateCcw, Timer } from "lucide-react";
 import { toast } from "sonner";
 import { savePracticeResult } from "@/app/actions/practice";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { KeySizeControl, useKeyScale } from "@/components/key-size-control";
+import { MidiConnect } from "@/components/midi-connect";
 import { drawFalling, drawStaff, KEY_CHOICES, keyName, labelOf, loadMusicFont, songKey, VISIBLE_BEATS, type Labels, type Mode, type NoteState } from "@/components/song-views";
 import { loadAudio, noteOff, noteOn, scheduleClick, scheduleNote, stopAllNotes, unlockAudio, audioTime, audioLatency } from "@/lib/audio";
 import { isBlackKey, midiToNote, NOTE_NAMES } from "@/lib/music";
@@ -604,16 +605,7 @@ export function SongPlayer({
             </Button>
           </div>
           <KeySizeControl />
-          {midi.status === "connected" ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-success-soft px-3 py-1.5 text-xs font-semibold text-success">
-              <Usb className="size-3.5" />
-              {midi.device.length ? midi.device.join(", ") : t("MIDI active, plug in a keyboard")}
-            </span>
-          ) : midi.status === "pending" || midi.status === "meminta" ? (
-            <Button variant="outline" aria-label={t("Connect MIDI keyboard")} onClick={midi.connect} disabled={midi.status === "meminta"}>
-              <Usb /> <span className="hidden sm:tall:inline">{t("Connect MIDI keyboard")}</span>
-            </Button>
-          ) : null}
+          <MidiConnect midi={midi} compact />
         </div>
         {mode === "play" && (
           // Score = correct notes out of all tries (wrong keys and missed notes count against it), as saved at the end.

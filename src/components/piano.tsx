@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Keyboard, Usb } from "lucide-react";
+import { ChevronLeft, ChevronRight, Keyboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { KeySizeControl, useKeyScale } from "@/components/key-size-control";
+import { MidiConnect } from "@/components/midi-connect";
 import { unlockAudio, loadAudio, noteOn, noteOff, stopAllNotes } from "@/lib/audio";
 import { isBlackKey, midiToNote } from "@/lib/music";
 import { useMidi } from "@/lib/use-midi";
@@ -236,24 +237,7 @@ export function Piano({
             </span>
           )}
         </div>
-        {bolehMidi && (
-          <div className="flex items-center gap-2 text-xs">
-            {midi.status === "connected" ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-success-soft px-3 py-1.5 font-semibold text-success">
-                <Usb className="size-3.5" />
-                {midi.device.length ? midi.device.join(", ") : t("MIDI active, plug in a keyboard")}
-              </span>
-            ) : midi.status === "not-supported" ? (
-              <span className="text-muted-foreground">{t("MIDI keyboards are not supported in this browser")}</span>
-            ) : midi.status === "ditolak" ? (
-              <span className="text-danger">{t("MIDI permission was denied. Change it in the site settings.")}</span>
-            ) : (
-              <Button variant="outline" size="sm" aria-label={t("Connect MIDI keyboard")} onClick={midi.connect} disabled={midi.status === "meminta"}>
-                <Usb /> <span className="hidden sm:tall:inline">{t("Connect MIDI keyboard")}</span>
-              </Button>
-            )}
-          </div>
-        )}
+        {bolehMidi && <MidiConnect midi={midi} buttonSize="sm" />}
       </div>
 
       <div

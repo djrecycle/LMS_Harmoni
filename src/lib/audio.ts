@@ -315,7 +315,24 @@ export function audioTime(): number {
 
 const START_AHEAD = 0.005;
 
+/*
+ * Sustain pedal (MIDI CC 64). While it is down, a released key keeps ringing; lifting the pedal releases every
+ *  note whose key is no longer held. Keys still held when the pedal comes up keep sounding until let go.
+ */
+let sustainDown = false;
+const sustained = new Set<number>();
+
+export function setSustain(down: boolean) {
+  if (down === sustainDown) return;
+  sustainDown = down;
+  if (down) return;
+  const notes = [...sustained];
+  sustained.clear();
+  for (const m of notes) noteOff(m);
+}
+
 export function noteOn(midi: number, velocity = 0.85) {
+  sustained.delete(midi); // struck again: it is held by a key now, not by the pedal
   if (!piano || !tone) {
     void unlockAudio().then(() => piano?.triggerAttack(midiToFrequency(midi), tone!.now() + START_AHEAD, velocity));
     return;
@@ -327,11 +344,16 @@ export function noteOn(midi: number, velocity = 0.85) {
 }
 
 export function noteOff(midi: number) {
+  if (sustainDown) {
+    sustained.add(midi);
+    return;
+  }
   if (!piano || !tone) return;
   piano.triggerRelease(midiToFrequency(midi), tone.now() + START_AHEAD);
 }
 
 export function stopAllNotes() {
+  sustained.clear();
   piano?.releaseAll();
 }
 
