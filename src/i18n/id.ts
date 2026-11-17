@@ -2646,4 +2646,5 @@ export const id: Record<string, string> = {
   "Credits used so far: ${0}.": "Kredit terpakai sejauh ini: ${0}.",
   "Free models allow {0} requests a day, or {1} once the account has bought at least $10 of credits.": "Model gratis dibatasi {0} permintaan per hari, atau {1} bila akun pernah membeli kredit minimal $10.",
   "Ollama on the server itself: http://host.docker.internal:11434 (from Docker). Ollama on another computer, e.g. your laptop: connect both through Tailscale and use that computer's Tailscale address, e.g. http://100.x.y.z:11434. It has no API key.": "Ollama di server ini: http://host.docker.internal:11434 (dari Docker). Ollama di komputer lain, misalnya laptop Anda: hubungkan keduanya lewat Tailscale lalu pakai alamat Tailscale komputer itu, mis. http://100.x.y.z:11434. Ollama tidak memakai API key.",
+  "Show the last AI usage summary": "Tampilkan ringkasan pemakaian AI terakhir",
 };

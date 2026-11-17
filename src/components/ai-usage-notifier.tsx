@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ChevronUp } from "lucide-react";
 import type { RecentUsageResponse } from "@/app/api/ai-usage/recent/route";
 import { allowanceText, formatUsd, providerName, tokenLine } from "@/lib/ai-usage-format";
 import { useLocale, useT } from "@/i18n/client";
@@ -11,8 +12,10 @@ const PREF_EVENT = "harmoni:ai-usage-pref";
 const FAST_MS = 4000;
 const SLOW_MS = 60_000;
 const ACTIVE_WINDOW_MS = 5 * 60_000;
-/** How long the footer line stays before it fades out. */
+/** How long the footer line stays before it folds into the small button. */
 const SHOW_MS = 20_000;
+/** Scrolling this far while the line shows folds it away, so it never sits over what the teacher is reading. */
+const SCROLL_HIDE_PX = 24;
 
 /** Whether the notice after each AI use is on in this browser (a per-viewer preference). */
 export function readUsageNoticePref(): boolean {
@@ -35,21 +38,32 @@ export function writeUsageNoticePref(on: boolean) {
 /**
  * After every AI request (also background jobs such as an exam or a Modul Ajar) shows what it used: provider, model,
  * tokens and, where known, what is left of the free allowance. Mounted once in the teacher layout.
- * It is a faint line at the bottom of the screen (above the phone menu), not a pop-up, so it never covers the page;
- * it fades out after a while. The notes behind the allowance are on the AI Settings card.
+ * It is a faint line at the bottom of the screen (above the phone menu), not a pop-up. After a while, or as soon as the
+ * page is scrolled, it folds into a small arrow button that shows the last summary again.
+ * The notes behind the allowance are on the AI Settings card.
  */
 export function AiUsageNotifier() {
   const t = useT();
   const locale = useLocale();
-  const [line, setLine] = useState<{ text: string; key: number } | null>(null);
+  const [line, setLine] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
+  /** Bumped to show the line (a new summary, or the button pressed): restarts the timer and the scroll check. */
+  const [shown, setShown] = useState(0);
 
   useEffect(() => {
-    if (!line) return;
+    if (!shown) return;
     setVisible(true);
+    const startY = window.scrollY;
     const hide = setTimeout(() => setVisible(false), SHOW_MS);
-    return () => clearTimeout(hide);
-  }, [line]);
+    const onScroll = () => {
+      if (Math.abs(window.scrollY - startY) > SCROLL_HIDE_PX) setVisible(false);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      clearTimeout(hide);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [shown]);
 
   useEffect(() => {
     let on = readUsageNoticePref();
@@ -72,7 +86,8 @@ export function AiUsageNotifier() {
           .filter(Boolean)
           .join(" · "),
       );
-      setLine({ text: `${t("AI")}: ${parts.join("  |  ")}`, key: Date.now() });
+      setLine(`${t("AI")}: ${parts.join("  |  ")}`);
+      setShown((n) => n + 1);
     };
 
     const tick = async () => {
@@ -124,14 +139,25 @@ export function AiUsageNotifier() {
   }, [t, locale]);
 
   if (!line) return null;
+  const bar = "no-print fixed inset-x-0 bottom-[calc(3.6rem+env(safe-area-inset-bottom))] z-40 flex justify-center px-3 transition-opacity duration-500 lg:bottom-0 lg:left-[16.5rem]";
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className={`no-print pointer-events-none fixed inset-x-0 bottom-[calc(3.6rem+env(safe-area-inset-bottom))] z-40 px-3 transition-opacity duration-700 lg:bottom-0 lg:left-[16.5rem] ${visible ? "opacity-100" : "opacity-0"}`}
-    >
-      <p className="mx-auto w-fit max-w-full rounded-t-md bg-background/50 px-2.5 py-1 text-center text-[11px] leading-snug text-muted-foreground/90 backdrop-blur-sm">{line.text}</p>
-    </div>
+    <>
+      <div role="status" aria-live="polite" className={`${bar} pointer-events-none ${visible ? "opacity-100" : "opacity-0"}`}>
+        <p className="w-fit max-w-full rounded-t-md bg-background/50 px-2.5 py-1 text-center text-[11px] leading-snug text-muted-foreground/90 backdrop-blur-sm">{line}</p>
+      </div>
+      <div className={`${bar} pointer-events-none ${visible ? "opacity-0" : "opacity-100"}`} aria-hidden={visible}>
+        <button
+          type="button"
+          tabIndex={visible ? -1 : 0}
+          onClick={() => setShown((n) => n + 1)}
+          className={`${visible ? "pointer-events-none" : "pointer-events-auto"} flex h-6 items-center gap-0.5 rounded-t-md bg-background/50 px-2 text-[11px] font-semibold text-muted-foreground/80 backdrop-blur-sm transition hover:text-foreground`}
+          aria-label={t("Show the last AI usage summary")}
+          title={t("Show the last AI usage summary")}
+        >
+          <ChevronUp className="size-3.5" aria-hidden /> {t("AI")}
+        </button>
+      </div>
+    </>
   );
 }
 
