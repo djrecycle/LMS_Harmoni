@@ -411,6 +411,8 @@ export const examItem = pgTable(
     indikator: text("indikator").notNull().default(""),
     level: text("level").notNull().default(""),
     questionId: uuid("question_id").references(() => question.id, { onDelete: "set null" }),
+    /** The row (TP, material, indicator, level) was edited after its question was written: the question may no longer fit. */
+    kisiChanged: boolean("kisi_changed").notNull().default(false),
   },
   (t) => [index("exam_item_exam_idx").on(t.examId)],
 );

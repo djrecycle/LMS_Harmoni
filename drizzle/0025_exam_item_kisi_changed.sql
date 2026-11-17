@@ -1,0 +1,1 @@
+ALTER TABLE "exam_item" ADD COLUMN "kisi_changed" boolean DEFAULT false NOT NULL;

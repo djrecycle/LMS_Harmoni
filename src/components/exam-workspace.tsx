@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { UserRoundPen, ChevronDown, CircleCheck, Download, ImageIcon, ImageOff, ImagePlus, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
+import { UserRoundPen, ChevronDown, RefreshCw, TriangleAlert, CircleCheck, Download, ImageIcon, ImageOff, ImagePlus, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
-import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, linkExamQuestion, publishExam, rewriteExamItem, saveExamItem, setOptionImage, setQuestionImage, startGambar, startKisi, startSoal } from "@/app/actions/exam";
+import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, keepExamQuestion, linkExamQuestion, publishExam, rewriteExamItem, saveExamItem, setOptionImage, setQuestionImage, startGambar, startKisi, startSoal } from "@/app/actions/exam";
 import { DeleteButton } from "@/components/delete-button";
 import { ProviderSelect, providerReady, useProviderPick, type ProviderOption, type ProviderPick } from "@/components/provider-select";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,17 @@ export type WorkspaceQuestion = {
   notation: Notation | null;
   imageHint: string | null;
 };
-export type WorkspaceItem = { id: string; section: ExamSection; tp: string; materi: string; indikator: string; level: string; question: WorkspaceQuestion | null };
+export type WorkspaceItem = {
+  id: string;
+  section: ExamSection;
+  tp: string;
+  materi: string;
+  indikator: string;
+  level: string;
+  /** The row was edited after its question was written: the question may no longer fit. */
+  kisiChanged: boolean;
+  question: WorkspaceQuestion | null;
+};
 type BankQuestion = { id: string; type: QuestionType; prompt: string; topic: string | null; kelas: string | null; level: string | null };
 type ExamView = { id: string; title: string; info: ExamInfo; tps: string[]; composition: ExamComposition; job: string | null; jobError: string | null };
 
@@ -66,7 +76,7 @@ export function ExamWorkspace({
   const router = useRouter();
   const [tab, setTab] = useState<Tab>(() => (items.length === 0 ? "kisi" : items.every((i) => i.question) ? "publish" : items.some((i) => i.question) ? "soal" : "kisi"));
   const [job, setJob] = useState<string | null>(exam.job);
-  const [progress, setProgress] = useState<{ filled: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{ filled: number; total: number; changed: number } | null>(null);
   const [pick, setPick] = useProviderPick();
   const [catatan, setCatatan] = useState("");
   const [withImages, setWithImages] = useState(true);
@@ -116,11 +126,20 @@ export function ExamWorkspace({
       const r = await examJobStatus(exam.id).catch(() => null);
       if (stopped) return;
       if (r?.ok && r.data) {
-        setProgress({ filled: r.data.filled, total: r.data.total });
+        setProgress({ filled: r.data.filled, total: r.data.total, changed: r.data.changed });
         if (!r.data.job) {
           setJob(null);
           if (r.data.jobError) toast.warning(t(r.data.jobError));
-          else toast.success(job === "kisi" ? t("The blueprint is ready. Check and edit it.") : job === "gambar" ? t("The AI chose the questions that get an image.") : t("The questions are ready. Check them."));
+          else
+            toast.success(
+              job === "kisi"
+                ? t("The blueprint is ready. Check and edit it.")
+                : job === "gambar"
+                  ? t("The AI chose the questions that get an image.")
+                  : job === "ulang"
+                    ? t("The changed questions were rewritten. Check them.")
+                    : t("The questions are ready. Check them."),
+            );
           if (job === "kisi") setTab("kisi");
           router.refresh();
           return;
@@ -143,15 +162,17 @@ export function ExamWorkspace({
     return EXAM_SECTIONS.map((s) => ({ section: s, items: items.filter((i) => i.section === s).map((i) => ({ ...i, no: ++no })) }));
   }, [items]);
   const filled = items.filter((i) => i.question).length;
+  /** Rows edited after their question was written. */
+  const changed = items.filter((i) => i.question && i.kisiChanged).length;
   const noProvider = !providerReady(providers, pick);
 
-  function run(kind: "kisi" | "soal" | "gambar") {
+  function run(kind: "kisi" | "soal" | "ulang" | "gambar") {
     start(async () => {
       const r =
         kind === "kisi"
           ? await startKisi(exam.id, { provider: pick, catatan })
-          : kind === "soal"
-            ? await startSoal(exam.id, { provider: pick, catatan, gambar: withImages })
+          : kind === "soal" || kind === "ulang"
+            ? await startSoal(exam.id, { provider: pick, catatan, gambar: withImages, rows: kind === "ulang" ? "changed" : "empty" })
             : await startGambar(exam.id, { provider: pick });
       if (!r.ok) return void toast.error(r.error ?? t("Could not start the generation."));
       setProgress(null);
@@ -162,7 +183,7 @@ export function ExamWorkspace({
 
   const tabs: { id: Tab; label: string; badge: string }[] = [
     { id: "kisi", label: t("1. Blueprint (kisi-kisi)"), badge: String(items.length) },
-    { id: "soal", label: t("2. Questions"), badge: `${filled}/${items.length}` },
+    { id: "soal", label: t("2. Questions"), badge: `${filled}/${items.length}${changed ? ` · ${t("{0} changed", changed)}` : ""}` },
     { id: "publish", label: t("3. Download & publish"), badge: linked.length ? String(linked.length) : "" },
   ];
 
@@ -217,10 +238,25 @@ export function ExamWorkspace({
 
       {/* Job state */}
       {job && (
-        <Alert kind="info" title={job === "kisi" ? t("The AI is writing the blueprint…") : job === "gambar" ? t("The AI is choosing questions that need an image…") : t("The AI is writing the questions…")}>
+        <Alert
+          kind="info"
+          title={
+            job === "kisi"
+              ? t("The AI is writing the blueprint…")
+              : job === "gambar"
+                ? t("The AI is choosing questions that need an image…")
+                : job === "ulang"
+                  ? t("The AI is rewriting the changed questions…")
+                  : t("The AI is writing the questions…")
+          }
+        >
           <p className="flex items-center gap-2">
             <LoaderCircle className="size-4 animate-spin" />
-            {job === "soal" && progress ? t("{0} of {1} rows have a question.", progress.filled, progress.total) : t("This can take a few minutes. You can leave this page and come back.")}
+            {job === "soal" && progress
+              ? t("{0} of {1} rows have a question.", progress.filled, progress.total)
+              : job === "ulang" && progress
+                ? t("{0} changed questions left to rewrite.", progress.changed)
+                : t("This can take a few minutes. You can leave this page and come back.")}
           </p>
         </Alert>
       )}
@@ -268,6 +304,12 @@ export function ExamWorkspace({
               ? t("The AI spreads {0} questions over the {1} chosen TP, with material, indicator and cognitive level for each. It replaces the current blueprint rows (their questions stay in the question bank).", totalCount(comp), exam.tps.length)
               : t("The AI writes one question for each row that has no question yet ({0} rows), following its indicator and level. The questions are saved in the question bank.", items.length - filled)}
           </p>
+          {tab === "soal" && changed > 0 && (
+            <p className="flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2 text-sm">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+              <span>{t("{0} blueprint rows were edited after their question was written (marked “Blueprint changed”). Rewrite them all at once below, one by one with “Rewrite with AI”, or keep a question that still fits.", changed)}</span>
+            </p>
+          )}
           <ProviderSelect options={providers} value={pick} onChange={setPick} disabled={Boolean(job)} />
           <Field label={t("Notes for the AI (optional)")} htmlFor="ex-catatan">
             <Textarea id="ex-catatan" rows={2} value={catatan} onChange={(e) => setCatatan(e.target.value)} maxLength={1500} placeholder={t("Example: use stories about school music activities; avoid questions about note values.")} />
@@ -286,6 +328,11 @@ export function ExamWorkspace({
               {busy || job ? <LoaderCircle className="animate-spin" /> : <Sparkles />}
               {tab === "kisi" ? (items.length ? t("Make the blueprint again") : t("Make the blueprint")) : t("Write questions ({0})", items.length - filled)}
             </Button>
+            {tab === "soal" && changed > 0 && (
+              <Button variant="secondary" onClick={() => run("ulang")} disabled={busy || Boolean(job) || noProvider}>
+                <RefreshCw /> {t("Rewrite changed questions ({0})", changed)}
+              </Button>
+            )}
             {tab === "soal" && filled > 0 && (
               <Button variant="secondary" onClick={() => run("gambar")} disabled={busy || Boolean(job) || noProvider}>
                 <ImageIcon /> {t("Add images to suitable questions")}
@@ -296,6 +343,14 @@ export function ExamWorkspace({
         </div>
       )}
 
+      {tab === "kisi" && changed > 0 && (
+        <Alert kind="warning" title={t("{0} questions may no longer fit their blueprint row", changed)}>
+          <p>{t("These rows were edited after their question was written. The old questions are still in the exam until you rewrite or keep them.")}</p>
+          <Button variant="outline" size="sm" className="mt-2" onClick={() => setTab("soal")}>
+            {t("Open 2. Questions")}
+          </Button>
+        </Alert>
+      )}
       {tab === "kisi" && <KisiTab examId={exam.id} groups={bySection} tps={exam.tps} comp={comp} locked={Boolean(job)} />}
       {tab === "soal" && <SoalTab examId={exam.id} groups={bySection} bank={bank} quizzes={quizzes} locked={Boolean(job)} imageAi={imageAi} provider={pick} />}
       {tab === "publish" && <PublishTab exam={exam} items={items} groups={bySection} classrooms={classrooms} linked={linked} locked={Boolean(job)} />}
@@ -380,6 +435,8 @@ function KisiRow({ item, tps, locked }: { item: WorkspaceItem & { no: number }; 
       const r = await saveExamItem(item.id, next);
       if (!r.ok) return void toast.error(r.error ?? t("Could not save."));
       setSaved(next);
+      // The row has a question and is now marked as changed: show the mark (and the counts) right away.
+      if (r.data?.kisiChanged && !item.kisiChanged) router.refresh();
     });
   }
   const tpOptions = v.tp && !tps.includes(v.tp) ? [v.tp, ...tps] : tps;
@@ -390,7 +447,13 @@ function KisiRow({ item, tps, locked }: { item: WorkspaceItem & { no: number }; 
     <div className="grid gap-2 rounded-xl border bg-card p-2 lg:grid-cols-[3rem_1.3fr_1fr_1.6fr_9rem_2.5rem] lg:items-start">
       <div className="flex items-center justify-between lg:block">
         <span className="grid size-8 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{item.no}</span>
-        {item.question ? <CircleCheck className="size-4 text-success lg:mt-2 lg:ml-2" aria-label={t("Has a question")} /> : null}
+        {item.question && item.kisiChanged ? (
+          <span title={t("Edited after the question was written: the question may no longer fit")} className="inline-flex lg:mt-2 lg:ml-2">
+            <TriangleAlert className="size-4 text-accent-foreground dark:text-accent" aria-label={t("Blueprint changed")} />
+          </span>
+        ) : item.question ? (
+          <CircleCheck className="size-4 text-success lg:mt-2 lg:ml-2" aria-label={t("Has a question")} />
+        ) : null}
       </div>
       {/* The full TP wraps (a native select would cut it off); the transparent select on top still opens the picker. */}
       <div className="relative rounded-lg border bg-background px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-ring">
@@ -637,6 +700,15 @@ function SoalCard({
     });
   }
 
+  function keep() {
+    start(async () => {
+      const r = await keepExamQuestion(item.id);
+      if (!r.ok) return void toast.error(r.error);
+      toast.success(r.message);
+      router.refresh();
+    });
+  }
+
   function link(questionId: string | null) {
     start(async () => {
       const r = await linkExamQuestion(item.id, questionId);
@@ -652,6 +724,11 @@ function SoalCard({
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="grid size-8 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{item.no}</span>
         {item.level && <Badge tone="primary">{item.level}</Badge>}
+        {q && item.kisiChanged && (
+          <Badge tone="warning" title={t("Edited after the question was written: the question may no longer fit")}>
+            <TriangleAlert className="size-3" /> {t("Blueprint changed")}
+          </Badge>
+        )}
         <span className="min-w-0 flex-1 text-xs text-muted-foreground break-words">
           {[item.materi, item.indikator].filter(Boolean).join(" — ") || item.tp}
         </span>
@@ -713,6 +790,11 @@ function SoalCard({
             <Button variant="ghost" size="sm" disabled={busy || locked} onClick={() => link(null)}>
               <Unlink /> {t("Remove")}
             </Button>
+            {item.kisiChanged && (
+              <Button variant="ghost" size="sm" disabled={busy || locked} onClick={keep} title={t("The question still fits the edited blueprint: remove the mark")}>
+                <CircleCheck /> {t("Keep question")}
+              </Button>
+            )}
           </>
         )}
       </div>

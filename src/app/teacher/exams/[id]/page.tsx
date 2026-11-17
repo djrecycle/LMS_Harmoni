@@ -63,6 +63,7 @@ export default async function ExamPage({ params }: { params: Promise<{ id: strin
     materi: item.materi,
     indikator: item.indikator,
     level: item.level,
+    kisiChanged: item.kisiChanged && Boolean(question),
     question: question
       ? {
           id: question.id,

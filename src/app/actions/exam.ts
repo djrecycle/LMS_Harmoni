@@ -122,10 +122,12 @@ const jobSchema = z.object({
   catatan: z.string().trim().max(1500).default(""),
   /** Let the AI add notation images to questions that suit them. */
   gambar: z.boolean().default(true),
+  /** "Write questions": "empty" fills rows without a question; "changed" rewrites rows whose blueprint was edited after. */
+  rows: z.enum(["empty", "changed"]).default("empty"),
 });
 
 /** Start an AI job on the exam (only one at a time). Returns an error message, or null when it started. */
-async function claimJob(examId: string, teacherId: string, job: "kisi" | "soal" | "gambar", provider: ProviderChoice): Promise<string | null> {
+async function claimJob(examId: string, teacherId: string, job: "kisi" | "soal" | "ulang" | "gambar", provider: ProviderChoice): Promise<string | null> {
   const t = await getT();
   if (!(await canUseAi(teacherId, provider))) return t(providerUnavailableMessage(provider));
   const claimed = await db
@@ -192,7 +194,10 @@ export async function startKisi(examId: string, data: unknown): Promise<ActionRe
 
 const BATCH = 8;
 
-/** AI writes a question for every blueprint row that has none yet; each lands in the question bank. */
+/**
+ * AI writes a question for every blueprint row that has none yet (`rows: "changed"`: for every row whose blueprint was
+ * edited after its question was written, replacing that question); each lands in the question bank.
+ */
 export async function startSoal(examId: string, data: unknown): Promise<ActionResult> {
   const t = await getT();
   const teacher = await requireTeacher();
@@ -202,10 +207,11 @@ export async function startSoal(examId: string, data: unknown): Promise<ActionRe
   if (!e) return fail(t("Exam not found."));
   const items = await listExamItems(e.id);
   if (items.length === 0) return fail(t("Make the blueprint (kisi-kisi) first."));
-  const empty = items.map((r, i) => ({ ...r, no: i + 1 })).filter((r) => !r.item.questionId);
-  if (empty.length === 0) return fail(t("Every blueprint row already has a question."));
+  const changed = p.data.rows === "changed";
+  const empty = items.map((r, i) => ({ ...r, no: i + 1 })).filter((r) => (changed ? r.item.questionId && r.item.kisiChanged : !r.item.questionId));
+  if (empty.length === 0) return fail(t(changed ? "No question needs rewriting: no blueprint row was edited after its question was written." : "Every blueprint row already has a question."));
 
-  const busy = await claimJob(e.id, teacher.id, "soal", p.data.provider);
+  const busy = await claimJob(e.id, teacher.id, changed ? "ulang" : "soal", p.data.provider);
   if (busy) return fail(busy);
 
   const { provider, catatan, gambar } = p.data;
@@ -226,8 +232,11 @@ export async function startSoal(examId: string, data: unknown): Promise<ActionRe
             const q = raw ? toExamQuestion(raw, section, targets.find((x) => x.no === r.no)!, meta) : null;
             if (!q) continue;
             const [fresh] = await db.insert(S.question).values({ teacherId: teacher.id, ...toDbValues(normalize(q)) }).returning({ id: S.question.id });
-            // Only fill the row if the teacher did not link another question meanwhile.
-            await db.update(S.examItem).set({ questionId: fresh.id }).where(and(eq(S.examItem.id, r.item.id), isNull(S.examItem.questionId)));
+            // Only fill the row if the teacher did not link another question meanwhile (the old question stays in the bank).
+            await db
+              .update(S.examItem)
+              .set({ questionId: fresh.id, kisiChanged: false })
+              .where(and(eq(S.examItem.id, r.item.id), r.item.questionId ? eq(S.examItem.questionId, r.item.questionId) : isNull(S.examItem.questionId)));
             written++;
           }
         } catch (err) {
@@ -237,7 +246,11 @@ export async function startSoal(examId: string, data: unknown): Promise<ActionRe
       }
     }
     const missing = empty.length - written;
-    const error = missing === 0 ? null : written === 0 ? (firstError ?? "The AI could not write the questions. Try again.") : 'Some questions could not be written. Run "Write questions" again to fill the empty rows.';
+    const error = missing === 0 ? null : written === 0
+          ? (firstError ?? "The AI could not write the questions. Try again.")
+          : changed
+            ? 'Some questions could not be rewritten. Run "Rewrite changed questions" again for the rest.'
+            : 'Some questions could not be written. Run "Write questions" again to fill the empty rows.';
     await endJob(e.id, teacher.id, error, written === 0);
   });
   refresh();
@@ -353,13 +366,13 @@ export async function setOptionImage(questionId: string, index: number, key: str
 }
 
 /** Polled by the exam page while a job runs. */
-export async function examJobStatus(examId: string): Promise<ActionResult<{ job: string | null; jobError: string | null; filled: number; total: number }>> {
+export async function examJobStatus(examId: string): Promise<ActionResult<{ job: string | null; jobError: string | null; filled: number; total: number; changed: number }>> {
   const t = await getT();
   const teacher = await requireTeacher();
   const e = await getOwnedExam(teacher.id, examId);
   if (!e) return fail(t("Exam not found."));
-  const items = await db.select({ questionId: S.examItem.questionId }).from(S.examItem).where(eq(S.examItem.examId, e.id));
-  return succeed(undefined, { job: e.job, jobError: e.jobError, filled: items.filter((i) => i.questionId).length, total: items.length });
+  const items = await db.select({ questionId: S.examItem.questionId, kisiChanged: S.examItem.kisiChanged }).from(S.examItem).where(eq(S.examItem.examId, e.id));
+  return succeed(undefined, { job: e.job, jobError: e.jobError, filled: items.filter((i) => i.questionId).length, total: items.length, changed: items.filter((i) => i.questionId && i.kisiChanged).length });
 }
 
 export async function dismissExamError(examId: string): Promise<ActionResult> {
@@ -390,15 +403,29 @@ const itemSchema = z.object({
   level: z.union([z.enum(COGNITIVE_LEVELS as [string, ...string[]]), z.literal("")]).optional(),
 });
 
-export async function saveExamItem(itemId: string, data: unknown): Promise<ActionResult> {
+export async function saveExamItem(itemId: string, data: unknown): Promise<ActionResult<{ kisiChanged: boolean }>> {
   const t = await getT();
   const teacher = await requireTeacher();
   const p = itemSchema.safeParse(data);
   if (!p.success) return zodError(p.error);
   const item = await getOwnedItem(teacher.id, itemId);
   if (!item) return fail(t("Row not found."));
-  await db.update(S.examItem).set(p.data).where(eq(S.examItem.id, item.id));
-  return succeed();
+  // A row that already has a question is marked when what the question was written for changes.
+  const edited = (["tp", "materi", "indikator", "level"] as const).some((k) => p.data[k] !== undefined && p.data[k] !== item[k]);
+  const kisiChanged = item.kisiChanged || (Boolean(item.questionId) && edited);
+  await db.update(S.examItem).set({ ...p.data, kisiChanged }).where(eq(S.examItem.id, item.id));
+  return succeed(undefined, { kisiChanged });
+}
+
+/** The teacher checked the question of an edited row and keeps it: drop the "blueprint changed" mark. */
+export async function keepExamQuestion(itemId: string): Promise<ActionResult> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const item = await getOwnedItem(teacher.id, itemId);
+  if (!item) return fail(t("Row not found."));
+  await db.update(S.examItem).set({ kisiChanged: false }).where(eq(S.examItem.id, item.id));
+  refresh();
+  return succeed(t("The question is kept for the edited blueprint."));
 }
 
 export async function addExamItem(examId: string, section: string): Promise<ActionResult> {
@@ -461,7 +488,7 @@ export async function rewriteExamItem(itemId: string, data: unknown): Promise<Ac
       return fail(t("The AI could not write the questions. Try again."));
     }
     const [fresh] = await db.insert(S.question).values({ teacherId: teacher.id, ...toDbValues(normalize(q)) }).returning({ id: S.question.id });
-    await db.update(S.examItem).set({ questionId: fresh.id }).where(eq(S.examItem.id, item.id));
+    await db.update(S.examItem).set({ questionId: fresh.id, kisiChanged: false }).where(eq(S.examItem.id, item.id));
     refresh();
     return succeed(old ? t("New question written. The old one stays in the question bank.") : t("Question written."));
   } catch (err) {
@@ -476,7 +503,7 @@ export async function linkExamQuestion(itemId: string, questionId: string | null
   const item = await getOwnedItem(teacher.id, itemId);
   if (!item) return fail(t("Row not found."));
   if (questionId === null) {
-    await db.update(S.examItem).set({ questionId: null }).where(eq(S.examItem.id, item.id));
+    await db.update(S.examItem).set({ questionId: null, kisiChanged: false }).where(eq(S.examItem.id, item.id));
     refresh();
     return succeed(t("Question removed from this row. It stays in the question bank."));
   }
@@ -486,7 +513,7 @@ export async function linkExamQuestion(itemId: string, questionId: string | null
   if (q.type !== SECTION_META[item.section].type) return fail(t("This question type does not fit this section."));
   await db
     .update(S.examItem)
-    .set({ questionId: q.id, tp: item.tp || q.topic || "", level: item.level || q.level || "" })
+    .set({ questionId: q.id, kisiChanged: false, tp: item.tp || q.topic || "", level: item.level || q.level || "" })
     .where(eq(S.examItem.id, item.id));
   refresh();
   return succeed(t("Question added to the exam."));
@@ -529,7 +556,7 @@ export async function fillExamFromQuiz(examId: string, quizId: string): Promise<
       taken.add(slot.item.id);
       await db
         .update(S.examItem)
-        .set({ questionId: q.id, tp: slot.item.tp || q.topic || "", level: slot.item.level || q.level || "" })
+        .set({ questionId: q.id, kisiChanged: false, tp: slot.item.tp || q.topic || "", level: slot.item.level || q.level || "" })
         .where(eq(S.examItem.id, slot.item.id));
       placed++;
     } else {

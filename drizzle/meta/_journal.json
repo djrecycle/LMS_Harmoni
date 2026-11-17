@@ -176,6 +176,13 @@
       "when": 1794882686375,
       "tag": "0024_ai_calls",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794897119199,
+      "tag": "0025_exam_item_kisi_changed",
+      "breakpoints": true
     }
   ]
 }
