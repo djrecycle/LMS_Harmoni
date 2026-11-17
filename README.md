@@ -84,7 +84,50 @@ Tampilan berbahasa **Indonesia** secara bawaan dan bisa diganti ke **Inggris** k
 - **Administrasi**: jadwal mengajar, jurnal mengajar + presensi (Hadir/Sakit/Izin/Alpa), dan kalender pendidikan yang dirapikan AI dari dokumen resmi sekolah.
 
 ### AI yang fleksibel
-AI hanya tersedia untuk guru. Setiap guru memakai **API key Gemini atau Anthropic miliknya sendiri** (diatur di menu **Pengaturan AI**, disimpan terenkripsi), sehingga biaya AI ditanggung masing-masing guru. Gemini punya kuota gratis. Super Admin juga bisa memakai **Claude Code** atau **Ollama** yang terpasang di server. Tanpa AI pun, semua fitur lain tetap berjalan.
+AI hanya tersedia untuk guru. Setiap guru memakai **API key miliknya sendiri** (diatur di menu **Pengaturan AI**, disimpan terenkripsi), sehingga biaya dan kuota AI ditanggung masing-masing guru; tidak ada yang memakai key server. Super Admin juga bisa memakai **Claude Code** atau **Ollama** yang terpasang di server. Tanpa AI pun, semua fitur lain tetap berjalan.
+
+| Provider | Dipakai oleh | Biaya | Membaca foto | Gambar realistis |
+|---|---|---|---|---|
+| Gemini API | Semua guru | Ada kuota gratis | ✅ | ✅ |
+| Anthropic API | Semua guru | Berbayar | ✅ | ❌ |
+| Cloudflare Workers AI | Semua guru | Kuota gratis harian | ❌ | ✅ (FLUX) |
+| OpenAI-compatible | Semua guru | Tergantung layanan, banyak model gratis | ❌ | ❌ |
+| Claude Code | Super Admin | Langganan Claude yang login di server | ❌ | ❌ |
+| Ollama | Super Admin | Gratis (jalan di server sendiri) | Hanya model vision | ❌ |
+
+*Membaca foto* dipakai saat mengimpor jadwal, kalender pendidikan, atau lagu dari foto. *Gambar realistis* dipakai untuk gambar soal dan materi; ilustrasi bergaya gambar (SVG) bisa dibuat oleh semua provider.
+
+**Gemini API**: pilihan awal yang disarankan untuk guru.
+- ➕ Ada kuota gratis (buat key di aistudio.google.com/apikey), cepat, bisa membaca foto dan membuat gambar realistis dengan satu key.
+- ➖ Kuota gratis dibatasi per menit dan per hari, dan aturannya bisa berubah sewaktu-waktu. Di paket gratis, Google dapat memakai isi permintaan untuk mengembangkan produknya. Bentuk jawaban JSON tidak dijamin, jadi sesekali permintaan diulang otomatis.
+
+**Anthropic API (Claude)**: paling andal untuk dokumen panjang.
+- ➕ Mutu tulisan terbaik untuk Modul Ajar, kisi-kisi, dan soal. Bentuk jawabannya dijamin sesuai format, sehingga paling jarang gagal. Bisa membaca foto dan menggambar ilustrasi paling rapi.
+- ➖ Berbayar sejak permintaan pertama (tidak ada kuota gratis). Tidak bisa membuat gambar realistis.
+
+**Cloudflare Workers AI**: teks dan gambar dari satu akun gratis.
+- ➕ Kuota gratis harian, cepat, dan satu Account ID + token cukup untuk teks maupun gambar realistis (FLUX).
+- ➖ Mutu model terbuka (Llama, dll.) masih di bawah Claude dan Gemini untuk dokumen panjang. Panjang jawaban dibatasi sekitar 8.000 token. Tidak bisa membaca foto. Model "berpikir" (DeepSeek R1, QwQ) menghabiskan kuota jauh lebih cepat; model bawaan `@cf/meta/llama-3.3-70b-instruct-fp8-fast` lebih hemat.
+
+**OpenAI-compatible**: satu pintu ke banyak layanan (OpenRouter, Groq, NVIDIA NIM, DeepSeek, Mistral, OpenAI).
+- ➕ Banyak model gratis (di OpenRouter berakhiran `:free`). Groq sangat cepat. Cocok sebagai cadangan saat kuota provider lain habis.
+- ➖ Mutu dan kecepatan sangat tergantung layanan dan modelnya: layanan gratis bisa mengantre lama (sering terjadi di NVIDIA NIM), dan model gratis bisa dihentikan sewaktu-waktu. Groq gratis punya batas token per menit yang kecil. Tidak bisa membaca foto atau membuat gambar. Hanya satu alamat yang tersimpan; untuk berpindah layanan, ganti alamat, key, dan modelnya. Periksa kebijakan data tiap layanan. Untuk guru, alamatnya wajib `https://` dan harus layanan publik.
+
+**Claude Code** (khusus Super Admin): mutu Claude tanpa API key.
+- ➕ Memakai langganan Claude yang sudah login di server, jadi tidak ada tagihan API terpisah.
+- ➖ Login di server bisa kedaluwarsa dan harus diulang (`./claude-login.sh`). Tidak bisa membaca foto. Sedikit lebih lambat karena setiap permintaan menjalankan program Claude Code di server.
+
+**Ollama** (khusus Super Admin): model berjalan di server sendiri.
+- ➕ Data tidak keluar dari server, gratis, dan tanpa kuota.
+- ➖ Butuh RAM dan CPU (atau GPU) besar; di VPS kecil sangat lambat. Model kecil sering salah format sehingga hasil perlu diulang. Membaca foto hanya dengan model vision (mis. `granite3.2-vision`).
+
+**Rekomendasi singkat**
+- Guru baru tanpa biaya: **Gemini**, dengan **Cloudflare** sebagai cadangan dan untuk gambar realistis.
+- Dokumen panjang yang paling rapi: **Anthropic API** (atau **Claude Code** bagi Super Admin).
+- Saat kuota Gemini habis: **OpenAI-compatible** (OpenRouter `:free` atau Groq) atau **Cloudflare**.
+- Hindari model "berpikir" untuk pekerjaan sehari-hari: lebih lambat dan lebih boros kuota.
+
+Pilihan **Otomatis** memakai provider default di Pengaturan AI; bila belum diatur, urutannya Claude Code → Anthropic → Gemini → OpenAI-compatible → Cloudflare → Ollama (yang pertama siap dipakai). Setiap permintaan AI dihitung ke **batas harian per guru**, apa pun providernya.
 
 ### Platform untuk banyak guru
 - **Super Admin** (satu akun, yaitu guru pertama yang mendaftar) menyetujui atau menonaktifkan guru, membatasi jumlah guru, dan mengatur ruang upload per guru.
@@ -261,7 +304,7 @@ Semua diisi di `.env.docker` (Docker) atau `.env.local` (mode pengembangan), lal
 | Email lupa password | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Tanpa SMTP, tautan reset password hanya muncul di log aplikasi |
 | Login Google untuk guru | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Buat OAuth client (Web application) di Google Cloud. Redirect URI: `https://domainmu/api/auth/callback/google` |
 | Kode pendaftaran guru | `TEACHER_SIGNUP_CODE` | Kalau diisi, pendaftar guru wajib memasukkan kode ini |
-| AI bawaan server | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `AI_PROVIDER` | Hanya dipakai Super Admin. Guru lain memakai key sendiri dari menu Pengaturan AI |
+| AI bawaan server | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`, `OPENAI_COMPAT_BASE_URL` + `OPENAI_COMPAT_API_KEY` + `AI_OPENAI_COMPAT_MODEL`, `AI_PROVIDER` | Hanya dipakai Super Admin (bisa juga diisi di menu Pengaturan AI). Guru lain memakai key sendiri dari menu Pengaturan AI |
 | Penyimpanan S3 | `STORAGE_DRIVER=s3` + `S3_*` | Kalau file upload ingin disimpan di AWS S3, Cloudflare R2, MinIO, dan sejenisnya |
 
 Daftar lengkap variabel lingkungan dan catatan teknis lain ada di **[README.en.md](README.en.md)**.
@@ -279,7 +322,9 @@ Daftar lengkap variabel lingkungan dan catatan teknis lain ada di **[README.en.m
 - Web MIDI hanya didukung Chrome/Edge/Opera (desktop & Android). Di Safari/iOS siswa tetap bisa memakai piano di layar.
 - Zona waktu tetap WIB.
 - Gambar notasi dibuat di browser guru: setelah AI selesai menulis soal, biarkan halaman ujian terbuka beberapa detik sampai semua gambar selesai digambar.
-- Notasi yang bisa digambar: satu paranada (kunci G atau F) dengan akor, label, atau lirik, dan not angka satu baris suara. Partitur multi-suara/grand staff piano belum didukung. Foto atau ilustrasi (misalnya alat musik) tidak dibuat AI; guru mengunggahnya sendiri.
+- Notasi yang bisa digambar: satu paranada (kunci G atau F) dengan akor, label, atau lirik, dan not angka satu baris suara. Partitur multi-suara/grand staff piano belum didukung.
+- Saat AI menulis soal ujian, gambar selain notasi (misalnya alat musik) tidak dibuat otomatis: soalnya ditandai "perlu gambar". Guru lalu membuatnya per soal dengan tombol gambar AI (ilustrasi oleh provider teks apa pun, gambar realistis lewat Cloudflare atau Gemini) atau mengunggah sendiri. Gambar realistis buatan AI bisa keliru pada detail alat musik (jumlah senar, tuts, lubang), jadi periksa dulu sebelum dipakai.
+- Provider OpenAI-compatible hanya menyimpan satu alamat per guru; berpindah layanan berarti mengganti alamat, key, dan modelnya.
 - Belum ada pengujian otomatis.
 
 ## Struktur proyek

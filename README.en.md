@@ -207,14 +207,14 @@ Set these in `.env.docker` (Docker) or `.env.local` (development), then restart 
 | Password-reset email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Without SMTP the reset link is only printed in the app log |
 | Google sign-in for teachers | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Cloud OAuth client (Web application). Redirect URI: `https://your-domain/api/auth/callback/google` |
 | Teacher sign-up code | `TEACHER_SIGNUP_CODE` | When set, teacher sign-up requires this code |
-| Server AI | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `AI_PROVIDER` | Used by the Super Admin only. Other teachers use their own key from AI Settings |
+| Server AI | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN`, `OPENAI_COMPAT_BASE_URL` + `OPENAI_COMPAT_API_KEY` + `AI_OPENAI_COMPAT_MODEL`, `AI_PROVIDER` | Used by the Super Admin only (can also be set in AI Settings). Other teachers use their own key from AI Settings |
 | S3 storage | `STORAGE_DRIVER=s3` + `S3_*` | Keep uploads in AWS S3, Cloudflare R2, MinIO, … |
 
 ## Teaching documents (Perangkat Ajar)
 
 Under **Teaching Documents** a teacher generates, in this order: **CP – TP – ATP** → **Modul Ajar** (one objective / BAB) → **teacher material** (with a 10 multiple-choice + 5 essay HOTS worksheet and answer key) → **student material** (same worksheet, no answer key). Each result is stored in the library and downloaded as a `.docx`. A teacher can also upload their own CP-TP-ATP (`.docx`, `.pdf`, `.txt`) to be tidied into the same format.
 
-- **AI provider**: Claude Code (`claude -p`, no API key needed when it is installed and logged in on the server), the Anthropic API, the Gemini API, or a local Ollama server (no key, free). With `AI_PROVIDER=auto` the first one available is used, in that order; a teacher can choose another in the UI. The CLI runs in an empty temporary directory with its file/shell tools disabled, and it only works on a server that has `claude` installed (not on serverless or a plain Docker image).
+- **AI provider**: Claude Code (`claude -p`, no API key needed when it is installed and logged in on the server), the Anthropic API, the Gemini API, any OpenAI-compatible API, Cloudflare Workers AI, or a local Ollama server (no key, free). With `AI_PROVIDER=auto` the first one available is used, in that order; a teacher can choose another in the UI. See [Choosing an AI provider](#choosing-an-ai-provider). The CLI runs in an empty temporary directory with its file/shell tools disabled, and it only works on a server that has `claude` installed (not on serverless or a plain Docker image).
 - **Long jobs**: a document takes 1–3 minutes, so generation runs in the background (`after()`), and the page polls the status. Jobs that stay "pending" for more than 20 minutes (e.g. after a restart) are marked as failed and the daily allowance is refunded.
 - **Templates**: `/teacher/perangkat-ajar/templates` lists the built-in template and the teacher's own. A template can be created from an existing Modul Ajar / RPM `.docx` (the layout is detected) and edited (sections, order, numbering, font, AI instructions).
 - **Question bank**: "Save questions to the question bank" copies the multiple-choice questions of a Modul Ajar (test) or of the teacher material (LKPD). Essay questions are not copied.
@@ -290,10 +290,13 @@ Copy `.env.example` to `.env.local` (development) or set them on your hosting pl
 | `AI_MODEL` | optional | Default `claude-opus-5`. Change (e.g. `claude-sonnet-5`) to reduce cost |
 | `AI_FALLBACK` | optional | `on` (default) or `off`. Server-side fallback when the model refuses a request; set `off` behind a proxy or Bedrock/Vertex |
 | `AI_DAILY_LIMIT` | optional | AI requests per teacher per day (default 50) |
-| `AI_PROVIDER` | optional | Which provider "auto" uses: `auto` (default), `claude-cli`, `anthropic`, `gemini` or `ollama`. `auto` takes Claude Code (`claude`, logged in on the server) when installed, then `ANTHROPIC_API_KEY`, then `GEMINI_API_KEY`, then Ollama when its server answers. Teachers can also pick a provider in the UI (AI Generator and Teaching Documents) |
+| `AI_PROVIDER` | optional | Which provider "auto" uses: `auto` (default), `claude-cli`, `anthropic`, `gemini`, `openai`, `cloudflare` or `ollama`. `auto` takes Claude Code (`claude`, logged in on the server) when installed, then `ANTHROPIC_API_KEY`, then `GEMINI_API_KEY`, then the OpenAI-compatible API, then Cloudflare, then Ollama when its server answers. Teachers can also pick a provider in the UI (AI Generator and Teaching Documents) |
 | `GEMINI_API_KEY` | optional | Server Gemini key for the Super Admin (`GOOGLE_API_KEY` also works). Read only on the server |
 | `AI_GEMINI_MODEL` | optional | Default `gemini-2.5-flash` |
 | `AI_GEMINI_BASE_URL` | optional | Only for a proxy or a test double |
+| `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | optional | Cloudflare Workers AI for the Super Admin: text and realistic pictures, with a free daily allowance. The token needs the Workers AI permission |
+| `AI_CLOUDFLARE_MODEL`, `AI_CLOUDFLARE_IMAGE_MODEL` | optional | Defaults `@cf/meta/llama-3.3-70b-instruct-fp8-fast` and `@cf/black-forest-labs/flux-1-schnell` |
+| `OPENAI_COMPAT_BASE_URL`, `OPENAI_COMPAT_API_KEY`, `AI_OPENAI_COMPAT_MODEL` | optional | Any OpenAI-compatible API for the Super Admin (OpenRouter, Groq, NVIDIA NIM, DeepSeek, LM Studio…): address ending in `/v1`, key, model. Usable when the address and model are set |
 | `OLLAMA_BASE_URL` | optional | Ollama server address, default `http://localhost:11434` (from Docker: `http://host.docker.internal:11434`) |
 | `AI_OLLAMA_MODEL` | optional | Default `qwen2.5:3b`. Must already be pulled (`ollama pull <model>`). Reading a photo needs a vision model (e.g. `granite3.2-vision`) |
 | `AI_CLI_MODEL` | optional | Model passed to the Claude Code CLI (empty = its default) |
@@ -305,10 +308,33 @@ Copy `.env.example` to `.env.local` (development) or set them on your hosting pl
 
 Every teacher has an **AI Settings** page (`/teacher/ai-settings`):
 
-- **Teachers** enter their **own Gemini or Anthropic API key** (Gemini has a free tier), so AI usage is billed to their own account. They can pick the provider and model and run **Test connection**. The server's keys are never used for them.
-- **The Super Admin** configures the server's AI instead: the default provider (including **Claude Code** and **Ollama** when installed on the server), the Anthropic and Gemini keys, the Ollama address and model, model names, the fallback switch and the daily limit. A value saved there **overrides** the matching variable above; an empty field falls back to the variable, then to the built-in default.
+- **Teachers** enter their **own API key**: Gemini (free tier), Anthropic, Cloudflare Workers AI (free daily allowance) or an OpenAI-compatible service, so AI usage is billed to their own account. An OpenAI-compatible address entered by a teacher must be `https://` and resolve to public IPs only (no localhost, private networks or cloud metadata; redirects are refused), so a teacher cannot point the server at internal services. They can pick the provider and model and run **Test connection**. The server's keys are never used for them.
+- **The Super Admin** configures the server's AI instead: the default provider (including **Claude Code** and **Ollama** when installed on the server), the Anthropic, Gemini, Cloudflare and OpenAI-compatible settings, the Ollama address and model, model names, the fallback switch and the daily limit. A value saved there **overrides** the matching variable above; an empty field falls back to the variable, then to the built-in default.
 - API keys are stored **encrypted** (AES-256-GCM, key derived from `BETTER_AUTH_SECRET`) in the `app_setting` table and are never sent back to the browser (only "set …1234"). If you change `BETTER_AUTH_SECRET`, saved keys become unreadable and must be entered again.
 - There is a daily AI allowance per teacher, refunded when an AI call fails. The dashboard shows a notice while no provider is available.
+- "Thinking" models (DeepSeek R1, QwQ…) on Cloudflare, OpenAI-compatible services or Ollama work: their `<think>…</think>` reasoning is removed from the answer. They are slower and use far more of a free allowance, though.
+
+### Choosing an AI provider
+
+| Provider | Used by | Cost | Reads photos | Realistic pictures |
+|---|---|---|---|---|
+| Gemini API | Every teacher | Free tier | ✅ | ✅ |
+| Anthropic API | Every teacher | Paid | ✅ | ❌ |
+| Cloudflare Workers AI | Every teacher | Free daily allowance | ❌ | ✅ (FLUX) |
+| OpenAI-compatible | Every teacher | Depends on the service; many free models | ❌ | ❌ |
+| Claude Code | Super Admin | The Claude subscription logged in on the server | ❌ | ❌ |
+| Ollama | Super Admin | Free (runs on your server) | Vision models only | ❌ |
+
+*Reading photos* is used when importing a schedule, an academic calendar or a song from a photo. *Realistic pictures* are for question and lesson images; illustration-style pictures (SVG) can be drawn by any text provider.
+
+- **Gemini API**: the suggested start for teachers. ➕ Free tier, fast, reads photos and makes realistic pictures with one key. ➖ The free tier has per-minute and per-day limits that Google may change, and on the free tier Google may use the content to improve its products. JSON replies are not schema-enforced, so a request is occasionally retried.
+- **Anthropic API (Claude)**: the most reliable for long documents. ➕ Best writing for Modul Ajar, kisi-kisi and questions; structured output always matches the schema, so it fails least; reads photos and draws the neatest illustrations. ➖ Paid from the first request (no free tier); cannot make realistic pictures.
+- **Cloudflare Workers AI**: text and pictures from one free account. ➕ Free daily allowance, fast, one Account ID + token for both text and realistic pictures (FLUX). ➖ Open models (Llama…) write long documents less well than Claude or Gemini; replies are capped at about 8,000 tokens; cannot read photos; "thinking" models use up the allowance much faster than the default Llama model.
+- **OpenAI-compatible**: one door to many services (OpenRouter, Groq, NVIDIA NIM, DeepSeek, Mistral, OpenAI). ➕ Many free models (on OpenRouter they end in `:free`); Groq is very fast; a good fallback when another provider's quota runs out. ➖ Quality and speed depend entirely on the service and model: free services can queue for a long time (common on NVIDIA NIM) and free models can be withdrawn; Groq's free tier has small tokens-per-minute limits; cannot read photos or make pictures; only one address is stored, so switching services means changing the address, key and model; check each service's data policy.
+- **Claude Code** (Super Admin only): Claude quality without an API key. ➕ Uses the Claude subscription logged in on the server, so there is no separate API bill. ➖ The server login can expire and has to be repeated (`./claude-login.sh`); cannot read photos; a little slower, since every request starts the Claude Code program on the server.
+- **Ollama** (Super Admin only): models on your own server. ➕ Data never leaves the server; free, no quota. ➖ Needs a lot of RAM and CPU (or a GPU) and is very slow on a small VPS; small models often break the JSON format, so results are retried; photos only with a vision model (e.g. `granite3.2-vision`).
+
+**In short:** new teachers with no budget → **Gemini**, with **Cloudflare** as a fallback and for realistic pictures. The neatest long documents → **Anthropic API** (or **Claude Code** for the Super Admin). Gemini quota used up → **OpenAI-compatible** (OpenRouter `:free` or Groq) or **Cloudflare**. Avoid "thinking" models for everyday work.
 
 ## Feature map
 
@@ -434,7 +460,9 @@ Where the PRD is silent, the simplest option was chosen:
 - The time zone is fixed to WIB; there is no per-school time zone setting.
 - The Visitors page keeps its numbers in memory, so they start from zero after every deploy or restart.
 - Notation images are drawn in the teacher's browser: after the AI writes exam questions, keep the exam page open for a few seconds until every image is drawn.
-- Drawable notation: one staff (treble or bass clef) with chords, labels or lyrics, and single-line numbered notation. Multi-voice scores / piano grand staff are not supported. Photos and illustrations are never generated; the teacher uploads them.
+- Drawable notation: one staff (treble or bass clef) with chords, labels or lyrics, and single-line numbered notation. Multi-voice scores / piano grand staff are not supported.
+- When the AI writes exam questions, pictures other than notation (an instrument, a posture…) are not made automatically: the question is marked "needs a picture". The teacher then makes it per question with the AI picture button (an illustration from any text provider, a realistic picture from Cloudflare or Gemini) or uploads one. AI-made realistic pictures can get instrument details wrong (number of strings, keys, holes), so check them before use.
+- The OpenAI-compatible provider stores one address per teacher; switching services means changing the address, key and model.
 
 ## Manual test flow
 

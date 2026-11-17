@@ -2447,7 +2447,7 @@ export const id: Record<string, string> = {
   "The AI chose the questions that get an image.": "AI sudah memilih soal yang diberi gambar.",
   "The AI found no questions that need an image.": "AI tidak menemukan soal yang perlu gambar.",
   "The AI is choosing questions that need an image…": "AI sedang memilih soal yang perlu gambar…",
-  "The app cannot draw this picture. Upload it, or remove the note if the question works without it.": "Aplikasi tidak bisa membuat gambar ini. Unggah gambarnya, atau hapus catatan ini bila soal tetap bisa dijawab tanpa gambar.",
+  "Make it with “AI picture” (the description above is filled in for you), upload your own, or remove the note if the question works without it.": "Buat dengan “Gambar AI” (deskripsi di atas otomatis terisi), unggah gambar sendiri, atau hapus catatan ini bila soal tetap bisa dijawab tanpa gambar.",
   "The notation cannot be drawn. Check it in the preview.": "Notasi tidak bisa digambar. Periksa di pratinjau.",
   "The notation is now the question image.": "Notasi sudah menjadi gambar soal.",
   "The notation the AI wrote could not be drawn. Try again.": "Notasi dari AI tidak bisa digambar. Coba lagi.",

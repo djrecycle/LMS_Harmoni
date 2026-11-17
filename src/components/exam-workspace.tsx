@@ -670,7 +670,12 @@ function SoalCard({
       {q?.imageHint && !q.mediaKey && (
         <Alert kind="warning" className="mt-3" title={t("This question needs a picture")}>
           <p>{q.imageHint}</p>
-          <p className="mt-1 text-xs">{t("The app cannot draw this picture. Upload it, or remove the note if the question works without it.")}</p>
+          <p className="mt-1 text-xs">{t("Make it with “AI picture” (the description above is filled in for you), upload your own, or remove the note if the question works without it.")}</p>
+          {!locked && !aiTarget && (
+            <Button className="mt-2" variant="outline" size="sm" onClick={() => setAiTarget("q")}>
+              <Sparkles /> {t("AI picture")}
+            </Button>
+          )}
         </Alert>
       )}
       {q && (uploading || (q.imageHint && !q.mediaKey)) && (
