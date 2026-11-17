@@ -2611,4 +2611,5 @@ export const id: Record<string, string> = {
   "Required. Save the address and key first to load the list. On OpenRouter, free models end in :free.": "Wajib diisi. Simpan dulu alamat dan key agar daftarnya muncul. Di OpenRouter, model gratis berakhiran :free.",
   "Choose a model": "Pilih model",
   "AI is not set up yet. Add your own API key (for example Gemini) in AI Settings first.": "AI belum diatur. Tambahkan dulu API key Anda sendiri (misalnya Gemini) di Pengaturan AI.",
+  "No answer within {0} seconds. The settings may be right but the service is slow or queuing requests (common on free tiers such as NVIDIA NIM). Try again later or choose a smaller or faster model.": "Tidak ada jawaban dalam {0} detik. Pengaturannya mungkin sudah benar, tetapi layanannya lambat atau sedang mengantre (sering terjadi pada paket gratis seperti NVIDIA NIM). Coba lagi nanti atau pilih model yang lebih kecil/cepat.",
 };

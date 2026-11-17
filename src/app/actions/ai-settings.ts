@@ -13,6 +13,7 @@ import { getT } from "@/i18n/server";
 // Server actions are public POST endpoints, so each one checks requireTeacher() itself. A key sent in `data` is never echoed back.
 
 const refresh = () => revalidatePath("/", "layout");
+const TEST_TIMEOUT_MS = 60_000;
 const providerField = z.enum(["claude-cli", "anthropic", "gemini", "cloudflare", "openai", "ollama"]);
 
 export async function saveAiSettings(data: unknown): Promise<ActionResult> {
@@ -47,10 +48,17 @@ export async function testAiProvider(provider: unknown): Promise<ActionResult<{ 
   const p = providerField.safeParse(provider);
   if (!p.success) return fail(t("Unknown provider."));
   const started = Date.now();
+  // A real AI job may wait up to 10 minutes, but a test should not: free services (e.g. NVIDIA NIM) can queue a request for minutes.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<"timeout">((resolve) => (timer = setTimeout(() => resolve("timeout"), TEST_TIMEOUT_MS)));
   try {
-    await generateText({ system: "This is a connection test.", prompt: "Reply with the single word OK.", maxTokens: 64, provider: p.data, owner: teacher.id });
+    // Room for reasoning models, which "think" before answering and would be cut off at a tiny limit.
+    const r = await Promise.race([generateText({ system: "This is a connection test.", prompt: "Reply with the single word OK.", maxTokens: 1024, provider: p.data, owner: teacher.id }), timeout]);
+    if (r === "timeout") return fail(t("No answer within {0} seconds. The settings may be right but the service is slow or queuing requests (common on free tiers such as NVIDIA NIM). Try again later or choose a smaller or faster model.", TEST_TIMEOUT_MS / 1000));
   } catch (e) {
     return fail(t(aiErrorMessage(e)));
+  } finally {
+    clearTimeout(timer);
   }
   const ms = Date.now() - started;
   return succeed(t("Connected — the provider answered in {0} ms.", ms), { ms });
