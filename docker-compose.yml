@@ -74,6 +74,9 @@ services:
     volumes:
       - uploads:/data/uploads
       - claude_home:/home/nextjs
+    # Lets the app reach services on the host itself (e.g. Ollama) as http://host.docker.internal:<port> on Linux too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       # Only reachable from this machine; the public goes through the caddy proxy (HTTPS).
       - "127.0.0.1:${APP_PORT:-3000}:3000"

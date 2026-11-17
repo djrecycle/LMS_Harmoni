@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { toast } from "sonner";
 import type { RecentUsageResponse } from "@/app/api/ai-usage/recent/route";
-import { allowanceNotes, allowanceText, formatUsd, providerName, tokenLine } from "@/lib/ai-usage-format";
+import { allowanceText, formatUsd, providerName, tokenLine } from "@/lib/ai-usage-format";
 import { useLocale, useT } from "@/i18n/client";
 
 const PREF_KEY = "harmoni.aiUsageNotice";
@@ -12,6 +11,8 @@ const PREF_EVENT = "harmoni:ai-usage-pref";
 const FAST_MS = 4000;
 const SLOW_MS = 60_000;
 const ACTIVE_WINDOW_MS = 5 * 60_000;
+/** How long the footer line stays before it fades out. */
+const SHOW_MS = 20_000;
 
 /** Whether the notice after each AI use is on in this browser (a per-viewer preference). */
 export function readUsageNoticePref(): boolean {
@@ -34,10 +35,21 @@ export function writeUsageNoticePref(on: boolean) {
 /**
  * After every AI request (also background jobs such as an exam or a Modul Ajar) shows what it used: provider, model,
  * tokens and, where known, what is left of the free allowance. Mounted once in the teacher layout.
+ * It is a faint line at the bottom of the screen (above the phone menu), not a pop-up, so it never covers the page;
+ * it fades out after a while. The notes behind the allowance are on the AI Settings card.
  */
 export function AiUsageNotifier() {
   const t = useT();
   const locale = useLocale();
+  const [line, setLine] = useState<{ text: string; key: number } | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!line) return;
+    setVisible(true);
+    const hide = setTimeout(() => setVisible(false), SHOW_MS);
+    return () => clearTimeout(hide);
+  }, [line]);
 
   useEffect(() => {
     let on = readUsageNoticePref();
@@ -48,26 +60,19 @@ export function AiUsageNotifier() {
     let inFlight = false;
 
     const show = (groups: RecentUsageResponse["groups"]) => {
-      const requests = groups.reduce((n, g) => n + g.requests, 0);
-      const lines = groups.flatMap((g) => {
-        const head = `${providerName(g.provider, g.host)}${g.model ? ` · ${g.model}` : ""}${g.requests > 1 ? ` · ${t("{0} requests", g.requests)}` : ""}`;
-        const body =
-          g.kind === "image"
-            ? t("{0} picture(s)", g.requests)
-            : `${tokenLine(t, locale, g.inputTokens, g.outputTokens)}${g.costUsd != null ? ` · ≈ ${formatUsd(g.costUsd, locale)}` : ""}`;
-        return [head, body, ...(g.allowance ? [allowanceText(g.allowance, t, locale), ...allowanceNotes(g.allowance, t, locale)] : [])];
-      });
-      toast(requests > 1 ? t("AI used ({0} requests)", requests) : t("AI used"), {
-        id: "ai-usage",
-        duration: 9000,
-        description: (
-          <div className="grid gap-0.5 text-xs">
-            {lines.map((l, i) => (
-              <span key={i}>{l}</span>
-            ))}
-          </div>
-        ),
-      });
+      const parts = groups.map((g) =>
+        [
+          providerName(g.provider, g.host),
+          g.model,
+          g.requests > 1 ? t("{0} requests", g.requests) : "",
+          g.kind === "image" ? t("{0} picture(s)", g.requests) : tokenLine(t, locale, g.inputTokens, g.outputTokens),
+          g.costUsd != null ? `≈ ${formatUsd(g.costUsd, locale)}` : "",
+          g.allowance ? allowanceText(g.allowance, t, locale) : "",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+      );
+      setLine({ text: `${t("AI")}: ${parts.join("  |  ")}`, key: Date.now() });
     };
 
     const tick = async () => {
@@ -118,7 +123,16 @@ export function AiUsageNotifier() {
     };
   }, [t, locale]);
 
-  return null;
+  if (!line) return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={`no-print pointer-events-none fixed inset-x-0 bottom-[calc(3.6rem+env(safe-area-inset-bottom))] z-40 px-3 transition-opacity duration-700 lg:bottom-0 lg:left-[16.5rem] ${visible ? "opacity-100" : "opacity-0"}`}
+    >
+      <p className="mx-auto w-fit max-w-full rounded-t-md bg-background/50 px-2.5 py-1 text-center text-[11px] leading-snug text-muted-foreground/90 backdrop-blur-sm">{line.text}</p>
+    </div>
+  );
 }
 
 /** The on/off switch for the notice, shown in the "Usage today" card. */

@@ -1316,7 +1316,6 @@ export const id: Record<string, string> = {
   "Gemini could not list its models. Check the API key.": "Gemini tidak bisa menampilkan daftar modelnya. Periksa API key.",
   "Not reachable": "Tidak terjangkau",
   "Server address": "Alamat server",
-  "Ollama runs on this machine by default. In Docker use http://host.docker.internal:11434. It has no API key.": "Ollama berjalan di mesin ini secara bawaan. Di Docker pakai http://host.docker.internal:11434. Tidak memakai API key.",
   "Must already be installed (ollama pull <model>). A photo can only be read by a vision model, e.g. granite3.2-vision.": "Harus sudah terpasang (ollama pull <model>). Foto hanya bisa dibaca oleh model vision, mis. granite3.2-vision.",
   "The Ollama address must start with http:// or https://": "Alamat Ollama harus diawali http:// atau https://",
   "Not installed on the server": "Belum terpasang di server",
@@ -2646,4 +2645,5 @@ export const id: Record<string, string> = {
   "Credits: ${0} of ${1} left.": "Kredit: sisa ${0} dari ${1}.",
   "Credits used so far: ${0}.": "Kredit terpakai sejauh ini: ${0}.",
   "Free models allow {0} requests a day, or {1} once the account has bought at least $10 of credits.": "Model gratis dibatasi {0} permintaan per hari, atau {1} bila akun pernah membeli kredit minimal $10.",
+  "Ollama on the server itself: http://host.docker.internal:11434 (from Docker). Ollama on another computer, e.g. your laptop: connect both through Tailscale and use that computer's Tailscale address, e.g. http://100.x.y.z:11434. It has no API key.": "Ollama di server ini: http://host.docker.internal:11434 (dari Docker). Ollama di komputer lain, misalnya laptop Anda: hubungkan keduanya lewat Tailscale lalu pakai alamat Tailscale komputer itu, mis. http://100.x.y.z:11434. Ollama tidak memakai API key.",
 };

@@ -6,8 +6,11 @@ import type { CallUsage } from "./ai-usage";
 const OLLAMA_TIMEOUT_MS = 900_000;
 /** Ollama's own default context is only 2–4k tokens, which silently cuts long prompts. */
 const NUM_CTX = 16384;
-const PROBE_TIMEOUT_MS = 1500;
-const PROBE_CACHE_MS = 10_000;
+/** Ollama may be on another machine (e.g. a laptop reached through Tailscale), so allow for some network delay. */
+const PROBE_TIMEOUT_MS = 3000;
+/** A reachable server is checked again soon; an unreachable one (laptop off) less often, so AI pages don't wait on it every time. */
+const PROBE_CACHE_OK_MS = 15_000;
+const PROBE_CACHE_FAIL_MS = 60_000;
 
 const base = (baseUrl: string) => baseUrl.replace(/\/+$/, "");
 
@@ -15,7 +18,7 @@ const base = (baseUrl: string) => baseUrl.replace(/\/+$/, "");
 const probes = new Map<string, { at: number; ok: boolean }>();
 export async function isOllamaReachable(baseUrl: string): Promise<boolean> {
   const hit = probes.get(baseUrl);
-  if (hit && Date.now() - hit.at < PROBE_CACHE_MS) return hit.ok;
+  if (hit && Date.now() - hit.at < (hit.ok ? PROBE_CACHE_OK_MS : PROBE_CACHE_FAIL_MS)) return hit.ok;
   let ok = false;
   try {
     ok = (await fetch(`${base(baseUrl)}/api/tags`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })).ok;
@@ -32,8 +35,10 @@ export async function listOllamaModels(baseUrl: string): Promise<string[]> {
   try {
     res = await fetch(`${base(baseUrl)}/api/tags`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS * 2) });
   } catch {
+    probes.delete(baseUrl);
     throw new AiError("Could not reach Ollama. Make sure it is running and the address in AI Settings is right.");
   }
+  probes.set(baseUrl, { at: Date.now(), ok: res.ok });
   if (!res.ok) throw new AiError("Ollama could not list its models.");
   const data = (await res.json()) as { models?: { name: string }[] };
   return (data.models ?? []).map((m) => m.name).sort();

@@ -500,7 +500,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
             </>
           }
         >
-          <Field label={t("Server address")} htmlFor="ai-ollama-url" hint={t("Ollama runs on this machine by default. In Docker use http://host.docker.internal:11434. It has no API key.")} error={err("ollamaBaseUrl")}>
+          <Field label={t("Server address")} htmlFor="ai-ollama-url" hint={t("Ollama on the server itself: http://host.docker.internal:11434 (from Docker). Ollama on another computer, e.g. your laptop: connect both through Tailscale and use that computer's Tailscale address, e.g. http://100.x.y.z:11434. It has no API key.")} error={err("ollamaBaseUrl")}>
             <Input id="ai-ollama-url" value={f.ollamaBaseUrl} onChange={set("ollamaBaseUrl")} maxLength={200} placeholder={view.ollama.baseUrl} spellCheck={false} />
           </Field>
           <ModelField

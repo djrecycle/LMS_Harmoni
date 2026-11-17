@@ -119,7 +119,7 @@ AI hanya tersedia untuk guru. Setiap guru memakai **API key miliknya sendiri** (
 
 **Ollama** (khusus Super Admin): model berjalan di server sendiri.
 - ➕ Data tidak keluar dari server, gratis, dan tanpa kuota.
-- ➖ Butuh RAM dan CPU (atau GPU) besar; di VPS kecil sangat lambat. Model kecil sering salah format sehingga hasil perlu diulang. Membaca foto hanya dengan model vision (mis. `granite3.2-vision`).
+- ➖ Butuh RAM dan CPU (atau GPU) besar; di VPS kecil sangat lambat. Model kecil sering salah format sehingga hasil perlu diulang. Membaca foto hanya dengan model vision (mis. `granite3.2-vision`). Ollama juga bisa berjalan di komputer lain (misalnya laptop dengan GPU): hubungkan VPS dan komputer itu lewat **Tailscale**, lalu isi alamat Tailscale-nya (`http://100.x.y.z:11434`) di Pengaturan AI. Ollama hanya tersedia selama komputer itu menyala.
 
 **Rekomendasi singkat**
 - Guru baru tanpa biaya: **Gemini**, dengan **Cloudflare** sebagai cadangan dan untuk gambar realistis.
