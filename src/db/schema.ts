@@ -627,6 +627,36 @@ export const aiUsage = pgTable(
   (t) => [uniqueIndex("ai_usage_unique").on(t.userId, t.date)],
 );
 
+/**
+ * One AI request (text or picture) and what it used, for the usage notices and the "Usage today" card.
+ * `userId` is the teacher whose settings and key were used. Rows older than 90 days are pruned.
+ */
+export const aiCall = pgTable(
+  "ai_call",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    model: text("model").notNull().default(""),
+    /** "text" or "image". */
+    kind: text("kind").notNull().default("text"),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    /** USD: the Anthropic API estimate from the price list, or what Claude Code reports. */
+    costUsd: real("cost_usd"),
+    /** Cloudflare Workers AI: estimated neurons (its free allowance is counted in neurons). */
+    neurons: real("neurons"),
+    /** Rate limits the service reported with this answer (e.g. Groq's x-ratelimit-* headers). */
+    limits: jsonb("limits").$type<{ requestsLimit?: number; requestsRemaining?: number; tokensLimit?: number; tokensRemaining?: number }>(),
+    /** The address of an OpenAI-compatible service, to tell OpenRouter, Groq, NVIDIA… apart. */
+    host: text("host"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ai_call_user_time_idx").on(t.userId, t.createdAt)],
+);
+
 /* ------------------------------------------------------------------ */
 /* Admin-editable settings (key/value). "ai" = AI provider settings;   */
 /* API keys inside are encrypted (see src/lib/secret-box.ts).          */

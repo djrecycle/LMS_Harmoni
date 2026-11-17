@@ -35,6 +35,8 @@ type Stored = {
   anthropicFallback?: boolean;
   geminiKeyEnc?: string;
   geminiModel?: string;
+  /** Requests per day the teacher's Gemini free tier allows (Google does not report it): for the usage card only. */
+  geminiFreeRpd?: number;
   ollamaBaseUrl?: string;
   ollamaModel?: string;
   cliModel?: string;
@@ -56,7 +58,7 @@ export type AiConfig = {
   scope: "server" | "teacher";
   provider: ProviderPref;
   anthropic: { key: string; model: string; fallback: boolean };
-  gemini: { key: string; model: string };
+  gemini: { key: string; model: string; freeRpd: number | null };
   /** No key: Ollama is a local server. */
   ollama: { baseUrl: string; model: string };
   /** Pictures only. Usable when both the account id and the token are set. */
@@ -124,7 +126,7 @@ async function teacherConfig(ownerId: string): Promise<AiConfig> {
     scope: "teacher",
     provider,
     anthropic: { key: anthropicKey ?? "", model: s.anthropicModel || DEFAULT_ANTHROPIC_MODEL, fallback: s.anthropicFallback ?? true },
-    gemini: { key: geminiKey ?? "", model: s.geminiModel || DEFAULT_GEMINI_MODEL },
+    gemini: { key: geminiKey ?? "", model: s.geminiModel || DEFAULT_GEMINI_MODEL, freeRpd: s.geminiFreeRpd ?? null },
     ollama: { baseUrl: "", model: "" },
     cloudflare: {
       accountId: s.cloudflareAccountId ?? "",
@@ -196,7 +198,7 @@ async function serverConfig(): Promise<AiConfig> {
     scope: "server",
     provider,
     anthropic: { key: anthropicKey, model: anthropicModel, fallback: anthropicFallback },
-    gemini: { key: geminiKey, model: geminiModel },
+    gemini: { key: geminiKey, model: geminiModel, freeRpd: s.geminiFreeRpd ?? null },
     ollama: { baseUrl: ollamaBaseUrl, model: ollamaModel },
     cloudflare: { accountId: cloudflareAccountId, token: cloudflareToken, imageModel: cloudflareImageModel, model: cloudflareModel },
     openai: { baseUrl: openaiBaseUrl, key: openaiKey, model: openaiModel },
@@ -239,6 +241,7 @@ export type AiConfigView = {
     anthropicModel: string;
     anthropicFallback: "" | "on" | "off";
     geminiModel: string;
+    geminiFreeRpd: string;
     ollamaBaseUrl: string;
     ollamaModel: string;
     cliModel: string;
@@ -271,6 +274,7 @@ export async function getAiConfigView(userId: string): Promise<AiConfigView> {
       anthropicModel: s.anthropicModel ?? "",
       anthropicFallback: s.anthropicFallback === undefined ? "" : s.anthropicFallback ? "on" : "off",
       geminiModel: s.geminiModel ?? "",
+      geminiFreeRpd: s.geminiFreeRpd === undefined ? "" : String(s.geminiFreeRpd),
       ollamaBaseUrl: s.ollamaBaseUrl ?? "",
       ollamaModel: s.ollamaModel ?? "",
       cliModel: s.cliModel ?? "",
@@ -306,6 +310,11 @@ export const aiSettingsSchema = z.object({
   anthropicFallback: z.enum(["", "on", "off"]),
   geminiKey: optionalKey.optional(),
   geminiModel: z.string().trim().max(100),
+  geminiFreeRpd: z
+    .string()
+    .trim()
+    .regex(/^\d{0,6}$/, "The Gemini free limit must be a whole number")
+    .default(""),
   ollamaBaseUrl: z
     .string()
     .trim()
@@ -374,6 +383,7 @@ export async function saveAiConfig(input: AiSettingsInput, userId: string): Prom
     anthropicModel: input.anthropicModel || undefined,
     anthropicFallback: input.anthropicFallback === "" ? undefined : input.anthropicFallback === "on",
     geminiModel: input.geminiModel || undefined,
+    geminiFreeRpd: input.geminiFreeRpd === "" || Number(input.geminiFreeRpd) < 1 ? undefined : Number(input.geminiFreeRpd),
     ollamaBaseUrl: input.ollamaBaseUrl || undefined,
     ollamaModel: input.ollamaModel || undefined,
     cliModel: input.cliModel || undefined,

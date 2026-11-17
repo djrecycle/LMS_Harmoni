@@ -129,6 +129,8 @@ AI hanya tersedia untuk guru. Setiap guru memakai **API key miliknya sendiri** (
 
 Pilihan **Otomatis** memakai provider default di Pengaturan AI; bila belum diatur, urutannya Claude Code → Anthropic → Gemini → OpenAI-compatible → Cloudflare → Ollama (yang pertama siap dipakai). Setiap permintaan AI dihitung ke **batas harian per guru**, apa pun providernya.
 
+Setiap kali AI dipakai, muncul ringkasan kecil: provider, model, jumlah token masuk/keluar, perkiraan biaya (Anthropic, Claude Code), dan sisa kuota gratis bila bisa diketahui. Kartu **Pemakaian AI hari ini** di Pengaturan AI merangkum semuanya per provider; Super Admin juga melihat total semua guru. Sisa kuota dilaporkan langsung oleh Groq (sisa permintaan per hari) dan OpenRouter (kredit). Untuk Cloudflare, sisa kuota diperkirakan dari token. Untuk Gemini, aplikasi menghitung permintaannya sendiri terhadap batas harian yang diisi guru, karena Google tidak melaporkan sisanya.
+
 ### Platform untuk banyak guru
 - **Super Admin** (satu akun, yaitu guru pertama yang mendaftar) menyetujui atau menonaktifkan guru, membatasi jumlah guru, dan mengatur ruang upload per guru.
 - Guru baru mendaftar lewat formulir atau **akun Google**, wajib mengisi nama sekolah, lalu menunggu persetujuan.

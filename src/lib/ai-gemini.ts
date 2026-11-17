@@ -1,4 +1,5 @@
 import { AiError } from "./ai-error";
+import type { CallUsage } from "./ai-usage";
 
 /** Same limit as the original desktop app. Long documents can take minutes. */
 const GEMINI_TIMEOUT_MS = 900_000;
@@ -50,7 +51,16 @@ type GeminiResponse = {
   candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
   promptFeedback?: unknown;
   error?: { message?: string };
+  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
+  modelVersion?: string;
 };
+
+/** Thinking tokens are billed and counted like output. */
+const geminiUsage = (d: GeminiResponse, model: string): CallUsage => ({
+  model: d.modelVersion || model,
+  input: d.usageMetadata?.promptTokenCount ?? 0,
+  output: (d.usageMetadata?.candidatesTokenCount ?? 0) + (d.usageMetadata?.thoughtsTokenCount ?? 0),
+});
 
 /**
  * One text generation through the Gemini REST API (no SDK, like the original app).
@@ -74,7 +84,7 @@ export async function runGemini({
   maxTokens?: number;
   json?: boolean;
   image?: { data: Uint8Array; mediaType: "image/jpeg" | "image/png" };
-}): Promise<string> {
+}): Promise<{ text: string; usage: CallUsage }> {
   if (!key) throw new AiError("The Gemini API key is not set. Add your key in AI Settings.");
 
   // Gemma models on the Gemini API take no system instruction and no JSON mode, and have a smaller output
@@ -130,7 +140,7 @@ export async function runGemini({
     throw new AiError("Gemini gave no answer. Try rephrasing the topic.");
   }
   if (cand?.finishReason === "MAX_TOKENS") throw new AiError("The AI answer was cut off because it was too long. Try again with a narrower topic.");
-  return reply;
+  return { text: reply, usage: geminiUsage(data, model) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -160,7 +170,7 @@ export async function autoGeminiImageModel(apiKey: string): Promise<string> {
 type GeminiImagePart = { text?: string; inlineData?: { mimeType?: string; data?: string }; inline_data?: { mime_type?: string; data?: string } };
 
 /** One picture from a text prompt. Returns the image bytes and their type (PNG or JPEG). */
-export async function runGeminiImage({ prompt, apiKey: key, aspectRatio = "1:1" }: { prompt: string; apiKey: string; aspectRatio?: "1:1" | "4:3" | "3:4" | "16:9" }): Promise<{ data: Buffer; mediaType: string }> {
+export async function runGeminiImage({ prompt, apiKey: key, aspectRatio = "1:1" }: { prompt: string; apiKey: string; aspectRatio?: "1:1" | "4:3" | "3:4" | "16:9" }): Promise<{ data: Buffer; mediaType: string; usage: CallUsage }> {
   if (!key) throw new AiError("Making images needs a Gemini API key. Add your Gemini key in AI Settings.");
   const model = await autoGeminiImageModel(key);
   const body = {
@@ -211,7 +221,7 @@ export async function runGeminiImage({ prompt, apiKey: key, aspectRatio = "1:1" 
   const parts = data.candidates?.[0]?.content?.parts ?? [];
   for (const p of parts) {
     const inline = p.inlineData ? { mime: p.inlineData.mimeType, data: p.inlineData.data } : p.inline_data ? { mime: p.inline_data.mime_type, data: p.inline_data.data } : null;
-    if (inline?.data) return { data: Buffer.from(inline.data, "base64"), mediaType: inline.mime || "image/png" };
+    if (inline?.data) return { data: Buffer.from(inline.data, "base64"), mediaType: inline.mime || "image/png", usage: geminiUsage(data, model) };
   }
   console.error("[ai] gemini image: no picture", data.candidates?.[0]?.finishReason, data.promptFeedback, parts.map((p) => p.text).join(" ").slice(0, 200));
   throw new AiError("Gemini did not make a picture for this prompt. Try describing the picture differently.");

@@ -169,6 +169,13 @@
       "when": 1794530412373,
       "tag": "0023_option_images",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794882686375,
+      "tag": "0024_ai_calls",
+      "breakpoints": true
     }
   ]
 }

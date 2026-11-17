@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { PageHeader } from "@/components/ui/misc";
 import { AiSettingsForm } from "@/components/ai-settings-form";
+import { AiUsageCard } from "@/components/ai-usage-card";
 import { isClaudeCliAvailable } from "@/lib/ai-cli";
 import { getAiConfigView } from "@/lib/ai-config";
 import { isOllamaReachable } from "@/lib/ai-ollama";
@@ -26,6 +27,7 @@ export default async function AiSettingsPage() {
             : t("Set up the AI provider for your account. The AI features (teaching documents, questions, lessons, calendar) work once you add your own API key.")
         }
       />
+      <AiUsageCard userId={teacher.id} isAdmin={teacher.isAdmin} />
       <AiSettingsForm view={view} cliAvailable={teacher.isAdmin && isClaudeCliAvailable()} ollamaAvailable={teacher.isAdmin && (await isOllamaReachable(view.ollama.baseUrl))} />
     </>
   );

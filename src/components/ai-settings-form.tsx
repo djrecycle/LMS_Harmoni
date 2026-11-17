@@ -113,6 +113,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
     anthropicFallback: view.saved.anthropicFallback,
     geminiKey: "",
     geminiModel: view.saved.geminiModel,
+    geminiFreeRpd: view.saved.geminiFreeRpd,
     ollamaBaseUrl: view.saved.ollamaBaseUrl,
     ollamaModel: view.saved.ollamaModel,
     cliModel: view.saved.cliModel,
@@ -195,7 +196,7 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
   const unsaved: Record<Provider, boolean> = {
     "claude-cli": f.cliModel !== view.saved.cliModel,
     anthropic: f.anthropicKey !== "" || f.anthropicModel !== view.saved.anthropicModel || f.anthropicFallback !== view.saved.anthropicFallback,
-    gemini: f.geminiKey !== "" || f.geminiModel !== view.saved.geminiModel,
+    gemini: f.geminiKey !== "" || f.geminiModel !== view.saved.geminiModel || f.geminiFreeRpd !== view.saved.geminiFreeRpd,
     cloudflare: cfUnsaved,
     openai: f.openaiKey !== "" || f.openaiBaseUrl !== view.saved.openaiBaseUrl || f.openaiModel !== view.saved.openaiModel,
     ollama: f.ollamaBaseUrl !== view.saved.ollamaBaseUrl || f.ollamaModel !== view.saved.ollamaModel,
@@ -361,6 +362,14 @@ export function AiSettingsForm({ view, cliAvailable, ollamaAvailable }: { view: 
           onReload={() => void loadModels("gemini")}
           disabled={busy}
         />
+        <Field
+          label={t("Free requests per day (optional)")}
+          htmlFor="ai-gemini-rpd"
+          hint={t("Google does not report how much of the free tier is left, so the app counts its own requests against this number. Look up the daily request limit (RPD) of your model at ai.google.dev/gemini-api/docs/rate-limits.")}
+          error={err("geminiFreeRpd")}
+        >
+          <Input id="ai-gemini-rpd" inputMode="numeric" value={f.geminiFreeRpd} onChange={set("geminiFreeRpd")} maxLength={6} className="max-w-40" />
+        </Field>
         <div className="flex flex-wrap items-start gap-3">
           {testButton("gemini")}
           {view.sources.geminiKey === "dashboard" && (

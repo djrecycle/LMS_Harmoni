@@ -1,5 +1,6 @@
 import { AiError } from "./ai-error";
 import { stripThinking } from "./ai-json";
+import type { CallUsage } from "./ai-usage";
 
 /** A model on a laptop CPU can take minutes for a long document. */
 const OLLAMA_TIMEOUT_MS = 900_000;
@@ -59,6 +60,8 @@ type OllamaResponse = {
   message?: { content?: string };
   done_reason?: string;
   error?: string;
+  prompt_eval_count?: number;
+  eval_count?: number;
 };
 
 /**
@@ -82,7 +85,7 @@ export async function runOllama({
   maxTokens?: number;
   json?: boolean;
   image?: { data: Uint8Array; mediaType: "image/jpeg" | "image/png" };
-}): Promise<string> {
+}): Promise<{ text: string; usage: CallUsage }> {
   const body = {
     model,
     stream: false,
@@ -125,5 +128,5 @@ export async function runOllama({
   const text = stripThinking(data.message?.content ?? "");
   if (!text) throw new AiError("Ollama gave no answer. Try again or use a different model.");
   if (data.done_reason === "length") throw new AiError("The AI answer was cut off because it was too long. Try again with a narrower topic.");
-  return text;
+  return { text, usage: { model, input: data.prompt_eval_count ?? 0, output: data.eval_count ?? 0 } };
 }

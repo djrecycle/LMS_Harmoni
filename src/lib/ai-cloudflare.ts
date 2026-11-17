@@ -1,5 +1,6 @@
 import { AiError } from "./ai-error";
 import { stripThinking } from "./ai-json";
+import type { CallUsage } from "./ai-usage";
 
 /**
  * Pictures from Cloudflare Workers AI (default FLUX.1 schnell), which has a free daily allowance.
@@ -31,10 +32,12 @@ export async function runCloudflareImage({
   model: string;
   /** FLUX.1 schnell: 1-8; more = more detail, slower and more of the daily allowance. */
   steps?: number;
-}): Promise<{ data: Buffer; mediaType: string }> {
+}): Promise<{ data: Buffer; mediaType: string; usage: CallUsage }> {
   if (!accountId || !token) throw new AiError("Cloudflare Workers AI is not set up. Add the Account ID and API token in AI Settings.");
   if (!/^[0-9a-f]{32}$/i.test(accountId) || !/^@cf\/[\w.-]+\/[\w.-]+$/.test(model)) throw new AiError("The Cloudflare settings are invalid. Check the Account ID and model in AI Settings.");
-  const body = /flux-1-schnell/.test(model) ? { prompt: prompt.slice(0, 2048), steps: Math.min(8, Math.max(1, steps)) } : { prompt: prompt.slice(0, 2048) };
+  const usedSteps = Math.min(8, Math.max(1, steps));
+  const usage: CallUsage = { model, input: 0, output: 0, steps: usedSteps };
+  const body = /flux-1-schnell/.test(model) ? { prompt: prompt.slice(0, 2048), steps: usedSteps } : { prompt: prompt.slice(0, 2048) };
 
   let res: Response;
   try {
@@ -54,7 +57,7 @@ export async function runCloudflareImage({
   const type = res.headers.get("content-type") ?? "";
   if (res.ok && type.startsWith("image/")) {
     const data = Buffer.from(await res.arrayBuffer());
-    return { data, mediaType: sniff(data) ?? type.split(";")[0] };
+    return { data, mediaType: sniff(data) ?? type.split(";")[0], usage };
   }
   let json: CfResponse;
   try {
@@ -77,7 +80,7 @@ export async function runCloudflareImage({
   const data = Buffer.from(b64, "base64");
   const mediaType = sniff(data);
   if (!mediaType) throw new AiError("Cloudflare did not return a picture. Try describing it differently.");
-  return { data, mediaType };
+  return { data, mediaType, usage };
 }
 
 /* ------------------------------------------------------------------ */
@@ -112,7 +115,7 @@ export async function runCloudflareText({
   model: string;
   maxTokens?: number;
   json?: boolean;
-}): Promise<string> {
+}): Promise<{ text: string; usage: CallUsage }> {
   if (!accountId || !token) throw new AiError("Cloudflare Workers AI is not set up. Add the Account ID and API token in AI Settings.");
   if (!/^[0-9a-f]{32}$/i.test(accountId) || !/^@(cf|hf)\/[\w.-]+\/[\w.-]+$/.test(model)) throw new AiError("The Cloudflare settings are invalid. Check the Account ID and model in AI Settings.");
   const send = (withJson: boolean) =>
@@ -141,6 +144,7 @@ export async function runCloudflareText({
   }
   let data: {
     choices?: { message?: { content?: string | null }; finish_reason?: string }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
     errors?: { code?: number; message?: string }[];
     error?: { message?: string } | string;
   };
@@ -160,7 +164,7 @@ export async function runCloudflareText({
   const text = stripThinking(choice?.message?.content ?? "");
   if (!text) throw new AiError("Cloudflare Workers AI gave no answer. Try again.");
   if (choice?.finish_reason === "length") throw new AiError("The AI answer was cut off because it was too long. Try again with a narrower topic.");
-  return text;
+  return { text, usage: { model, input: data.usage?.prompt_tokens ?? 0, output: data.usage?.completion_tokens ?? 0 } };
 }
 
 /** Text-generation models this account can run, for the model picker in AI Settings. */

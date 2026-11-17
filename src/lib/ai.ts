@@ -10,6 +10,7 @@ import { listCloudflareTextModels, runCloudflareImage, runCloudflareText } from 
 import { isOllamaReachable, listOllamaModels, ollamaSupportsVision, runOllama } from "./ai-ollama";
 import { listOpenAiModels, runOpenAi } from "./ai-openai";
 import { getAiConfig, type AiConfig } from "./ai-config";
+import { recordAiCall, type CallUsage } from "./ai-usage";
 
 export { AiError };
 
@@ -39,6 +40,21 @@ const runCloudflare = (cfg: AiConfig, o: { prompt: string; system: string; maxTo
 /** Teachers' addresses must be public (see ai-openai.ts); the Super Admin may use a local server. */
 const openAiTarget = (cfg: AiConfig) => ({ ...cfg.openai, publicOnly: cfg.scope === "teacher" });
 const runOpenAiText = (cfg: AiConfig, o: { prompt: string; system: string; maxTokens: number; json?: boolean }) => runOpenAi({ ...o, maxTokens: roomToThink(o.maxTokens), ...openAiTarget(cfg) });
+
+/** What an Anthropic answer used (the fallback model, if one answered, is in `model`). */
+const anthropicUsage = (r: Anthropic.Beta.BetaMessage): CallUsage => ({
+  model: r.model,
+  input: r.usage?.input_tokens ?? 0,
+  output: r.usage?.output_tokens ?? 0,
+  cacheWrite: r.usage?.cache_creation_input_tokens ?? 0,
+  cacheRead: r.usage?.cache_read_input_tokens ?? 0,
+});
+
+/** Record a text request for `owner` and hand back its text. */
+async function noted(owner: string, provider: AiProvider, r: { text: string; usage: CallUsage }): Promise<string> {
+  await recordAiCall(owner, provider, "text", r.usage);
+  return r.text;
+}
 
 /** A missing model is a settings problem, so say which model was asked for. */
 function rethrowAnthropic(e: unknown, model: string): never {
@@ -162,11 +178,11 @@ export async function generateText({
   const provider = await resolveProvider(choice, cfg);
   if (!provider) throw new AiError(providerUnavailableMessage(choice));
 
-  if (provider === "claude-cli") return { text: await runClaudeCli({ prompt, system, model: cfg.cliModel }), provider };
-  if (provider === "gemini") return { text: await runGemini({ prompt, system, apiKey: cfg.gemini.key, model: cfg.gemini.model || (await autoGeminiModel(cfg.gemini.key)) }), provider };
-  if (provider === "ollama") return { text: await runOllama({ prompt, system, maxTokens: roomToThink(maxTokens), baseUrl: cfg.ollama.baseUrl, model: cfg.ollama.model }), provider };
-  if (provider === "cloudflare") return { text: await runCloudflare(cfg, { prompt, system, maxTokens }), provider };
-  if (provider === "openai") return { text: await runOpenAiText(cfg, { prompt, system, maxTokens }), provider };
+  if (provider === "claude-cli") return { text: await noted(owner, provider, await runClaudeCli({ prompt, system, model: cfg.cliModel })), provider };
+  if (provider === "gemini") return { text: await noted(owner, provider, await runGemini({ prompt, system, apiKey: cfg.gemini.key, model: cfg.gemini.model || (await autoGeminiModel(cfg.gemini.key)) })), provider };
+  if (provider === "ollama") return { text: await noted(owner, provider, await runOllama({ prompt, system, maxTokens: roomToThink(maxTokens), baseUrl: cfg.ollama.baseUrl, model: cfg.ollama.model })), provider };
+  if (provider === "cloudflare") return { text: await noted(owner, provider, await runCloudflare(cfg, { prompt, system, maxTokens })), provider };
+  if (provider === "openai") return { text: await noted(owner, provider, await runOpenAiText(cfg, { prompt, system, maxTokens })), provider };
 
   // Long documents: stream so the SDK accepts a large max_tokens.
   let response: Anthropic.Beta.BetaMessage;
@@ -181,6 +197,8 @@ export async function generateText({
   } catch (e) {
     rethrowAnthropic(e, cfg.anthropic.model);
   }
+  // Tokens are billed even when the answer is then rejected below.
+  await recordAiCall(owner, "anthropic", "text", anthropicUsage(response));
   if (response.stop_reason === "refusal") throw new AiError("The AI cannot help with this request. Try changing the topic or wording.");
   if (response.stop_reason === "max_tokens") throw new AiError("The AI answer was cut off because it was too long. Try again with a narrower topic.");
   const text = response.content
@@ -220,13 +238,15 @@ type Options = {
   effort?: "low" | "medium" | "high";
   /** The settings of the teacher using the AI. */
   cfg: AiConfig;
+  /** That teacher (the request is recorded under them). */
+  owner: string;
 };
 
 /**
  * One call to Claude. The API key is only read on the server.
  *  Uses server-side fallback so a model refusal does not fail a legitimate request (can be turned off in AI Settings / AI_FALLBACK=off).
  */
-export async function callAi({ system, message, maxTokens = 8000, schema, effort = "medium", cfg }: Options): Promise<string> {
+export async function callAi({ system, message, maxTokens = 8000, schema, effort = "medium", cfg, owner }: Options): Promise<string> {
   const c = getClient(cfg);
   const useFallback = cfg.anthropic.fallback;
 
@@ -244,6 +264,7 @@ export async function callAi({ system, message, maxTokens = 8000, schema, effort
   } catch (e) {
     rethrowAnthropic(e, cfg.anthropic.model);
   }
+  await recordAiCall(owner, "anthropic", "text", anthropicUsage(response));
 
   if (response.stop_reason === "refusal") throw new AiError("The AI cannot help with this request. Try changing the topic or wording.");
   if (response.stop_reason === "max_tokens") throw new AiError("The AI answer was cut off because it was too long. Ask for fewer questions or shorten the topic.");
@@ -304,12 +325,12 @@ export async function generateJson<T>({
     const content: Anthropic.MessageParam["content"] = image
       ? [{ type: "image", source: { type: "base64", media_type: image.mediaType, data: Buffer.from(image.data).toString("base64") } }, { type: "text", text: user }]
       : user;
-    return { data: await callAiJson<T>({ system, message: [{ role: "user", content }], schema, maxTokens, effort, cfg }), provider };
+    return { data: await callAiJson<T>({ system, message: [{ role: "user", content }], schema, maxTokens, effort, cfg, owner }), provider };
   }
   const prompt = `${user}\n\nReply with ONLY one JSON object (no explanation, no code fence) that is valid against this JSON Schema:\n${JSON.stringify(schema)}`;
   // These providers cannot enforce a schema, so an occasional reply is not valid JSON: try once more before giving up.
   for (let attempt = 1; ; attempt++) {
-    const text =
+    const reply =
       provider === "gemini"
         ? await runGemini({ prompt, system, json: true, image, apiKey: cfg.gemini.key, model: cfg.gemini.model || (await autoGeminiModel(cfg.gemini.key)) })
         : provider === "cloudflare"
@@ -319,6 +340,8 @@ export async function generateJson<T>({
           : provider === "ollama"
           ? await runOllama({ prompt, system, maxTokens: roomToThink(maxTokens), json: true, image, baseUrl: cfg.ollama.baseUrl, model: cfg.ollama.model })
           : await runClaudeCli({ prompt, system, model: cfg.cliModel });
+    // Every attempt used tokens, also one whose reply is then thrown away.
+    const text = await noted(owner, provider, reply);
     try {
       return { data: ambilJson<T>(text), provider };
     } catch (e) {
@@ -373,9 +396,13 @@ export async function imageReadyFor(userId: string): Promise<ImageReady> {
 /** One picture from a prompt, with the teacher's own Cloudflare Workers AI or Gemini settings. */
 export async function generateImage({ prompt, owner, aspectRatio, provider, steps }: { prompt: string; owner: string; aspectRatio?: "1:1" | "4:3"; provider: PhotoProvider; steps?: number }) {
   const cfg = await getAiConfig(owner);
-  if (provider === "cloudflare") return runCloudflareImage({ prompt, accountId: cfg.cloudflare.accountId, token: cfg.cloudflare.token, model: cfg.cloudflare.imageModel, steps });
-  if (!cfg.gemini.key) throw new AiError("Making images needs a Gemini API key (Anthropic cannot make images). Add your Gemini key in AI Settings.");
-  return runGeminiImage({ prompt, apiKey: cfg.gemini.key, aspectRatio });
+  if (provider !== "cloudflare" && !cfg.gemini.key) throw new AiError("Making images needs a Gemini API key (Anthropic cannot make images). Add your Gemini key in AI Settings.");
+  const { usage, ...picture } =
+    provider === "cloudflare"
+      ? await runCloudflareImage({ prompt, accountId: cfg.cloudflare.accountId, token: cfg.cloudflare.token, model: cfg.cloudflare.imageModel, steps })
+      : await runGeminiImage({ prompt, apiKey: cfg.gemini.key, aspectRatio });
+  await recordAiCall(owner, provider, "image", usage);
+  return picture;
 }
 
 /* ------------------------------------------------------------------ */

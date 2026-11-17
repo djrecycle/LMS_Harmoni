@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import { AiError } from "./ai-error";
 import { stripThinking } from "./ai-json";
+import type { CallUsage, RateLimits } from "./ai-usage";
 
 /**
  * Any service that speaks the OpenAI Chat Completions API: OpenRouter, Groq, NVIDIA NIM, DeepSeek, Mistral, OpenAI
@@ -73,6 +74,8 @@ const headers = (key: string) => ({ "Content-Type": "application/json", ...(key 
 
 type ChatResponse = {
   choices?: { message?: { content?: string | null }; finish_reason?: string }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
+  model?: string;
   error?: { message?: string } | string;
   message?: string;
   detail?: string;
@@ -91,7 +94,23 @@ function httpError(status: number, reason: string, model: string): AiError {
 }
 
 /** One text generation (Chat Completions). `json` asks for JSON mode, dropped again when the service does not support it. */
-export async function runOpenAi({ prompt, system, maxTokens = 16000, json = false, ...t }: OpenAiTarget & { prompt: string; system: string; maxTokens?: number; json?: boolean }): Promise<string> {
+/** Rate limits some services send with every answer (Groq: requests per day, tokens per minute). */
+function rateLimits(h: Headers): RateLimits | null {
+  const num = (name: string) => {
+    const v = h.get(name);
+    const n = v === null ? NaN : Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const l: RateLimits = {
+    requestsLimit: num("x-ratelimit-limit-requests"),
+    requestsRemaining: num("x-ratelimit-remaining-requests"),
+    tokensLimit: num("x-ratelimit-limit-tokens"),
+    tokensRemaining: num("x-ratelimit-remaining-tokens"),
+  };
+  return Object.values(l).some((v) => v !== undefined) ? l : null;
+}
+
+export async function runOpenAi({ prompt, system, maxTokens = 16000, json = false, ...t }: OpenAiTarget & { prompt: string; system: string; maxTokens?: number; json?: boolean }): Promise<{ text: string; usage: CallUsage }> {
   if (!t.baseUrl || !t.model) throw new AiError("The OpenAI-compatible provider is not set up. Add the address and model in AI Settings.");
   const url = await checkAddress(t.baseUrl, t.publicOnly);
   const opts = { json, maxTokens: maxTokens as number | undefined };
@@ -143,7 +162,18 @@ export async function runOpenAi({ prompt, system, maxTokens = 16000, json = fals
     const text = stripThinking(choice?.message?.content ?? "");
     if (!text) throw new AiError("The OpenAI-compatible service gave no answer. Try again or use a different model.");
     if (choice?.finish_reason === "length") throw new AiError("The AI answer was cut off because it was too long. Try again with a narrower topic.");
-    return text;
+    return {
+      text,
+      usage: {
+        model: t.model,
+        input: data.usage?.prompt_tokens ?? 0,
+        output: data.usage?.completion_tokens ?? 0,
+        // OpenRouter reports what the request cost; a free model costs 0.
+        costUsd: typeof data.usage?.cost === "number" && data.usage.cost > 0 ? data.usage.cost : null,
+        limits: rateLimits(res.headers),
+        host: url.hostname,
+      },
+    };
   }
 }
 
