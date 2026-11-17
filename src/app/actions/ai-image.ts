@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { zodError } from "@/lib/action-result-server";
 import { fail, succeed, type ActionResult } from "@/lib/action-result";
-import { aiErrorMessage, generateImage, generateJson, generateText, illustrationProvider, imageReadyFor, photoProvider, refundAllowance, takeAllowance, type ImageReady } from "@/lib/ai";
+import { aiErrorMessage, generateImage, generateJson, generateText, illustrationProvider, imageReadyFor, photoProvider, refundAllowance, takeAllowance, type ImageReady, type PhotoProvider } from "@/lib/ai";
+import { AiQuotaError } from "@/lib/ai-error";
 import { ILLUSTRATION_SYSTEM, NOTATION_SCHEMA, NOTATION_SYSTEM, cleanSvg, illustrationPrompt, notationPrompt } from "@/lib/ai-illustration";
 import { notationError, type Notation } from "@/lib/notation";
 import { storageQuotaBytes } from "@/lib/platform";
@@ -65,9 +66,10 @@ export async function aiImageReady(): Promise<ImageReady> {
 
 /**
  * Make a realistic picture from the teacher's description (Cloudflare Workers AI or Gemini) and save it in the teacher's media.
- * Returns the media key; the caller puts it on the question or on a choice.
+ * Returns the media key; the caller puts it on the question or on a choice. When Gemini's image quota is used up and
+ * Cloudflare is set up, Cloudflare makes the picture instead (`fallback`).
  */
-export async function generateAiImage(data: unknown): Promise<ActionResult<{ key: string }>> {
+export async function generateAiImage(data: unknown): Promise<ActionResult<{ key: string; fallback?: "cloudflare" }>> {
   const t = await getT();
   const teacher = await requireTeacher();
   const p = schema.safeParse(data);
@@ -84,13 +86,34 @@ export async function generateAiImage(data: unknown): Promise<ActionResult<{ key
   }
   if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
 
+  const make = async (engine: PhotoProvider) =>
+    generateImage({
+      prompt: engine === "cloudflare" ? await fluxPrompt(p.data.prompt, p.data.shape, teacher.id) : imagePrompt(p.data.prompt, p.data.shape),
+      provider: engine,
+      owner: teacher.id,
+      aspectRatio: p.data.shape === "option" ? "1:1" : "4:3",
+    });
+
   try {
-    const prompt = provider === "cloudflare" ? await fluxPrompt(p.data.prompt, p.data.shape, teacher.id) : imagePrompt(p.data.prompt, p.data.shape);
-    const img = await generateImage({ prompt, provider, owner: teacher.id, aspectRatio: p.data.shape === "option" ? "1:1" : "4:3" });
+    let img: Awaited<ReturnType<typeof make>>;
+    let fallback: "cloudflare" | undefined;
+    try {
+      img = await make(provider);
+    } catch (e) {
+      // Gemini's image quota is used up (or the key has none): Cloudflare's free daily allowance makes the picture instead.
+      if (!(provider === "gemini" && e instanceof AiQuotaError)) throw e;
+      if (!ready.cloudflare) {
+        await refundAllowance(teacher.id).catch(() => undefined);
+        return fail(`${t(e.message)} ${t("Tip: set up Cloudflare Workers AI (free daily allowance) in AI Settings, and the app switches to it automatically when Gemini runs out.")}`);
+      }
+      console.warn("[ai-image] gemini quota used up, switching to cloudflare:", e.message);
+      img = await make("cloudflare");
+      fallback = "cloudflare";
+    }
     const ext = EXT[img.mediaType] ?? "png";
     const key = `media/${teacher.id}/${randomUUID()}.${ext}`;
     await saveFile(key, img.data, img.mediaType in EXT ? img.mediaType : "image/png");
-    return succeed(t("The AI picture is ready."), { key });
+    return succeed(t("The AI picture is ready."), { key, fallback });
   } catch (e) {
     await refundAllowance(teacher.id).catch(() => undefined);
     return fail(t(aiErrorMessage(e)));

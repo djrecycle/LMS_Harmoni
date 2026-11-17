@@ -325,7 +325,7 @@ Daftar lengkap variabel lingkungan dan catatan teknis lain ada di **[README.en.m
 - Zona waktu tetap WIB.
 - Gambar notasi dibuat di browser guru: setelah AI selesai menulis soal, biarkan halaman ujian terbuka beberapa detik sampai semua gambar selesai digambar.
 - Notasi yang bisa digambar: satu paranada (kunci G atau F) dengan akor, label, atau lirik, dan not angka satu baris suara. Partitur multi-suara/grand staff piano belum didukung.
-- Saat AI menulis soal ujian, gambar selain notasi (misalnya alat musik) tidak dibuat otomatis: soalnya ditandai "perlu gambar". Guru lalu membuatnya per soal dengan tombol gambar AI (ilustrasi oleh provider teks apa pun, gambar realistis lewat Cloudflare atau Gemini) atau mengunggah sendiri. Gambar realistis buatan AI bisa keliru pada detail alat musik (jumlah senar, tuts, lubang), jadi periksa dulu sebelum dipakai.
+- Saat AI menulis soal ujian, gambar selain notasi (misalnya alat musik) tidak dibuat otomatis: soalnya ditandai "perlu gambar". Guru lalu membuatnya per soal dengan tombol gambar AI (ilustrasi oleh provider teks apa pun, gambar realistis lewat Cloudflare atau Gemini; bila kuota gambar Gemini habis dan Cloudflare sudah diatur, aplikasi otomatis memakai Cloudflare) atau mengunggah sendiri. Gambar realistis buatan AI bisa keliru pada detail alat musik (jumlah senar, tuts, lubang), jadi periksa dulu sebelum dipakai.
 - Provider OpenAI-compatible hanya menyimpan satu alamat per guru; berpindah layanan berarti mengganti alamat, key, dan modelnya.
 - Belum ada pengujian otomatis.
 

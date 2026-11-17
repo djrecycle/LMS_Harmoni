@@ -85,10 +85,12 @@ export function AiImagePanel({
     start(async () => {
       let key: string;
       let notation: Notation | undefined;
+      let done = t("The AI picture is ready.");
       if (style === "cloudflare" || style === "gemini") {
         const r = await generateAiImage({ prompt, shape: current.shape, engine: style });
         if (!r.ok || !r.data) return void toast.error(r.error ?? t("Could not make the image"));
         key = r.data.key;
+        if (r.data.fallback) done = t("Gemini's image quota is used up, so Cloudflare made this picture.");
       } else if (style === "notation") {
         const r = await generateAiNotation({ prompt, shape: current.shape });
         if (!r.ok || !r.data) return void toast.error(r.error ?? t("Could not make the image"));
@@ -107,7 +109,7 @@ export function AiImagePanel({
           return void toast.error(t(e instanceof Error ? e.message : "Could not make the image"));
         }
       }
-      if (await onApply(current.id, key, notation)) toast.success(t("The AI picture is ready."));
+      if (await onApply(current.id, key, notation)) toast.success(done);
     });
   }
 

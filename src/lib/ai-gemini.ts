@@ -1,4 +1,4 @@
-import { AiError } from "./ai-error";
+import { AiError, AiQuotaError } from "./ai-error";
 import type { CallUsage } from "./ai-usage";
 
 /** Same limit as the original desktop app. Long documents can take minutes. */
@@ -162,7 +162,7 @@ export async function autoGeminiImageModel(apiKey: string): Promise<string> {
   const version = (m: string) => Number(/^gemini-(\d+(?:\.\d+)?)/.exec(m)?.[1] ?? 0);
   const score = (m: string) => (/preview|exp/i.test(m) ? 0 : 2) + (/flash/i.test(m) ? 1 : 0);
   const model = models.sort((a, b) => score(b) - score(a) || version(b) - version(a))[0];
-  if (!model) throw new AiError("This Gemini API key cannot make images (no Gemini image model is available for it).");
+  if (!model) throw new AiQuotaError("This Gemini API key cannot make images (no Gemini image model is available for it).");
   imageModelCache.set(apiKey, { model, at: Date.now() });
   return model;
 }
@@ -214,8 +214,8 @@ export async function runGeminiImage({ prompt, apiKey: key, aspectRatio = "1:1" 
       throw new AiError(`The Gemini image model “${model}” can't be used with this key. Try again in a moment.`);
     }
     if (res.status === 429 && /free_tier|limit: 0\b/i.test(data.error?.message ?? ""))
-      throw new AiError("This Gemini key has no quota for making images (free plan). Turn on billing for the key in Google AI Studio, then try again.");
-    if (res.status === 429) throw new AiError("Gemini is busy or the image quota is used up (image models usually need a paid Gemini plan). Wait a moment and try again.");
+      throw new AiQuotaError("This Gemini key has no quota for making images (free plan). Turn on billing for the key in Google AI Studio, then try again.");
+    if (res.status === 429) throw new AiQuotaError("Gemini is busy or the image quota is used up (image models usually need a paid Gemini plan). Wait a moment and try again.");
     throw new AiError(`Gemini could not make the image${reason ? `: ${reason}` : "."}`);
   }
   const parts = data.candidates?.[0]?.content?.parts ?? [];

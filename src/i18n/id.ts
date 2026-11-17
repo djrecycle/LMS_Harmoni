@@ -2487,6 +2487,8 @@ export const id: Record<string, string> = {
   "Picture with AI": "Gambar dengan AI",
   "Remove the image of choice {0}": "Hapus gambar pilihan {0}",
   "The AI picture is ready.": "Gambar AI sudah dipasang.",
+  "Gemini's image quota is used up, so Cloudflare made this picture.": "Kuota gambar Gemini habis, jadi gambar ini dibuat dengan Cloudflare.",
+  "Tip: set up Cloudflare Workers AI (free daily allowance) in AI Settings, and the app switches to it automatically when Gemini runs out.": "Tips: atur Cloudflare Workers AI (jatah gratis harian) di Pengaturan AI, maka aplikasi otomatis pindah ke Cloudflare saat kuota Gemini habis.",
   "The description is too long": "Penjelasannya terlalu panjang",
   "This Gemini key has no quota for making images (free plan). Turn on billing for the key in Google AI Studio, then try again.": "Key Gemini ini tidak punya kuota untuk membuat gambar (paket gratis). Aktifkan billing untuk key tersebut di Google AI Studio, lalu coba lagi.",
   "This Gemini API key cannot make images (no Gemini image model is available for it).": "API key Gemini ini tidak bisa membuat gambar (tidak ada model gambar Gemini untuk key ini).",

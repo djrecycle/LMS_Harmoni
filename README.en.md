@@ -462,7 +462,7 @@ Where the PRD is silent, the simplest option was chosen:
 - The Visitors page keeps its numbers in memory, so they start from zero after every deploy or restart.
 - Notation images are drawn in the teacher's browser: after the AI writes exam questions, keep the exam page open for a few seconds until every image is drawn.
 - Drawable notation: one staff (treble or bass clef) with chords, labels or lyrics, and single-line numbered notation. Multi-voice scores / piano grand staff are not supported.
-- When the AI writes exam questions, pictures other than notation (an instrument, a posture…) are not made automatically: the question is marked "needs a picture". The teacher then makes it per question with the AI picture button (an illustration from any text provider, a realistic picture from Cloudflare or Gemini) or uploads one. AI-made realistic pictures can get instrument details wrong (number of strings, keys, holes), so check them before use.
+- When the AI writes exam questions, pictures other than notation (an instrument, a posture…) are not made automatically: the question is marked "needs a picture". The teacher then makes it per question with the AI picture button (an illustration from any text provider, a realistic picture from Cloudflare or Gemini; when Gemini's image quota is used up and Cloudflare is set up, the app switches to Cloudflare automatically) or uploads one. AI-made realistic pictures can get instrument details wrong (number of strings, keys, holes), so check them before use.
 - The OpenAI-compatible provider stores one address per teacher; switching services means changing the address, key and model.
 
 ## Manual test flow
