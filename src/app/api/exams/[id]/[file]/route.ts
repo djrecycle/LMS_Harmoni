@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/session";
-import { cbtDocx, imageInfo, kisiDocx, type DocImage, type DocItem } from "@/lib/exam-docx";
+import { cbtDocx, imageInfo, kisiDocx, shrinkDocImage, type DocImage, type DocItem } from "@/lib/exam-docx";
 import { mimeFromKey, readFileBytes } from "@/lib/storage";
 import { getOwnedExam, listExamItems } from "@/lib/exam-store";
 import { getT } from "@/i18n/server";
@@ -30,7 +30,9 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string; fi
       for (const key of [question?.mediaKey, ...(question?.optionImages ?? [])]) {
         if (!key || images.has(key) || mimeFromKey(key).split("/")[0] !== "image") continue;
         const bytes = await readFileBytes(key);
-        images.set(key, bytes ? imageInfo(bytes) : null);
+        const info = bytes ? imageInfo(bytes) : null;
+        // Large photos are scaled down so the Word file stays small (the size shown in Word does not change).
+        images.set(key, info ? await shrinkDocImage(info) : null);
       }
     }
   }

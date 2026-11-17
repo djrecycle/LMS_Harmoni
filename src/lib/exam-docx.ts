@@ -39,6 +39,30 @@ export function imageInfo(data: Buffer): DocImage | null {
   return null;
 }
 
+/** Longest side, in pixels, of an image stored in a Word file: sharp in print at the size it is shown (a table cell). */
+const DOC_IMAGE_MAX_PX = 1200;
+/** Smaller files than this are kept as they are. */
+const DOC_IMAGE_KEEP_BYTES = 250 * 1024;
+
+/**
+ * The image made small enough for a Word file: large photos (e.g. a 3–4 MB picture saved from Gemini or a phone)
+ * are scaled down to DOC_IMAGE_MAX_PX and saved again as JPEG (PNG when it has transparency). The size it is shown at
+ * (`width`/`height`) stays the same. If shrinking fails, the original is used.
+ */
+export async function shrinkDocImage(img: DocImage): Promise<DocImage> {
+  if (img.data.length <= DOC_IMAGE_KEEP_BYTES && Math.max(img.width, img.height) <= DOC_IMAGE_MAX_PX) return img;
+  try {
+    const { default: sharp } = await import("sharp");
+    const pipe = sharp(img.data, { failOn: "none" }).rotate().resize({ width: DOC_IMAGE_MAX_PX, height: DOC_IMAGE_MAX_PX, fit: "inside", withoutEnlargement: true });
+    const alpha = (await sharp(img.data).metadata()).hasAlpha;
+    const data = alpha ? await pipe.png({ compressionLevel: 9, palette: true, quality: 90 }).toBuffer() : await pipe.flatten({ background: "#ffffff" }).jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+    return data.length < img.data.length ? { ...img, data, type: alpha ? "png" : "jpg" } : img;
+  } catch (e) {
+    console.warn("[exam-docx] could not shrink an image, using the original:", e instanceof Error ? e.message : e);
+    return img;
+  }
+}
+
 /** The image scaled to fit `maxWidth` pixels (never enlarged). */
 function imageParagraph(img: DocImage, maxWidth: number) {
   const scale = Math.min(1, maxWidth / Math.max(1, img.width));
