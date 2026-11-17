@@ -11,7 +11,7 @@ import { fail, succeed, type ActionResult } from "@/lib/action-result";
 import { aiErrorMessage, canUseAi, generateText, PROVIDER_CHOICES, providerUnavailableMessage, refundAllowance, takeAllowance, type ProviderChoice } from "@/lib/ai";
 import { AiError } from "@/lib/ai-error";
 import { COGNITIVE_LEVELS, EXAM_SECTIONS, SECTION_META, pointsPerQuestion, readComposition, sectionForType, totalCount, type ExamSection } from "@/lib/exam";
-import { EXAM_SYSTEM, gambarPrompt, kisiPrompt, parseKisi, parseSoal, readGambar, soalPrompt, stripCode, toExamQuestion, type SoalTarget } from "@/lib/exam-ai";
+import { EXAM_SYSTEM, cocokPrompt, gambarPrompt, kisiPrompt, parseKisi, parseSoal, readGambar, soalPrompt, stripCode, toExamQuestion, type SoalTarget } from "@/lib/exam-ai";
 import { getOwnedExam, listExamItems, nextPosition } from "@/lib/exam-store";
 import { semesterGanjilGenap } from "@/lib/perangkat/generator";
 import { normalize, toDbValues } from "@/lib/question-db";
@@ -127,7 +127,7 @@ const jobSchema = z.object({
 });
 
 /** Start an AI job on the exam (only one at a time). Returns an error message, or null when it started. */
-async function claimJob(examId: string, teacherId: string, job: "kisi" | "soal" | "ulang" | "gambar", provider: ProviderChoice): Promise<string | null> {
+async function claimJob(examId: string, teacherId: string, job: "kisi" | "soal" | "ulang" | "gambar" | "periksa", provider: ProviderChoice): Promise<string | null> {
   const t = await getT();
   if (!(await canUseAi(teacherId, provider))) return t(providerUnavailableMessage(provider));
   const claimed = await db
@@ -252,6 +252,60 @@ export async function startSoal(examId: string, data: unknown): Promise<ActionRe
             ? 'Some questions could not be rewritten. Run "Rewrite changed questions" again for the rest.'
             : 'Some questions could not be written. Run "Write questions" again to fill the empty rows.';
     await endJob(e.id, teacher.id, error, written === 0);
+  });
+  refresh();
+  return succeed();
+}
+
+/**
+ * AI checks whether each question still fits its blueprint row (TP, material, indicator, level) and marks the ones that
+ * clearly do not as "blueprint changed", so they can be rewritten. Meant for blueprints edited before rows were
+ * marked on edit; questions already marked are skipped.
+ */
+export async function startPeriksa(examId: string, data: unknown): Promise<ActionResult> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const p = jobSchema.safeParse(data);
+  if (!p.success) return zodError(p.error);
+  const e = await getOwnedExam(teacher.id, examId);
+  if (!e) return fail(t("Exam not found."));
+  const targets = (await listExamItems(e.id)).map((r, i) => ({ ...r, no: i + 1 })).filter((r) => r.question && !r.item.kisiChanged);
+  if (targets.length === 0) return fail(t("No questions to check: every row is empty or already marked."));
+
+  const busy = await claimJob(e.id, teacher.id, "periksa", p.data.provider);
+  if (busy) return fail(busy);
+
+  const { provider } = p.data;
+  after(async () => {
+    let checked = 0;
+    let firstError: string | null = null;
+    for (let i = 0; i < targets.length; i += 20) {
+      const chunk = targets.slice(i, i + 20);
+      try {
+        const got = await ask(
+          teacher.id,
+          provider,
+          cocokPrompt(
+            e.info,
+            chunk.map((r) => ({ no: r.no, type: SECTION_META[r.item.section].nama, prompt: r.question!.prompt, options: r.question!.options, matchRows: r.question!.matchRows, answerKey: r.question!.answerKey, tp: r.item.tp, materi: r.item.materi, indikator: r.item.indikator, level: r.item.level })),
+          ),
+          parseSoal,
+        );
+        for (const r of chunk) {
+          const raw = got.get(r.no);
+          if (!raw) continue;
+          checked++;
+          if (raw.cocok !== false && String(raw.cocok).toLowerCase() !== "false") continue;
+          // Only if the row still holds the question that was checked.
+          await db.update(S.examItem).set({ kisiChanged: true }).where(and(eq(S.examItem.id, r.item.id), eq(S.examItem.questionId, r.question!.id)));
+        }
+      } catch (err) {
+        console.error("[exam] periksa batch failed", err);
+        firstError ??= aiErrorMessage(err);
+      }
+    }
+    const error = checked === 0 ? (firstError ?? "The AI could not check the questions. Try again.") : checked < targets.length ? "Some questions could not be checked. Run the check again for the rest." : null;
+    await endJob(e.id, teacher.id, error, checked === 0);
   });
   refresh();
   return succeed();

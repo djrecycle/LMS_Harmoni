@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { UserRoundPen, ChevronDown, RefreshCw, TriangleAlert, CircleCheck, Download, ImageIcon, ImageOff, ImagePlus, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
+import { UserRoundPen, ChevronDown, RefreshCw, ScanSearch, TriangleAlert, CircleCheck, Download, ImageIcon, ImageOff, ImagePlus, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
-import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, keepExamQuestion, linkExamQuestion, publishExam, rewriteExamItem, saveExamItem, setOptionImage, setQuestionImage, startGambar, startKisi, startSoal } from "@/app/actions/exam";
+import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, keepExamQuestion, linkExamQuestion, publishExam, rewriteExamItem, saveExamItem, setOptionImage, setQuestionImage, startGambar, startKisi, startPeriksa, startSoal } from "@/app/actions/exam";
 import { DeleteButton } from "@/components/delete-button";
 import { ProviderSelect, providerReady, useProviderPick, type ProviderOption, type ProviderPick } from "@/components/provider-select";
 import { Button } from "@/components/ui/button";
@@ -138,7 +138,11 @@ export function ExamWorkspace({
                   ? t("The AI chose the questions that get an image.")
                   : job === "ulang"
                     ? t("The changed questions were rewritten. Check them.")
-                    : t("The questions are ready. Check them."),
+                    : job === "periksa"
+                      ? r.data.changed
+                        ? t("Check done: {0} questions are marked “Blueprint changed”.", r.data.changed)
+                        : t("Check done: every question fits its blueprint row.")
+                      : t("The questions are ready. Check them."),
             );
           if (job === "kisi") setTab("kisi");
           router.refresh();
@@ -166,14 +170,16 @@ export function ExamWorkspace({
   const changed = items.filter((i) => i.question && i.kisiChanged).length;
   const noProvider = !providerReady(providers, pick);
 
-  function run(kind: "kisi" | "soal" | "ulang" | "gambar") {
+  function run(kind: "kisi" | "soal" | "ulang" | "gambar" | "periksa") {
     start(async () => {
       const r =
         kind === "kisi"
           ? await startKisi(exam.id, { provider: pick, catatan })
           : kind === "soal" || kind === "ulang"
             ? await startSoal(exam.id, { provider: pick, catatan, gambar: withImages, rows: kind === "ulang" ? "changed" : "empty" })
-            : await startGambar(exam.id, { provider: pick });
+            : kind === "periksa"
+              ? await startPeriksa(exam.id, { provider: pick })
+              : await startGambar(exam.id, { provider: pick });
       if (!r.ok) return void toast.error(r.error ?? t("Could not start the generation."));
       setProgress(null);
       setJob(kind);
@@ -247,7 +253,9 @@ export function ExamWorkspace({
                 ? t("The AI is choosing questions that need an image…")
                 : job === "ulang"
                   ? t("The AI is rewriting the changed questions…")
-                  : t("The AI is writing the questions…")
+                  : job === "periksa"
+                    ? t("The AI is checking whether the questions fit the blueprint…")
+                    : t("The AI is writing the questions…")
           }
         >
           <p className="flex items-center gap-2">
@@ -331,6 +339,16 @@ export function ExamWorkspace({
             {tab === "soal" && changed > 0 && (
               <Button variant="secondary" onClick={() => run("ulang")} disabled={busy || Boolean(job) || noProvider}>
                 <RefreshCw /> {t("Rewrite changed questions ({0})", changed)}
+              </Button>
+            )}
+            {tab === "soal" && filled > changed && (
+              <Button
+                variant="secondary"
+                onClick={() => run("periksa")}
+                disabled={busy || Boolean(job) || noProvider}
+                title={t("The AI compares each question with its TP, indicator and level and marks the ones that no longer fit. Uses 1 AI allowance.")}
+              >
+                <ScanSearch /> {t("Check questions against the blueprint")}
               </Button>
             )}
             {tab === "soal" && filled > 0 && (

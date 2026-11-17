@@ -298,3 +298,39 @@ ATURAN TAMBAHAN
 FORMAT JSON
 {"soal": [{"no": 3, "pertanyaan": "Perhatikan notasi berikut!\\n...", "gambar": {"jenis": "not_balok", "notasi": "time=4/4 | C4/q D4/q E4/q F4/q ||"}, "opsi": ["A", "B", "C", "D"]}]}`;
 }
+
+/* ------------------------------------------------------------------ fit check: question vs its blueprint row */
+
+export type FitTarget = ReviewTarget & { tp: string; materi: string; indikator: string; level: string };
+
+/** Ask, for each question, whether it still tests what its blueprint row (TP, material, indicator, level) says. */
+export function cocokPrompt(info: ExamInfo, targets: FitTarget[]): string {
+  const list = targets
+    .map((q) => {
+      const key = q.answerKey ? formatAnswerKey(q.answerKey, q.options, (k) => k, q.matchRows) : "-";
+      const opsi = q.options?.length ? `\n   Pilihan: ${q.options.map((o, i) => `${String.fromCharCode(65 + i)}. ${o}`).join(" | ")}` : "";
+      const baris = q.matchRows?.length ? `\n   Pernyataan: ${q.matchRows.map((r, i) => `${i + 1}. ${r}`).join(" | ")}` : "";
+      return `No ${q.no}
+   KISI-KISI: TP: ${q.tp || "-"} | Materi: ${q.materi || "-"} | Indikator: ${q.indikator || "-"} | Level: ${q.level || "-"}
+   SOAL [${q.type}]: ${q.prompt}${opsi}${baris}
+   Kunci: ${key}`;
+    })
+    .join("\n");
+  return `Periksa apakah setiap soal ujian masih SESUAI dengan baris kisi-kisinya.
+
+IDENTITAS
+${identitas(info)}
+
+DAFTAR
+${list}
+
+ATURAN
+- "cocok": true bila soal mengukur materi dan kemampuan yang disebut indikator, dengan level kognitif yang kira-kira sama.
+- "cocok": false HANYA bila jelas tidak sesuai, misalnya: materi atau alat musik yang ditanyakan berbeda dari indikator, kemampuan yang diukur berbeda (mis. indikator "menganalisis" tetapi soal hanya menghafal istilah), atau level berbeda lebih dari satu tingkat (mis. C1 dengan C4).
+- Perbedaan kata, gaya kalimat, atau bentuk soal yang tetap mengukur indikator yang sama dianggap cocok.
+- Nilai SETIAP nomor di daftar.
+- "alasan": satu kalimat singkat, hanya untuk yang tidak cocok.
+
+FORMAT JSON
+{"soal": [{"no": 1, "cocok": true}, {"no": 2, "cocok": false, "alasan": "Indikator tentang tangga nada, soal tentang tempo."}]}`;
+}
