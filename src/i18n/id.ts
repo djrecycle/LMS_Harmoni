@@ -2612,4 +2612,5 @@ export const id: Record<string, string> = {
   "Choose a model": "Pilih model",
   "AI is not set up yet. Add your own API key (for example Gemini) in AI Settings first.": "AI belum diatur. Tambahkan dulu API key Anda sendiri (misalnya Gemini) di Pengaturan AI.",
   "No answer within {0} seconds. The settings may be right but the service is slow or queuing requests (common on free tiers such as NVIDIA NIM). Try again later or choose a smaller or faster model.": "Tidak ada jawaban dalam {0} detik. Pengaturannya mungkin sudah benar, tetapi layanannya lambat atau sedang mengantre (sering terjadi pada paket gratis seperti NVIDIA NIM). Coba lagi nanti atau pilih model yang lebih kecil/cepat.",
+  "The AI model was still thinking when its answer was cut off. Try again, or choose a model that does not \"think\" (for example a Llama model) in AI Settings.": "Model AI masih \"berpikir\" saat jawabannya terpotong. Coba lagi, atau pilih model yang tidak \"berpikir\" (misalnya model Llama) di Pengaturan AI.",
 };

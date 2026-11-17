@@ -1,6 +1,18 @@
 import { AiError } from "./ai-error";
 
 /**
+ * Remove the reasoning that "thinking" models (DeepSeek R1, Qwen QwQ, …) write before the answer, as <think>…</think>.
+ * Some only print the closing tag (the opening one is in their prompt template), so everything up to the last
+ * </think> goes. A reply still inside <think> ran out of room while thinking: that is an error, not an answer.
+ */
+export function stripThinking(text: string): string {
+  const end = text.lastIndexOf("</think>");
+  const out = (end >= 0 ? text.slice(end + "</think>".length) : text).trim();
+  if (/^<think>/i.test(out)) throw new AiError("The AI model was still thinking when its answer was cut off. Try again, or choose a model that does not \"think\" (for example a Llama model) in AI Settings.");
+  return out;
+}
+
+/**
  * Pull a JSON value out of model text: strips code fences, tries a plain parse,
  * then falls back to the outermost {...} and finally the outermost [...].
  */

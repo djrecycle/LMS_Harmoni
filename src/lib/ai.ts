@@ -24,14 +24,21 @@ function getClient(cfg: AiConfig) {
   return client.sdk;
 }
 
+/**
+ * The other providers may run a "thinking" model, which spends output tokens on reasoning before the answer: a small
+ * limit meant for a short answer (a topic title: 60) would be used up mid-thought. A short answer still stops early.
+ */
+const MIN_OPEN_MODEL_TOKENS = 2048;
+const roomToThink = (maxTokens: number) => Math.max(maxTokens, MIN_OPEN_MODEL_TOKENS);
+
 /** Workers AI models have smaller output limits than Claude: long answers are asked in parts by the callers anyway. */
 const CLOUDFLARE_MAX_TOKENS = 8192;
 const runCloudflare = (cfg: AiConfig, o: { prompt: string; system: string; maxTokens: number; json?: boolean }) =>
-  runCloudflareText({ ...o, maxTokens: Math.min(o.maxTokens, CLOUDFLARE_MAX_TOKENS), accountId: cfg.cloudflare.accountId, token: cfg.cloudflare.token, model: cfg.cloudflare.model });
+  runCloudflareText({ ...o, maxTokens: Math.min(roomToThink(o.maxTokens), CLOUDFLARE_MAX_TOKENS), accountId: cfg.cloudflare.accountId, token: cfg.cloudflare.token, model: cfg.cloudflare.model });
 
 /** Teachers' addresses must be public (see ai-openai.ts); the Super Admin may use a local server. */
 const openAiTarget = (cfg: AiConfig) => ({ ...cfg.openai, publicOnly: cfg.scope === "teacher" });
-const runOpenAiText = (cfg: AiConfig, o: { prompt: string; system: string; maxTokens: number; json?: boolean }) => runOpenAi({ ...o, ...openAiTarget(cfg) });
+const runOpenAiText = (cfg: AiConfig, o: { prompt: string; system: string; maxTokens: number; json?: boolean }) => runOpenAi({ ...o, maxTokens: roomToThink(o.maxTokens), ...openAiTarget(cfg) });
 
 /** A missing model is a settings problem, so say which model was asked for. */
 function rethrowAnthropic(e: unknown, model: string): never {
@@ -157,7 +164,7 @@ export async function generateText({
 
   if (provider === "claude-cli") return { text: await runClaudeCli({ prompt, system, model: cfg.cliModel }), provider };
   if (provider === "gemini") return { text: await runGemini({ prompt, system, apiKey: cfg.gemini.key, model: cfg.gemini.model || (await autoGeminiModel(cfg.gemini.key)) }), provider };
-  if (provider === "ollama") return { text: await runOllama({ prompt, system, maxTokens, baseUrl: cfg.ollama.baseUrl, model: cfg.ollama.model }), provider };
+  if (provider === "ollama") return { text: await runOllama({ prompt, system, maxTokens: roomToThink(maxTokens), baseUrl: cfg.ollama.baseUrl, model: cfg.ollama.model }), provider };
   if (provider === "cloudflare") return { text: await runCloudflare(cfg, { prompt, system, maxTokens }), provider };
   if (provider === "openai") return { text: await runOpenAiText(cfg, { prompt, system, maxTokens }), provider };
 
@@ -310,7 +317,7 @@ export async function generateJson<T>({
           : provider === "openai"
           ? await runOpenAiText(cfg, { prompt, system, maxTokens, json: true })
           : provider === "ollama"
-          ? await runOllama({ prompt, system, maxTokens, json: true, image, baseUrl: cfg.ollama.baseUrl, model: cfg.ollama.model })
+          ? await runOllama({ prompt, system, maxTokens: roomToThink(maxTokens), json: true, image, baseUrl: cfg.ollama.baseUrl, model: cfg.ollama.model })
           : await runClaudeCli({ prompt, system, model: cfg.cliModel });
     try {
       return { data: ambilJson<T>(text), provider };

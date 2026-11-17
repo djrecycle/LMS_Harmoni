@@ -1,6 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { BlockList, isIP } from "node:net";
 import { AiError } from "./ai-error";
+import { stripThinking } from "./ai-json";
 
 /**
  * Any service that speaks the OpenAI Chat Completions API: OpenRouter, Groq, NVIDIA NIM, DeepSeek, Mistral, OpenAI
@@ -139,7 +140,7 @@ export async function runOpenAi({ prompt, system, maxTokens = 16000, json = fals
     }
     const choice = data.choices?.[0];
     // Reasoning models (DeepSeek R1, Qwen, …) may put their thinking in the reply.
-    const text = (choice?.message?.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+    const text = stripThinking(choice?.message?.content ?? "");
     if (!text) throw new AiError("The OpenAI-compatible service gave no answer. Try again or use a different model.");
     if (choice?.finish_reason === "length") throw new AiError("The AI answer was cut off because it was too long. Try again with a narrower topic.");
     return text;

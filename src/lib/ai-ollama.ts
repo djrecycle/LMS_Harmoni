@@ -1,4 +1,5 @@
 import { AiError } from "./ai-error";
+import { stripThinking } from "./ai-json";
 
 /** A model on a laptop CPU can take minutes for a long document. */
 const OLLAMA_TIMEOUT_MS = 900_000;
@@ -121,7 +122,7 @@ export async function runOllama({
   }
 
   // Reasoning models (e.g. deepseek-r1) may put their thinking in the reply.
-  const text = (data.message?.content ?? "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  const text = stripThinking(data.message?.content ?? "");
   if (!text) throw new AiError("Ollama gave no answer. Try again or use a different model.");
   if (data.done_reason === "length") throw new AiError("The AI answer was cut off because it was too long. Try again with a narrower topic.");
   return text;

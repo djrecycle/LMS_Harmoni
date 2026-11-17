@@ -1,4 +1,5 @@
 import { AiError } from "./ai-error";
+import { stripThinking } from "./ai-json";
 
 /**
  * Pictures from Cloudflare Workers AI (default FLUX.1 schnell), which has a free daily allowance.
@@ -156,7 +157,7 @@ export async function runCloudflareText({
     throw cfError(res.status, reason, model);
   }
   const choice = data.choices?.[0];
-  const text = (choice?.message?.content ?? "").trim();
+  const text = stripThinking(choice?.message?.content ?? "");
   if (!text) throw new AiError("Cloudflare Workers AI gave no answer. Try again.");
   if (choice?.finish_reason === "length") throw new AiError("The AI answer was cut off because it was too long. Try again with a narrower topic.");
   return text;
