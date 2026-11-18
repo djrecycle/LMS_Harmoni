@@ -419,14 +419,31 @@ export async function setOptionImage(questionId: string, index: number, key: str
   return succeed(key ? t("Image added to choice {0}.", String.fromCharCode(65 + index)) : t("Image removed from choice {0}.", String.fromCharCode(65 + index)));
 }
 
-/** Polled by the exam page while a job runs. */
-export async function examJobStatus(examId: string): Promise<ActionResult<{ job: string | null; jobError: string | null; filled: number; total: number; changed: number }>> {
+/**
+ * Polled by the exam page while a job runs. Numbers are the question numbers shown on the page:
+ * `changedNos` rows marked "blueprint changed"; `drawnNos` / `uploadNos` questions that got notation to draw / a
+ * "picture needed" note since the current job started (the "gambar" job's result).
+ */
+export async function examJobStatus(
+  examId: string,
+): Promise<ActionResult<{ job: string | null; jobError: string | null; filled: number; total: number; changed: number; changedNos: number[]; drawnNos: number[]; uploadNos: number[] }>> {
   const t = await getT();
   const teacher = await requireTeacher();
   const e = await getOwnedExam(teacher.id, examId);
   if (!e) return fail(t("Exam not found."));
-  const items = await db.select({ questionId: S.examItem.questionId, kisiChanged: S.examItem.kisiChanged }).from(S.examItem).where(eq(S.examItem.examId, e.id));
-  return succeed(undefined, { job: e.job, jobError: e.jobError, filled: items.filter((i) => i.questionId).length, total: items.length, changed: items.filter((i) => i.questionId && i.kisiChanged).length });
+  const items = (await listExamItems(e.id)).map((r, i) => ({ ...r, no: i + 1 }));
+  const since = e.jobStartedAt?.getTime() ?? Infinity;
+  const touched = items.filter((r) => r.question && r.question.updatedAt.getTime() >= since);
+  return succeed(undefined, {
+    job: e.job,
+    jobError: e.jobError,
+    filled: items.filter((r) => r.question).length,
+    total: items.length,
+    changed: items.filter((r) => r.question && r.item.kisiChanged).length,
+    changedNos: items.filter((r) => r.question && r.item.kisiChanged).map((r) => r.no),
+    drawnNos: touched.filter((r) => r.question!.notation).map((r) => r.no),
+    uploadNos: touched.filter((r) => r.question!.imageHint).map((r) => r.no),
+  });
 }
 
 export async function dismissExamError(examId: string): Promise<ActionResult> {

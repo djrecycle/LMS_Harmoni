@@ -129,7 +129,21 @@ export function ExamWorkspace({
         setProgress({ filled: r.data.filled, total: r.data.total, changed: r.data.changed });
         if (!r.data.job) {
           setJob(null);
-          if (r.data.jobError) toast.warning(t(r.data.jobError));
+          // Which questions the job touched, so the teacher knows where to look.
+          const nos = (list: number[]) => list.join(", ");
+          const lines =
+            job === "periksa"
+              ? r.data.changedNos.length
+                ? [t("Questions no. {0}", nos(r.data.changedNos))]
+                : []
+              : job === "gambar"
+                ? [
+                    ...(r.data.drawnNos.length ? [t("Notation image: questions no. {0}", nos(r.data.drawnNos))] : []),
+                    ...(r.data.uploadNos.length ? [t("Picture to upload yourself: questions no. {0}", nos(r.data.uploadNos))] : []),
+                  ]
+                : [];
+          const detail = lines.length ? { description: lines.map((l) => <span key={l} className="block">{l}</span>), duration: 15000, closeButton: true } : undefined;
+          if (r.data.jobError) toast.warning(t(r.data.jobError), detail);
           else
             toast.success(
               job === "kisi"
@@ -143,6 +157,7 @@ export function ExamWorkspace({
                         ? t("Check done: {0} questions are marked “Blueprint changed”.", r.data.changed)
                         : t("Check done: every question fits its blueprint row.")
                       : t("The questions are ready. Check them."),
+              detail,
             );
           if (job === "kisi") setTab("kisi");
           router.refresh();
