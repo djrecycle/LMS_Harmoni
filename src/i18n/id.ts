@@ -2356,6 +2356,8 @@ export const id: Record<string, string> = {
   "Question removed from this row. It stays in the question bank.": "Soal dilepas dari baris ini. Soal tetap ada di bank soal.",
   "Questions": "Soal",
   "Questions in CBT upload format .docx": "Soal format upload CBT .docx",
+  "Question cards .docx": "Kartu soal .docx",
+  "Question cards: one question per A4 page with its subject, material, learning objective and answer key, ready to print.": "Kartu soal: satu soal per halaman A4 lengkap dengan mata pelajaran, materi, TP, dan kunci jawaban, siap dicetak.",
   "Remove statement": "Hapus pernyataan",
   "Replace from bank": "Ganti dari bank soal",
   "Row deleted. Its question stays in the question bank.": "Baris dihapus. Soalnya tetap ada di bank soal.",

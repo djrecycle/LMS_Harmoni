@@ -1,7 +1,8 @@
 /**
  * Word files of an exam:
  *  - the blueprint (kisi-kisi), laid out like the school's kisi-kisi file;
- *  - the question sheet in the CBT upload template (JENIS 1-5 tables, "v" on the key), so it can be uploaded as is.
+ *  - the question sheet in the CBT upload template (JENIS 1-5 tables, "v" on the key), so it can be uploaded as is;
+ *  - the question cards (kartu soal), one question per printed page.
  */
 import { AlignmentType, BorderStyle, Document, ImageRun, Packer, PageOrientation, Paragraph, Table, TableCell, TableLayoutType, TableRow, TextRun, VerticalAlign, VerticalMergeType, WidthType } from "docx";
 import { EXAM_SECTIONS, SECTION_META, letter, type ExamInfo, type ExamSection } from "./exam";
@@ -16,6 +17,8 @@ const NO_BORDERS = { top: NONE, bottom: NONE, left: NONE, right: NONE };
 
 /** A4 landscape with the template's narrow margins. */
 const PAGE = { size: { width: 11906, height: 16838, orientation: PageOrientation.LANDSCAPE }, margin: { top: 680, right: 680, bottom: 680, left: 680 } };
+/** Question cards: A4 portrait, 2 cm margins. */
+const KARTU_PAGE = { size: { width: 11906, height: 16838, orientation: PageOrientation.PORTRAIT }, margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 } };
 
 /** An image to place under the question text. */
 export type DocImage = { data: Buffer; type: "png" | "jpg" | "gif" | "bmp"; width: number; height: number };
@@ -85,9 +88,9 @@ export type DocItem = { section: ExamSection; tp: string; materi: string; indika
 
 /* ------------------------------------------------------------------ helpers */
 
-/** Runs of a text, keeping its line breaks. */
+/** Runs of a text, keeping its line breaks. Font and size come from the document's default unless given. */
 function runs(text: string, opts: { bold?: boolean; size?: number } = {}): TextRun[] {
-  return text.split("\n").map((line, i) => new TextRun({ text: line, font: FONT, size: opts.size ?? SIZE, bold: opts.bold, break: i > 0 ? 1 : undefined }));
+  return text.split("\n").map((line, i) => new TextRun({ text: line, size: opts.size, bold: opts.bold, break: i > 0 ? 1 : undefined }));
 }
 
 const para = (text: string, opts: { bold?: boolean; center?: boolean; size?: number; after?: number } = {}) =>
@@ -113,8 +116,13 @@ function table(widths: number[], rows: TableRow[]) {
   return new Table({ rows, columnWidths: widths, width: { size: widths.reduce((a, b) => a + b, 0), type: WidthType.DXA }, layout: TableLayoutType.FIXED });
 }
 
-const pack = (children: (Paragraph | Table)[]) =>
-  Packer.toBuffer(new Document({ styles: { default: { document: { run: { font: FONT, size: SIZE } } } }, sections: [{ properties: { page: PAGE }, children }] }));
+const pack = (children: (Paragraph | Table)[], opts: { page?: typeof KARTU_PAGE; font?: string; size?: number } = {}) =>
+  Packer.toBuffer(
+    new Document({
+      styles: { default: { document: { run: { font: opts.font ?? FONT, size: opts.size ?? SIZE } } } },
+      sections: [{ properties: { page: opts.page ?? PAGE }, children }],
+    }),
+  );
 
 /** "Pilihan Ganda Kompleks (2 jawaban benar)", "Menjodohkan (Benar/Salah)"… as written in the school's kisi-kisi. */
 export function bentukLabel(section: ExamSection, q: DocQuestion | null): string {
@@ -351,4 +359,142 @@ export async function cbtDocx(items: DocItem[]): Promise<Buffer> {
     children.push(para("", { after: 200 }));
   }
   return pack(children);
+}
+
+/* ------------------------------------------------------------------ question cards (kartu soal) */
+
+const KARTU_W = 11906 - 2 * 1134;
+/** Padding inside the card's boxes (twips). */
+const KARTU_PAD = { top: 160, bottom: 160, left: 220, right: 220 };
+/** Widest image in the question box, in pixels (a pixel is 15 twips). */
+const KARTU_IMG_PX = 460;
+const KARTU_OPT_IMG_PX = 220;
+
+function box(children: (Paragraph | Table)[], width: number, opts: { shade?: string; pad?: typeof KARTU_PAD } = {}) {
+  return new TableCell({
+    children,
+    width: { size: width, type: WidthType.DXA },
+    verticalAlign: VerticalAlign.TOP,
+    borders: BORDERS,
+    shading: opts.shade ? { fill: opts.shade } : undefined,
+    margins: opts.pad ?? { top: 80, bottom: 80, left: 120, right: 120 },
+  });
+}
+
+const line = (text: string, opts: { bold?: boolean; after?: number; indent?: number } = {}) =>
+  new Paragraph({ children: runs(text, { bold: opts.bold }), spacing: { after: opts.after ?? 40, line: 300 }, indent: opts.indent ? { left: opts.indent, hanging: opts.indent } : undefined });
+
+/** The answer key in words: "D", "A, C", "1 → B (Salah), 2 → A (Benar)", the model answer… */
+function kunci(q: DocQuestion): string {
+  const k = q.answerKey;
+  if (!k) return "-";
+  const opts = q.options ?? [];
+  switch (k.kind) {
+    case "multiple_choice":
+      return letter(k.correct);
+    case "multiple_select":
+      return [...k.correct].sort((a, b) => a - b).map(letter).join(", ");
+    case "matching":
+      return k.pairs
+        .map((c, i) => (c >= 0 ? `${i + 1} → ${letter(c)}${opts[c] && opts[c].length <= 30 ? ` (${opts[c]})` : ""}` : `${i + 1} → -`))
+        .join(", ");
+    case "true_false":
+      return k.correct ? "Benar" : "Salah";
+    case "fill_in":
+      return k.answer.join(" / ") || "-";
+    case "essay":
+      return k.answer || "-";
+    default:
+      return "-";
+  }
+}
+
+/** Matching rows and columns: a grid to tick when the columns are short words (Benar/Salah…), otherwise two lists. */
+function matchingBlock(q: DocQuestion, width: number): (Paragraph | Table)[] {
+  const statements = q.matchRows ?? [];
+  const columns = q.options ?? [];
+  const grid = columns.length > 0 && columns.length <= 4 && columns.every((c) => c.length <= 20) && !q.optionImages?.some(Boolean);
+  if (grid && statements.length) {
+    const colW = 1300;
+    const W = [600, width - 600 - colW * columns.length, ...columns.map(() => colW)];
+    const head = new TableRow({ tableHeader: true, children: ["No", "Pernyataan", ...columns].map((h, i) => cell(h, W[i], { bold: true, center: true, shade: true })) });
+    const rows = statements.map(
+      (s, i) => new TableRow({ cantSplit: true, children: [cell(String(i + 1), W[0], { center: true }), cell(s, W[1]), ...columns.map((_, c) => cell("", W[c + 2]))] }),
+    );
+    return [new Paragraph({ spacing: { after: 60 } }), table(W, [head, ...rows]), new Paragraph({ spacing: { after: 60 } })];
+  }
+  const out: (Paragraph | Table)[] = [];
+  if (statements.length) {
+    out.push(line("Pernyataan:", { bold: true, after: 20 }));
+    statements.forEach((s, i) => out.push(line(`${i + 1}. ${s}`, { indent: 360 })));
+  }
+  if (columns.length) {
+    out.push(line("Pilihan jawaban:", { bold: true, after: 20 }));
+    columns.forEach((c, i) => {
+      out.push(line(`${letter(i)}. ${c}`, { indent: 360 }));
+      const img = q.optionImages?.[i];
+      if (img) out.push(imageParagraph(img, KARTU_OPT_IMG_PX));
+    });
+  }
+  return out;
+}
+
+/** One card per page, laid out like the school's kartu soal: identity table, the question, then the key. */
+export async function kartuDocx(info: ExamInfo, items: DocItem[]): Promise<Buffer> {
+  const children: (Paragraph | Table)[] = [];
+  const all = numbered(items).flatMap((g) => g.items);
+  const L = 2700;
+  const innerW = KARTU_W - KARTU_PAD.left - KARTU_PAD.right;
+
+  all.forEach((it, n) => {
+    children.push(
+      new Paragraph({
+        children: runs(`KARTU SOAL NOMOR ${it.no}`, { bold: true, size: 28 }),
+        alignment: AlignmentType.CENTER,
+        pageBreakBefore: n > 0,
+        border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: "000000", space: 6 } },
+        spacing: { after: 280 },
+      }),
+    );
+
+    const ident: [string, string][] = [
+      ["Mata Pelajaran", info.mata_pelajaran ?? ""],
+      ["Materi Pokok", it.materi],
+      ["Tujuan Pembelajaran", it.tp],
+    ];
+    children.push(
+      table(
+        [L, KARTU_W - L],
+        ident.map(([k, v]) => new TableRow({ cantSplit: true, children: [box([line(k, { bold: true, after: 0 })], L, { shade: "F2F4F8" }), box([line(v, { after: 0 })], KARTU_W - L)] })),
+      ),
+    );
+    children.push(new Paragraph({ spacing: { after: 240 } }));
+
+    const q = it.question;
+    const body: (Paragraph | Table)[] = [line("Rumusan Butir Soal:", { bold: true, after: 160 })];
+    if (!q) body.push(line("(Soal belum ditulis.)"));
+    else {
+      if (q.prompt) body.push(line(q.prompt, { after: 60 }));
+      if (q.image) body.push(imageParagraph(q.image, KARTU_IMG_PX));
+      if (it.section === "jodoh") body.push(...matchingBlock(q, innerW));
+      else
+        (q.options ?? []).forEach((o, i) => {
+          body.push(line(`${letter(i)}. ${o}`, { indent: 360 }));
+          const img = q.optionImages?.[i];
+          if (img) body.push(imageParagraph(img, KARTU_OPT_IMG_PX));
+        });
+    }
+
+    const key = q ? kunci(q) : "-";
+    // A long model answer (essay) goes under the label; a short key stays beside it.
+    const keyBlock =
+      key.includes("\n") || key.length > 80
+        ? [line("Kunci Jawaban:", { bold: true, after: 60 }), line(key, { after: 0 })]
+        : [new Paragraph({ children: [new TextRun({ text: "Kunci Jawaban: ", bold: true }), ...runs(key)], spacing: { after: 0 } })];
+
+    children.push(table([KARTU_W], [new TableRow({ children: [box(body, KARTU_W, { pad: KARTU_PAD })] }), new TableRow({ cantSplit: true, children: [box(keyBlock, KARTU_W, { pad: KARTU_PAD })] })]));
+  });
+
+  if (!all.length) children.push(para("Belum ada soal."));
+  return pack(children, { page: KARTU_PAGE, font: "Times New Roman", size: 24 });
 }

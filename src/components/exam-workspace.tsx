@@ -1111,8 +1111,14 @@ function PublishTab({
               <Download /> {t("Questions in CBT upload format .docx")}
             </a>
           </Button>
+          <Button asChild variant="outline">
+            <a href={`/api/exams/${exam.id}/kartu`}>
+              <Download /> {t("Question cards .docx")}
+            </a>
+          </Button>
         </div>
         <p className="text-xs text-muted-foreground">{t("The CBT file follows the school's upload template (JENIS 1-5 tables, the key marked with v), so it can be uploaded to the CBT application as is.")}</p>
+        <p className="text-xs text-muted-foreground">{t("Question cards: one question per A4 page with its subject, material, learning objective and answer key, ready to print.")}</p>
       </section>
 
       <section className="grid gap-4 rounded-xl border bg-card p-4">
