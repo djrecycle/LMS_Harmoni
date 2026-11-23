@@ -2,7 +2,7 @@
 import { and, asc, count, desc, eq, inArray, lt } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { isUuid } from "./access";
-import { EXAM_SECTIONS, type ExamSection } from "./exam";
+import { EXAM_SECTIONS, sectionForType, type ExamSection } from "./exam";
 
 const S = schema;
 
@@ -21,7 +21,7 @@ export async function expireStaleExamJob(examId: string) {
   await db
     .update(S.exam)
     .set({ job: null, jobError: "The AI job was interrupted (the server may have restarted). Please try again." })
-    .where(and(eq(S.exam.id, examId), lt(S.exam.jobStartedAt, cutoff), inArray(S.exam.job, ["kisi", "soal", "ulang", "gambar", "periksa", "latihan"])));
+    .where(and(eq(S.exam.id, examId), lt(S.exam.jobStartedAt, cutoff), inArray(S.exam.job, ["kisi", "soal", "ulang", "gambar", "periksa", "latihan", "latihan-periksa", "latihan-gambar", "latihan-ulang"])));
 }
 
 const sectionOrder = (s: ExamSection) => EXAM_SECTIONS.indexOf(s);
@@ -38,6 +38,25 @@ export async function listExamItems(examId: string) {
 }
 
 export type ExamItemRow = Awaited<ReturnType<typeof listExamItems>>[number];
+
+/**
+ * The exam-form questions of a practice quiz (Latihan Ujian), grouped by section in exam order and numbered as the
+ * practice page shows them, each with its blueprint row when known. `other` counts the questions of other forms (audio, MIDI…).
+ */
+export async function listPracticeRows(quizId: string) {
+  const rows = await db
+    .select({ link: { id: S.quizQuestion.id, kisiChanged: S.quizQuestion.kisiChanged }, question: S.question, item: S.examItem })
+    .from(S.quizQuestion)
+    .innerJoin(S.question, eq(S.question.id, S.quizQuestion.questionId))
+    .leftJoin(S.examItem, eq(S.examItem.id, S.quizQuestion.examItemId))
+    .where(eq(S.quizQuestion.quizId, quizId))
+    .orderBy(asc(S.quizQuestion.position));
+  let no = 0;
+  const list = EXAM_SECTIONS.flatMap((section) => rows.filter((r) => sectionForType(r.question.type) === section).map((r) => ({ ...r, section, no: ++no })));
+  return { rows: list, other: rows.length - list.length };
+}
+
+export type PracticeRow = Awaited<ReturnType<typeof listPracticeRows>>["rows"][number];
 
 /** Next free position in a section (rows are appended at the end). */
 export async function nextPosition(examId: string): Promise<number> {

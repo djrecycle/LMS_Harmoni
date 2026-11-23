@@ -197,6 +197,13 @@
       "when": 1795404226122,
       "tag": "0027_quiz_question_exam_item",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1795406128446,
+      "tag": "0028_quiz_question_kisi_changed",
+      "breakpoints": true
     }
   ]
 }

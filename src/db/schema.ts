@@ -367,6 +367,8 @@ export const quizQuestion = pgTable(
     points: real("points"),
     /** Practice runs (Latihan Ujian): the exam blueprint row this question practises, so the AI can rewrite it for the same TP, material, indicator and level. */
     examItemId: uuid("exam_item_id").references((): AnyPgColumn => examItem.id, { onDelete: "set null" }),
+    /** Practice runs: the AI check found this question does not fit its blueprint row (cleared by rewriting, replacing or keeping it). */
+    kisiChanged: boolean("kisi_changed").notNull().default(false),
   },
   (t) => [uniqueIndex("quiz_question_unique").on(t.quizId, t.questionId)],
 );

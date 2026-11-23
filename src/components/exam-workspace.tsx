@@ -55,8 +55,10 @@ export type CardActions = {
   rewrite: (data: { provider: ProviderPick; catatan: string; gambar: boolean }) => Promise<ActionResult>;
   /** Put a bank question here; null takes the question out. */
   link: (questionId: string | null) => Promise<ActionResult>;
-  /** Drop the "blueprint changed" mark (exam rows only). */
+  /** Drop the "blueprint changed" / "does not fit" mark. */
   keep?: () => Promise<ActionResult>;
+  /** Badge text and tooltip for a marked question, when not the exam's "Blueprint changed". */
+  mark?: { label: string; title: string };
   /** Where "Edit question" comes back to. */
   back: string;
 };
@@ -139,6 +141,8 @@ export function ExamWorkspace({
                     ? t("The changed questions were rewritten. Check them.")
                     : job === "latihan"
                       ? t("The exam practice is ready. Find it under Exam practice in Quizzes.")
+                    : job?.startsWith("latihan-")
+                      ? t("The AI finished working on the exam practice.")
                     : job === "periksa"
                       ? r.data.changed
                         ? t("Check done: {0} questions are marked “Blueprint changed”.", r.data.changed)
@@ -257,6 +261,8 @@ export function ExamWorkspace({
                   ? t("The AI is rewriting the changed questions…")
                   : job === "latihan"
                     ? t("The AI is writing the exam practice questions…")
+                  : job.startsWith("latihan-")
+                    ? t("The AI is working on the exam practice questions…")
                   : job === "periksa"
                     ? t("The AI is checking whether the questions fit the blueprint…")
                     : t("The AI is writing the questions…")
@@ -819,8 +825,8 @@ export function SoalCard({
         <span className="grid size-8 place-items-center rounded-full bg-primary-soft text-sm font-bold text-primary">{item.no}</span>
         {item.level && <Badge tone="primary">{item.level}</Badge>}
         {q && item.kisiChanged && (
-          <Badge tone="warning" title={t("Edited after the question was written: the question may no longer fit")}>
-            <TriangleAlert className="size-3" /> {t("Blueprint changed")}
+          <Badge tone="warning" title={actions.mark?.title ?? t("Edited after the question was written: the question may no longer fit")}>
+            <TriangleAlert className="size-3" /> {actions.mark?.label ?? t("Blueprint changed")}
           </Badge>
         )}
         <span className="min-w-0 flex-1 text-xs text-muted-foreground break-words">

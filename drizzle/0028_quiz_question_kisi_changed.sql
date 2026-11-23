@@ -1,0 +1,1 @@
+ALTER TABLE "quiz_question" ADD COLUMN "kisi_changed" boolean DEFAULT false NOT NULL;

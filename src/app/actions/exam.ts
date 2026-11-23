@@ -12,7 +12,7 @@ import { aiErrorMessage, canUseAi, generateText, PROVIDER_CHOICES, providerUnava
 import { AiError } from "@/lib/ai-error";
 import { COGNITIVE_LEVELS, EXAM_SECTIONS, SECTION_META, pointsPerQuestion, readComposition, sectionForType, totalCount, type ExamSection } from "@/lib/exam";
 import { EXAM_SYSTEM, cocokPrompt, gambarPrompt, kisiPrompt, parseKisi, parseSoal, readGambar, soalPrompt, stripCode, toExamQuestion, type SoalTarget } from "@/lib/exam-ai";
-import { getOwnedExam, listExamItems, nextPosition } from "@/lib/exam-store";
+import { getOwnedExam, listExamItems, listPracticeRows, nextPosition, type PracticeRow } from "@/lib/exam-store";
 import { semesterGanjilGenap } from "@/lib/perangkat/generator";
 import { normalize, toDbValues } from "@/lib/question-db";
 import { hasChoiceImages } from "@/lib/questions";
@@ -127,7 +127,7 @@ const jobSchema = z.object({
 });
 
 /** Start an AI job on the exam (only one at a time). Returns an error message, or null when it started. */
-async function claimJob(examId: string, teacherId: string, job: "kisi" | "soal" | "ulang" | "gambar" | "periksa" | "latihan", provider: ProviderChoice): Promise<string | null> {
+async function claimJob(examId: string, teacherId: string, job: "kisi" | "soal" | "ulang" | "gambar" | "periksa" | "latihan" | "latihan-periksa" | "latihan-gambar" | "latihan-ulang", provider: ProviderChoice): Promise<string | null> {
   const t = await getT();
   if (!(await canUseAi(teacherId, provider))) return t(providerUnavailableMessage(provider));
   const claimed = await db
@@ -728,10 +728,10 @@ const practiceSchema = z.object({
   catatan: z.string().trim().max(1500).default(""),
 });
 
-type PracticeRow = { section: ExamSection; questionId: string; examItemId: string | null };
+type NewPracticeRow = { section: ExamSection; questionId: string; examItemId: string | null };
 
 /** Points per question that follow the exam weights, when the sections in use add up to 100%; otherwise each question's own points. */
-function practicePoints(composition: unknown, rows: PracticeRow[]): Partial<Record<ExamSection, number>> {
+function practicePoints(composition: unknown, rows: NewPracticeRow[]): Partial<Record<ExamSection, number>> {
   const comp = readComposition(composition);
   const counts = Object.fromEntries(EXAM_SECTIONS.map((s) => [s, rows.filter((r) => r.section === s).length])) as Record<ExamSection, number>;
   const weight = EXAM_SECTIONS.reduce((n, s) => n + (counts[s] > 0 ? comp[s].weight : 0), 0);
@@ -739,7 +739,7 @@ function practicePoints(composition: unknown, rows: PracticeRow[]): Partial<Reco
 }
 
 /** One practice quiz per class, linked to the exam, with the given questions in exam order. */
-async function insertPracticeQuizzes(teacherId: string, examId: string, composition: unknown, rows: PracticeRow[], v: z.infer<typeof practiceSchema>) {
+async function insertPracticeQuizzes(teacherId: string, examId: string, composition: unknown, rows: NewPracticeRow[], v: z.infer<typeof practiceSchema>) {
   const points = practicePoints(composition, rows);
   for (const classroomId of [...new Set(v.classroomIds)]) {
     const [k] = await db
@@ -772,7 +772,7 @@ export async function createExamPractice(examId: string, data: unknown): Promise
   if (v.mode === "copy") {
     const withQuestion = items.filter((r) => r.question);
     if (withQuestion.length === 0) return fail(t("This exam has no questions yet."));
-    const rows: PracticeRow[] = [];
+    const rows: NewPracticeRow[] = [];
     for (const { item, question } of withQuestion) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { id, createdAt, updatedAt, ...copy } = question!;
@@ -790,7 +790,7 @@ export async function createExamPractice(examId: string, data: unknown): Promise
   const comp = readComposition(e.composition);
   const meta = { kelas: e.info.kelas || null, semester: semesterGanjilGenap(e.info.semester), pgOptions: comp.pgOptions };
   after(async () => {
-    const written = new Map<number, PracticeRow>();
+    const written = new Map<number, NewPracticeRow>();
     let firstError: string | null = null;
     for (const section of EXAM_SECTIONS) {
       const rows = items.filter((r) => r.item.section === section);
@@ -822,7 +822,7 @@ export async function createExamPractice(examId: string, data: unknown): Promise
         }
       }
     }
-    const rows = items.map((r) => written.get(r.no)).filter((x): x is PracticeRow => Boolean(x));
+    const rows = items.map((r) => written.get(r.no)).filter((x): x is NewPracticeRow => Boolean(x));
     if (rows.length === 0) return endJob(e.id, teacher.id, firstError ?? "The AI could not write the questions. Try again.", true);
     try {
       await insertPracticeQuizzes(teacher.id, e.id, e.composition, rows, v);
@@ -857,6 +857,12 @@ async function practiceSiblings(examId: string, questionId: string): Promise<str
   return rows.map((r) => r.id);
 }
 
+/** Change how a question sits in every practice quiz of the exam that holds it: another question in its place, or its mark. */
+async function setPracticeLink(examId: string, questionId: string, set: { questionId?: string; kisiChanged: boolean }) {
+  const quizIds = await practiceSiblings(examId, questionId);
+  if (quizIds.length) await db.update(S.quizQuestion).set(set).where(and(inArray(S.quizQuestion.quizId, quizIds), eq(S.quizQuestion.questionId, questionId)));
+}
+
 /** Spread the exam weights again over the questions now in these practice quizzes (after one was removed). */
 async function repointPractice(quizIds: string[], composition: unknown) {
   for (const quizId of quizIds) {
@@ -878,6 +884,33 @@ const refreshPractice = (quizId: string) => {
   revalidatePath(`/teacher/quizzes/${quizId}`, "layout");
   revalidatePath("/teacher/quizzes");
 };
+
+/** What the AI writes a practice question for: its blueprint row, or (rows made before the link existed) the old question itself. */
+function practiceTarget(r: PracticeRow): SoalTarget {
+  return r.item
+    ? { no: r.no, section: r.section, tp: r.item.tp, materi: r.item.materi, indikator: r.item.indikator, level: r.item.level }
+    : { no: r.no, section: r.section, tp: r.question.topic ?? "", materi: "sama dengan soal sebelumnya", indikator: "mengukur konsep yang sama dengan soal sebelumnya", level: r.question.level ?? "" };
+}
+
+const showQuestion = (q: { prompt: string; options: string[] | null }) => `${q.prompt}${q.options?.length ? ` | Pilihan: ${q.options.join(" / ")}` : ""}`;
+
+/** Notes for the AI that rewrites practice questions: measure the same thing, but repeat neither the old practice question nor the exam's. */
+async function practiceNotes(catatan: string, rows: PracticeRow[]): Promise<string> {
+  const examIds = rows.map((r) => r.item?.questionId).filter((x): x is string => Boolean(x));
+  const examQs = examIds.length ? await db.select({ id: S.question.id, prompt: S.question.prompt, options: S.question.options }).from(S.question).where(inArray(S.question.id, examIds)) : [];
+  const one = rows.length === 1;
+  return [
+    catatan,
+    "Ini soal LATIHAN untuk persiapan ujian: ukur hal yang sama, tetapi tulis soal yang berbeda (kalimat, tokoh/situasi, angka, contoh, dan urutan pilihan).",
+    ...rows.flatMap((r) => {
+      const examQ = examQs.find((q) => q.id === r.item?.questionId);
+      const label = one ? "" : ` no ${r.no}`;
+      return [`Soal latihan sebelumnya${label} (JANGAN diulang): ${showQuestion(r.question)}`, examQ ? `Soal ujian asli${label} (JANGAN diulang): ${showQuestion(examQ)}` : ""];
+    }),
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
 
 /**
  * Replace a practice question with another bank question of the same form, or take it out (`newQuestionId` null).
@@ -905,9 +938,20 @@ export async function replacePracticeQuestion(quizId: string, questionId: string
   if (q.type !== old.type) return fail(t("This question type does not fit this section."));
   const [dup] = await db.select({ id: S.quizQuestion.id }).from(S.quizQuestion).where(and(inArray(S.quizQuestion.quizId, quizIds), eq(S.quizQuestion.questionId, q.id))).limit(1);
   if (dup) return fail(t("This question is already in the practice."));
-  await db.update(S.quizQuestion).set({ questionId: q.id }).where(and(inArray(S.quizQuestion.quizId, quizIds), eq(S.quizQuestion.questionId, questionId)));
+  await setPracticeLink(found.exam.id, questionId, { questionId: q.id, kisiChanged: false });
   refreshPractice(quizId);
   return succeed(t("Question replaced in the practice."));
+}
+
+/** Drop the "does not fit" mark from a practice question the teacher keeps. */
+export async function keepPracticeQuestion(quizId: string, questionId: string): Promise<ActionResult> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const found = await getOwnedPractice(teacher.id, quizId);
+  if (!found || !isUuid(questionId)) return fail(t("Quiz not found."));
+  await setPracticeLink(found.exam.id, questionId, { kisiChanged: false });
+  refreshPractice(quizId);
+  return succeed(t("Question kept."));
 }
 
 /**
@@ -922,51 +966,192 @@ export async function rewritePracticeQuestion(quizId: string, questionId: string
   const found = await getOwnedPractice(teacher.id, quizId);
   if (!found || !isUuid(questionId)) return fail(t("Quiz not found."));
   const e = found.exam;
-  const [link] = await db
-    .select({ examItemId: S.quizQuestion.examItemId, question: S.question })
-    .from(S.quizQuestion)
-    .innerJoin(S.question, eq(S.question.id, S.quizQuestion.questionId))
-    .where(and(eq(S.quizQuestion.quizId, quizId), eq(S.quizQuestion.questionId, questionId)))
-    .limit(1);
-  if (!link) return fail(t("Question not found."));
-  const old = link.question;
-  const section = sectionForType(old.type);
-  if (!section) return fail(t("This question type cannot be rewritten here."));
-  const [item] = link.examItemId ? await db.select().from(S.examItem).where(eq(S.examItem.id, link.examItemId)).limit(1) : [];
-  const [examQ] = item?.questionId ? await db.select({ prompt: S.question.prompt, options: S.question.options }).from(S.question).where(eq(S.question.id, item.questionId)).limit(1) : [];
+  const row = (await listPracticeRows(quizId)).rows.find((r) => r.question.id === questionId);
+  if (!row) return fail(t("This question type cannot be rewritten here."));
 
   const { provider, catatan, gambar } = p.data;
   if (!(await canUseAi(teacher.id, provider))) return fail(t(providerUnavailableMessage(provider)));
   if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
   const comp = readComposition(e.composition);
   const meta = { kelas: e.info.kelas || null, semester: semesterGanjilGenap(e.info.semester), pgOptions: comp.pgOptions };
-  const target: SoalTarget = item
-    ? { no: 1, section, tp: item.tp, materi: item.materi, indikator: item.indikator, level: item.level }
-    : { no: 1, section, tp: old.topic ?? "", materi: "sama dengan soal sebelumnya", indikator: "mengukur konsep yang sama dengan soal sebelumnya", level: old.level ?? "" };
-  const show = (q: { prompt: string; options: string[] | null }) => `${q.prompt}${q.options?.length ? ` | Pilihan: ${q.options.join(" / ")}` : ""}`;
-  const notes = [
-    catatan,
-    "Ini soal LATIHAN untuk persiapan ujian: ukur hal yang sama, tetapi tulis soal yang berbeda (kalimat, tokoh/situasi, angka, contoh, dan urutan pilihan).",
-    `Soal latihan sebelumnya (JANGAN diulang): ${show(old)}`,
-    examQ ? `Soal ujian asli (JANGAN diulang): ${show(examQ)}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const target = { ...practiceTarget(row), no: 1 };
   try {
-    const got = await ask(teacher.id, provider, soalPrompt(e.info, comp, section, [target], notes, gambar), parseSoal);
+    const got = await ask(teacher.id, provider, soalPrompt(e.info, comp, row.section, [target], await practiceNotes(catatan, [row]), gambar), parseSoal);
     const raw = got.get(1) ?? [...got.values()][0];
-    const q = raw ? toExamQuestion(raw, section, target, meta) : null;
+    const q = raw ? toExamQuestion(raw, row.section, target, meta) : null;
     if (!q) {
       await refundAllowance(teacher.id).catch(() => undefined);
       return fail(t("The AI could not write the questions. Try again."));
     }
     const [fresh] = await db.insert(S.question).values({ teacherId: teacher.id, ...toDbValues(normalize(q)) }).returning({ id: S.question.id });
-    const quizIds = await practiceSiblings(e.id, old.id);
-    await db.update(S.quizQuestion).set({ questionId: fresh.id }).where(and(inArray(S.quizQuestion.quizId, quizIds), eq(S.quizQuestion.questionId, old.id)));
+    await setPracticeLink(e.id, questionId, { questionId: fresh.id, kisiChanged: false });
     refreshPractice(quizId);
     return succeed(t("New question written. The old one stays in the question bank."));
   } catch (err) {
     await refundAllowance(teacher.id).catch(() => undefined);
     return fail(t(aiErrorMessage(err)));
   }
+}
+
+/* ------------------------------------------------------------------ AI jobs on a practice (Latihan Ujian) */
+
+/**
+ * Start an AI job over a whole practice, in the background on the exam's job slot (one AI job per exam at a time):
+ * - "latihan-periksa": check each question against its blueprint row and mark the ones that do not fit;
+ * - "latihan-gambar": add notation or a "picture needed" note where it fits (as on the exam);
+ * - "latihan-ulang": rewrite the marked questions (same blueprint row, different from the old and the exam question).
+ * Changes apply to every class that got this practice.
+ */
+export async function startPracticeJob(quizId: string, kind: "periksa" | "gambar" | "ulang", data: unknown): Promise<ActionResult> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const p = jobSchema.safeParse(data);
+  if (!p.success) return zodError(p.error);
+  const found = await getOwnedPractice(teacher.id, quizId);
+  if (!found) return fail(t("Quiz not found."));
+  const e = found.exam;
+  const { rows } = await listPracticeRows(quizId);
+  const { provider, catatan, gambar } = p.data;
+  const review = (r: PracticeRow) => ({ no: r.no, type: SECTION_META[r.section].nama, prompt: r.question.prompt, options: r.question.options, matchRows: r.question.matchRows, answerKey: r.question.answerKey });
+
+  if (kind === "periksa") {
+    const targets = rows.filter((r) => r.item && !r.link.kisiChanged);
+    if (targets.length === 0) return fail(t(rows.some((r) => r.item) ? "No questions to check: every question is already marked." : "These practice questions are not linked to blueprint rows, so they cannot be checked."));
+    const busy = await claimJob(e.id, teacher.id, "latihan-periksa", provider);
+    if (busy) return fail(busy);
+    after(async () => {
+      let checked = 0;
+      let firstError: string | null = null;
+      for (let i = 0; i < targets.length; i += 20) {
+        const chunk = targets.slice(i, i + 20);
+        try {
+          const got = await ask(teacher.id, provider, cocokPrompt(e.info, chunk.map((r) => ({ ...review(r), tp: r.item!.tp, materi: r.item!.materi, indikator: r.item!.indikator, level: r.item!.level }))), parseSoal);
+          for (const r of chunk) {
+            const raw = got.get(r.no);
+            if (!raw) continue;
+            checked++;
+            if (raw.cocok !== false && String(raw.cocok).toLowerCase() !== "false") continue;
+            await setPracticeLink(e.id, r.question.id, { kisiChanged: true });
+          }
+        } catch (err) {
+          console.error("[exam] practice periksa batch failed", err);
+          firstError ??= aiErrorMessage(err);
+        }
+      }
+      const error = checked === 0 ? (firstError ?? "The AI could not check the questions. Try again.") : checked < targets.length ? "Some questions could not be checked. Run the check again for the rest." : null;
+      await endJob(e.id, teacher.id, error, checked === 0);
+    });
+  } else if (kind === "gambar") {
+    const ids = rows.map((r) => r.question.id);
+    const answered = new Set(ids.length ? (await db.selectDistinct({ id: S.answer.questionId }).from(S.answer).where(inArray(S.answer.questionId, ids))).map((r) => r.id) : []);
+    const targets = rows.filter((r) => !r.question.mediaKey && !r.question.notation && !r.question.imageHint && !answered.has(r.question.id));
+    if (targets.length === 0) return fail(t("No questions to check: they already have an image or have been answered by students."));
+    const busy = await claimJob(e.id, teacher.id, "latihan-gambar", provider);
+    if (busy) return fail(busy);
+    after(async () => {
+      let added = 0;
+      let undrawable = 0;
+      let firstError: string | null = null;
+      for (let i = 0; i < targets.length; i += 10) {
+        const chunk = targets.slice(i, i + 10);
+        try {
+          const got = await ask(teacher.id, provider, gambarPrompt(e.info, chunk.map(review)), parseSoal);
+          for (const r of chunk) {
+            const raw = got.get(r.no);
+            if (!raw) continue;
+            const g = readGambar(raw.gambar);
+            if (g === "invalid") undrawable++;
+            if (g === "invalid" || (!g.notation && !g.imageHint)) continue;
+            const q = r.question;
+            const proposed = typeof raw.pertanyaan === "string" ? raw.pertanyaan.trim().slice(0, 2000) : "";
+            const prompt = !proposed ? q.prompt : proposed.length < q.prompt.length * 0.6 ? `${proposed}\n${q.prompt}`.slice(0, 2000) : proposed;
+            const newOptions = Array.isArray(raw.opsi) ? raw.opsi.map((o) => (typeof o === "string" ? o.trim().slice(0, 300) : "")) : null;
+            const options = newOptions && q.options && newOptions.length === q.options.length && newOptions.every(Boolean) && g.notation ? newOptions : q.options;
+            const explanation = typeof raw.pembahasan === "string" && raw.pembahasan.trim() ? stripCode(raw.pembahasan.trim()).slice(0, 2000) : q.explanation;
+            await db.update(S.question).set({ notation: g.notation, imageHint: g.imageHint, prompt, options, explanation, updatedAt: new Date() }).where(and(eq(S.question.id, q.id), isNull(S.question.mediaKey)));
+            added++;
+          }
+        } catch (err) {
+          console.error("[exam] practice gambar batch failed", err);
+          firstError ??= aiErrorMessage(err);
+        }
+      }
+      const error =
+        added > 0
+          ? undrawable > 0
+            ? "Some notation the AI wrote could not be drawn. Run it again for the rest."
+            : null
+          : (firstError ?? (undrawable > 0 ? "The notation the AI wrote could not be drawn. Try again." : "The AI found no questions that need an image."));
+      await endJob(e.id, teacher.id, error, Boolean(firstError) && added === 0);
+    });
+  } else {
+    const targets = rows.filter((r) => r.link.kisiChanged);
+    if (targets.length === 0) return fail(t("No question is marked as not fitting its blueprint row."));
+    const busy = await claimJob(e.id, teacher.id, "latihan-ulang", provider);
+    if (busy) return fail(busy);
+    const comp = readComposition(e.composition);
+    const meta = { kelas: e.info.kelas || null, semester: semesterGanjilGenap(e.info.semester), pgOptions: comp.pgOptions };
+    after(async () => {
+      let written = 0;
+      let firstError: string | null = null;
+      for (const section of EXAM_SECTIONS) {
+        const list = targets.filter((r) => r.section === section);
+        for (let i = 0; i < list.length; i += BATCH) {
+          const chunk = list.slice(i, i + BATCH);
+          const soal = chunk.map(practiceTarget);
+          try {
+            const got = await ask(teacher.id, provider, soalPrompt(e.info, comp, section, soal, await practiceNotes(catatan, chunk), gambar), parseSoal);
+            for (const r of chunk) {
+              const raw = got.get(r.no);
+              const q = raw ? toExamQuestion(raw, section, soal.find((x) => x.no === r.no)!, meta) : null;
+              if (!q) continue;
+              const [fresh] = await db.insert(S.question).values({ teacherId: teacher.id, ...toDbValues(normalize(q)) }).returning({ id: S.question.id });
+              await setPracticeLink(e.id, r.question.id, { questionId: fresh.id, kisiChanged: false });
+              written++;
+            }
+          } catch (err) {
+            console.error("[exam] practice ulang batch failed", section, err);
+            firstError ??= aiErrorMessage(err);
+          }
+        }
+      }
+      const error =
+        written === targets.length ? null : written === 0 ? (firstError ?? "The AI could not write the questions. Try again.") : 'Some questions could not be rewritten. Run "Rewrite marked questions" again for the rest.';
+      await endJob(e.id, teacher.id, error, written === 0);
+    });
+  }
+  refreshPractice(quizId);
+  return succeed();
+}
+
+/** Polled by the practice page while an AI job runs on its exam; numbers are the question numbers shown on that page. */
+export async function practiceJobStatus(
+  quizId: string,
+): Promise<ActionResult<{ job: string | null; jobError: string | null; marked: number; markedNos: number[]; drawnNos: number[]; uploadNos: number[] }>> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const found = await getOwnedPractice(teacher.id, quizId);
+  if (!found) return fail(t("Quiz not found."));
+  const [e] = await db.select({ job: S.exam.job, jobError: S.exam.jobError, jobStartedAt: S.exam.jobStartedAt }).from(S.exam).where(eq(S.exam.id, found.exam.id)).limit(1);
+  const { rows } = await listPracticeRows(quizId);
+  const since = e.jobStartedAt?.getTime() ?? Infinity;
+  const touched = rows.filter((r) => r.question.updatedAt.getTime() >= since);
+  const marked = rows.filter((r) => r.link.kisiChanged);
+  return succeed(undefined, {
+    job: e.job,
+    jobError: e.jobError,
+    marked: marked.length,
+    markedNos: marked.map((r) => r.no),
+    drawnNos: touched.filter((r) => r.question.notation).map((r) => r.no),
+    uploadNos: touched.filter((r) => r.question.imageHint).map((r) => r.no),
+  });
+}
+
+/** Hide the message of an AI job that did not finish everything (on the practice page). */
+export async function dismissPracticeError(quizId: string): Promise<ActionResult> {
+  const teacher = await requireTeacher();
+  const found = await getOwnedPractice(teacher.id, quizId);
+  if (found) await db.update(S.exam).set({ jobError: null }).where(eq(S.exam.id, found.exam.id));
+  refreshPractice(quizId);
+  return succeed();
 }

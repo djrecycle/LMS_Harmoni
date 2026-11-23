@@ -7,8 +7,8 @@ import { PracticeEditor, type PracticeGroup } from "@/components/practice-editor
 import { db, schema } from "@/db";
 import { getOwnedQuiz } from "@/lib/access";
 import { imageReadyFor, providerOptions } from "@/lib/ai";
-import { EXAM_SECTIONS, SECTION_META, sectionForType } from "@/lib/exam";
-import { getOwnedExam } from "@/lib/exam-store";
+import { EXAM_SECTIONS, SECTION_META } from "@/lib/exam";
+import { expireStaleExamJob, getOwnedExam, listPracticeRows } from "@/lib/exam-store";
 import { requireTeacher } from "@/lib/session";
 import { getT } from "@/i18n/server";
 
@@ -27,16 +27,11 @@ export default async function PracticeQuestionsPage({ params }: { params: Promis
   const { id } = await params;
   const quiz = await getOwnedQuiz(teacher.id, id);
   if (!quiz || !quiz.practice || !quiz.examId) notFound();
-  const exam = await getOwnedExam(teacher.id, quiz.examId);
-  if (!exam) notFound();
+  if (!(await getOwnedExam(teacher.id, quiz.examId))) notFound();
+  await expireStaleExamJob(quiz.examId);
+  const exam = (await getOwnedExam(teacher.id, quiz.examId))!;
 
-  const rows = await db
-    .select({ question: S.question, item: S.examItem })
-    .from(S.quizQuestion)
-    .innerJoin(S.question, eq(S.question.id, S.quizQuestion.questionId))
-    .leftJoin(S.examItem, eq(S.examItem.id, S.quizQuestion.examItemId))
-    .where(eq(S.quizQuestion.quizId, quiz.id))
-    .orderBy(asc(S.quizQuestion.position));
+  const { rows, other } = await listPracticeRows(quiz.id);
   const questionIds = rows.map((r) => r.question.id);
 
   const [bank, classes, providers, imageAi] = await Promise.all([
@@ -59,20 +54,19 @@ export default async function PracticeQuestionsPage({ params }: { params: Promis
     imageReadyFor(teacher.id),
   ]);
 
-  let no = 0;
   const groups: PracticeGroup[] = EXAM_SECTIONS.map((section) => ({
     section,
     items: rows
-      .filter((r) => sectionForType(r.question.type) === section)
-      .map(({ question: q, item }) => ({
+      .filter((r) => r.section === section)
+      .map(({ question: q, item, link, no }) => ({
         id: q.id,
-        no: ++no,
+        no,
         section,
         tp: item?.tp ?? q.topic ?? "",
         materi: item?.materi ?? "",
         indikator: item?.indikator ?? "",
         level: item?.level ?? q.level ?? "",
-        kisiChanged: false,
+        kisiChanged: link.kisiChanged,
         question: {
           id: q.id,
           type: q.type,
@@ -88,7 +82,6 @@ export default async function PracticeQuestionsPage({ params }: { params: Promis
         },
       })),
   }));
-  const other = rows.length - no;
 
   return (
     <>
@@ -97,7 +90,7 @@ export default async function PracticeQuestionsPage({ params }: { params: Promis
       </Link>
       <PracticeEditor
         quiz={{ id: quiz.id, title: quiz.title }}
-        exam={{ id: exam.id, title: exam.title }}
+        exam={{ id: exam.id, title: exam.title, job: exam.job, jobError: exam.jobError }}
         classes={classes.map((c) => c.name)}
         groups={groups}
         other={other}
