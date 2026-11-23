@@ -728,7 +728,7 @@ const practiceSchema = z.object({
   catatan: z.string().trim().max(1500).default(""),
 });
 
-type PracticeRow = { section: ExamSection; questionId: string };
+type PracticeRow = { section: ExamSection; questionId: string; examItemId: string | null };
 
 /** Points per question that follow the exam weights, when the sections in use add up to 100%; otherwise each question's own points. */
 function practicePoints(composition: unknown, rows: PracticeRow[]): Partial<Record<ExamSection, number>> {
@@ -746,7 +746,7 @@ async function insertPracticeQuizzes(teacherId: string, examId: string, composit
       .insert(S.quiz)
       .values({ teacherId, classroomId, examId, practice: true, title: v.title, maxAttempts: v.maxAttempts, instantFeedback: v.instantFeedback, published: v.published })
       .returning({ id: S.quiz.id });
-    await db.insert(S.quizQuestion).values(rows.map((r, position) => ({ quizId: k.id, questionId: r.questionId, position, points: points[r.section] ?? null })));
+    await db.insert(S.quizQuestion).values(rows.map((r, position) => ({ quizId: k.id, questionId: r.questionId, examItemId: r.examItemId, position, points: points[r.section] ?? null })));
   }
 }
 
@@ -777,7 +777,7 @@ export async function createExamPractice(examId: string, data: unknown): Promise
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { id, createdAt, updatedAt, ...copy } = question!;
       const [fresh] = await db.insert(S.question).values(copy).returning({ id: S.question.id });
-      rows.push({ section: item.section, questionId: fresh.id });
+      rows.push({ section: item.section, questionId: fresh.id, examItemId: item.id });
     }
     await insertPracticeQuizzes(teacher.id, e.id, e.composition, rows, v);
     revalidatePath("/", "layout");
@@ -814,7 +814,7 @@ export async function createExamPractice(examId: string, data: unknown): Promise
             const q = raw ? toExamQuestion(raw, section, targets.find((x) => x.no === r.no)!, meta) : null;
             if (!q) continue;
             const [fresh] = await db.insert(S.question).values({ teacherId: teacher.id, ...toDbValues(normalize(q)) }).returning({ id: S.question.id });
-            written.set(r.no, { section, questionId: fresh.id });
+            written.set(r.no, { section, questionId: fresh.id, examItemId: r.item.id });
           }
         } catch (err) {
           console.error("[exam] practice batch failed", section, err);
@@ -835,4 +835,138 @@ export async function createExamPractice(examId: string, data: unknown): Promise
   });
   refresh();
   return succeed(undefined, { count: ids.length, background: true });
+}
+
+/* ------------------------------------------------------------------ editing a practice (Latihan Ujian) */
+
+/** A practice quiz of the teacher, with its exam. */
+async function getOwnedPractice(teacherId: string, quizId: string) {
+  const quiz = await getOwnedQuiz(teacherId, quizId);
+  if (!quiz || !quiz.practice || !quiz.examId) return null;
+  const e = await getOwnedExam(teacherId, quiz.examId);
+  return e ? { quiz, exam: e } : null;
+}
+
+/** The practice quizzes of an exam that hold this question: one practice sent to several classes shares its questions. */
+async function practiceSiblings(examId: string, questionId: string): Promise<string[]> {
+  const rows = await db
+    .select({ id: S.quiz.id })
+    .from(S.quiz)
+    .innerJoin(S.quizQuestion, eq(S.quizQuestion.quizId, S.quiz.id))
+    .where(and(eq(S.quiz.examId, examId), eq(S.quiz.practice, true), eq(S.quizQuestion.questionId, questionId)));
+  return rows.map((r) => r.id);
+}
+
+/** Spread the exam weights again over the questions now in these practice quizzes (after one was removed). */
+async function repointPractice(quizIds: string[], composition: unknown) {
+  for (const quizId of quizIds) {
+    const rows = await db
+      .select({ id: S.quizQuestion.id, type: S.question.type })
+      .from(S.quizQuestion)
+      .innerJoin(S.question, eq(S.question.id, S.quizQuestion.questionId))
+      .where(eq(S.quizQuestion.quizId, quizId));
+    const sectioned = rows.map((r) => ({ id: r.id, section: sectionForType(r.type) }));
+    const points = practicePoints(
+      composition,
+      sectioned.filter((r): r is { id: string; section: ExamSection } => Boolean(r.section)).map((r) => ({ section: r.section, questionId: r.id, examItemId: null })),
+    );
+    for (const r of sectioned) await db.update(S.quizQuestion).set({ points: (r.section && points[r.section]) ?? null }).where(eq(S.quizQuestion.id, r.id));
+  }
+}
+
+const refreshPractice = (quizId: string) => {
+  revalidatePath(`/teacher/quizzes/${quizId}`, "layout");
+  revalidatePath("/teacher/quizzes");
+};
+
+/**
+ * Replace a practice question with another bank question of the same form, or take it out (`newQuestionId` null).
+ * Applies to every class that got this practice; the exam itself does not change.
+ */
+export async function replacePracticeQuestion(quizId: string, questionId: string, newQuestionId: string | null): Promise<ActionResult> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const found = await getOwnedPractice(teacher.id, quizId);
+  if (!found || !isUuid(questionId)) return fail(t("Quiz not found."));
+  const [old] = await db.select().from(S.question).where(and(eq(S.question.id, questionId), eq(S.question.teacherId, teacher.id))).limit(1);
+  if (!old) return fail(t("Question not found."));
+  const quizIds = await practiceSiblings(found.exam.id, questionId);
+  if (!quizIds.includes(quizId)) return fail(t("Question not found."));
+
+  if (newQuestionId === null) {
+    await db.delete(S.quizQuestion).where(and(inArray(S.quizQuestion.quizId, quizIds), eq(S.quizQuestion.questionId, questionId)));
+    await repointPractice(quizIds, found.exam.composition);
+    refreshPractice(quizId);
+    return succeed(t("Question taken out of the practice. It stays in the question bank."));
+  }
+  if (!isUuid(newQuestionId)) return fail(t("Question not found."));
+  const [q] = await db.select().from(S.question).where(and(eq(S.question.id, newQuestionId), eq(S.question.teacherId, teacher.id))).limit(1);
+  if (!q) return fail(t("Question not found."));
+  if (q.type !== old.type) return fail(t("This question type does not fit this section."));
+  const [dup] = await db.select({ id: S.quizQuestion.id }).from(S.quizQuestion).where(and(inArray(S.quizQuestion.quizId, quizIds), eq(S.quizQuestion.questionId, q.id))).limit(1);
+  if (dup) return fail(t("This question is already in the practice."));
+  await db.update(S.quizQuestion).set({ questionId: q.id }).where(and(inArray(S.quizQuestion.quizId, quizIds), eq(S.quizQuestion.questionId, questionId)));
+  refreshPractice(quizId);
+  return succeed(t("Question replaced in the practice."));
+}
+
+/**
+ * The AI writes a new practice question in place of this one: same blueprint row (TP, material, indicator, level) when
+ * known, different from both this question and the exam's own question. Applies to every class that got this practice.
+ */
+export async function rewritePracticeQuestion(quizId: string, questionId: string, data: unknown): Promise<ActionResult> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const p = jobSchema.safeParse(data);
+  if (!p.success) return zodError(p.error);
+  const found = await getOwnedPractice(teacher.id, quizId);
+  if (!found || !isUuid(questionId)) return fail(t("Quiz not found."));
+  const e = found.exam;
+  const [link] = await db
+    .select({ examItemId: S.quizQuestion.examItemId, question: S.question })
+    .from(S.quizQuestion)
+    .innerJoin(S.question, eq(S.question.id, S.quizQuestion.questionId))
+    .where(and(eq(S.quizQuestion.quizId, quizId), eq(S.quizQuestion.questionId, questionId)))
+    .limit(1);
+  if (!link) return fail(t("Question not found."));
+  const old = link.question;
+  const section = sectionForType(old.type);
+  if (!section) return fail(t("This question type cannot be rewritten here."));
+  const [item] = link.examItemId ? await db.select().from(S.examItem).where(eq(S.examItem.id, link.examItemId)).limit(1) : [];
+  const [examQ] = item?.questionId ? await db.select({ prompt: S.question.prompt, options: S.question.options }).from(S.question).where(eq(S.question.id, item.questionId)).limit(1) : [];
+
+  const { provider, catatan, gambar } = p.data;
+  if (!(await canUseAi(teacher.id, provider))) return fail(t(providerUnavailableMessage(provider)));
+  if (!(await takeAllowance(teacher.id))) return fail(t("You have reached today's AI usage limit. Try again tomorrow."));
+  const comp = readComposition(e.composition);
+  const meta = { kelas: e.info.kelas || null, semester: semesterGanjilGenap(e.info.semester), pgOptions: comp.pgOptions };
+  const target: SoalTarget = item
+    ? { no: 1, section, tp: item.tp, materi: item.materi, indikator: item.indikator, level: item.level }
+    : { no: 1, section, tp: old.topic ?? "", materi: "sama dengan soal sebelumnya", indikator: "mengukur konsep yang sama dengan soal sebelumnya", level: old.level ?? "" };
+  const show = (q: { prompt: string; options: string[] | null }) => `${q.prompt}${q.options?.length ? ` | Pilihan: ${q.options.join(" / ")}` : ""}`;
+  const notes = [
+    catatan,
+    "Ini soal LATIHAN untuk persiapan ujian: ukur hal yang sama, tetapi tulis soal yang berbeda (kalimat, tokoh/situasi, angka, contoh, dan urutan pilihan).",
+    `Soal latihan sebelumnya (JANGAN diulang): ${show(old)}`,
+    examQ ? `Soal ujian asli (JANGAN diulang): ${show(examQ)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  try {
+    const got = await ask(teacher.id, provider, soalPrompt(e.info, comp, section, [target], notes, gambar), parseSoal);
+    const raw = got.get(1) ?? [...got.values()][0];
+    const q = raw ? toExamQuestion(raw, section, target, meta) : null;
+    if (!q) {
+      await refundAllowance(teacher.id).catch(() => undefined);
+      return fail(t("The AI could not write the questions. Try again."));
+    }
+    const [fresh] = await db.insert(S.question).values({ teacherId: teacher.id, ...toDbValues(normalize(q)) }).returning({ id: S.question.id });
+    const quizIds = await practiceSiblings(e.id, old.id);
+    await db.update(S.quizQuestion).set({ questionId: fresh.id }).where(and(inArray(S.quizQuestion.quizId, quizIds), eq(S.quizQuestion.questionId, old.id)));
+    refreshPractice(quizId);
+    return succeed(t("New question written. The old one stays in the question bank."));
+  } catch (err) {
+    await refundAllowance(teacher.id).catch(() => undefined);
+    return fail(t(aiErrorMessage(err)));
+  }
 }

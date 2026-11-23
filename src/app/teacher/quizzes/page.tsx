@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ClipboardList, Dumbbell, Eye, FileCheck2, Pencil, Plus } from "lucide-react";
+import { ClipboardList, Dumbbell, Eye, FileCheck2, ListChecks, Pencil, Plus } from "lucide-react";
 import { DeleteQuizButton } from "@/components/quiz-actions";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -178,6 +178,13 @@ function QuizCard({ k, t }: { k: QuizSummary; t: Translate }) {
             <Pencil /> {t("Edit")}
           </Link>
         </Button>
+        {k.examId && k.practice && (
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/teacher/quizzes/${k.id}/soal`}>
+              <ListChecks /> {t("Manage questions")}
+            </Link>
+          </Button>
+        )}
         {k.examId && (
           <Button asChild variant="outline" size="sm">
             <Link href={`/teacher/exams/${k.examId}`}>

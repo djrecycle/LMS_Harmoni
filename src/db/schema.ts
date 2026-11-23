@@ -365,6 +365,8 @@ export const quizQuestion = pgTable(
     position: integer("position").notNull().default(0),
     /** Points for this question in this quiz, overriding question.points (an exam spreads each section's weight over its questions). */
     points: real("points"),
+    /** Practice runs (Latihan Ujian): the exam blueprint row this question practises, so the AI can rewrite it for the same TP, material, indicator and level. */
+    examItemId: uuid("exam_item_id").references((): AnyPgColumn => examItem.id, { onDelete: "set null" }),
   },
   (t) => [uniqueIndex("quiz_question_unique").on(t.quizId, t.questionId)],
 );

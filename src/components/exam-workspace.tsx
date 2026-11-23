@@ -19,6 +19,7 @@ import { MediaUploader } from "@/components/media-uploader";
 import { AiImagePanel, type ImageTarget } from "@/components/ai-image-panel";
 import type { ImageReady } from "@/lib/ai";
 import { NotationPreview } from "@/components/notation-editor";
+import type { ActionResult } from "@/lib/action-result";
 import { cn } from "@/lib/utils";
 import { useT } from "@/i18n/client";
 
@@ -46,7 +47,19 @@ export type WorkspaceItem = {
   kisiChanged: boolean;
   question: WorkspaceQuestion | null;
 };
-type BankQuestion = { id: string; type: QuestionType; prompt: string; topic: string | null; kelas: string | null; level: string | null };
+export type BankQuestion = { id: string; type: QuestionType; prompt: string; topic: string | null; kelas: string | null; level: string | null };
+
+/** What a question card does: on an exam row, or on a practice (Latihan Ujian) question. */
+export type CardActions = {
+  /** The AI writes a new question in this place. */
+  rewrite: (data: { provider: ProviderPick; catatan: string; gambar: boolean }) => Promise<ActionResult>;
+  /** Put a bank question here; null takes the question out. */
+  link: (questionId: string | null) => Promise<ActionResult>;
+  /** Drop the "blueprint changed" mark (exam rows only). */
+  keep?: () => Promise<ActionResult>;
+  /** Where "Edit question" comes back to. */
+  back: string;
+};
 type ExamView = { id: string; title: string; info: ExamInfo; tps: string[]; composition: ExamComposition; job: string | null; jobError: string | null };
 
 type Tab = "kisi" | "soal" | "publish";
@@ -84,38 +97,7 @@ export function ExamWorkspace({
   const [catatan, setCatatan] = useState("");
   const [withImages, setWithImages] = useState(true);
   const [busy, start] = useTransition();
-  const [drawing, setDrawing] = useState<{ done: number; total: number } | null>(null);
-  const tried = useRef(new Set<string>());
-
-  // Notation the AI (or the teacher) wrote but that is not an image yet: draw it here in the browser, upload the PNG,
-  // and make it the question image. Runs once per question; a failure is reported and left for the teacher.
-  const pendingDrawings = items.map((i) => i.question).filter((q): q is WorkspaceQuestion => Boolean(q?.notation && !q.mediaKey && !tried.current.has(q.id)));
-  const pendingKey = pendingDrawings.map((q) => q.id).join(",");
-  useEffect(() => {
-    if (job || drawing || pendingDrawings.length === 0) return;
-    const list = pendingDrawings;
-    list.forEach((q) => tried.current.add(q.id));
-    void (async () => {
-      setDrawing({ done: 0, total: list.length });
-      let failed = 0;
-      for (let n = 0; n < list.length; n++) {
-        try {
-          const key = await uploadMedia(await notationPng(list[n].notation!));
-          const r = await setQuestionImage(list[n].id, key);
-          if (!r.ok) failed++;
-        } catch {
-          failed++;
-        }
-        setDrawing({ done: n + 1, total: list.length });
-      }
-      setDrawing(null);
-      if (failed) toast.warning(t("{0} notation images could not be drawn. Open the question to fix its notation.", failed));
-      else toast.success(t("{0} notation images added to the questions.", list.length));
-      router.refresh();
-    })();
-    // Runs when the set of undrawn questions changes, not on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingKey, job]);
+  const drawing = useNotationDrawing(items.map((i) => i.question), Boolean(job));
 
   // Follow the server's job state after a refresh.
   useEffect(() => setJob(exam.job), [exam.job]);
@@ -604,6 +586,45 @@ function KisiRow({ item, tps, locked }: { item: WorkspaceItem & { no: number }; 
   );
 }
 
+/**
+ * Notation the AI (or the teacher) wrote but that is not an image yet: draw it in the browser, upload the PNG, and make
+ * it the question image. Runs once per question, and not while `paused` (an AI job is still writing); a failure is reported.
+ */
+export function useNotationDrawing(questions: (WorkspaceQuestion | null)[], paused: boolean) {
+  const t = useT();
+  const router = useRouter();
+  const [drawing, setDrawing] = useState<{ done: number; total: number } | null>(null);
+  const tried = useRef(new Set<string>());
+  const pendingDrawings = questions.filter((q): q is WorkspaceQuestion => Boolean(q?.notation && !q.mediaKey && !tried.current.has(q.id)));
+  const pendingKey = pendingDrawings.map((q) => q.id).join(",");
+  useEffect(() => {
+    if (paused || drawing || pendingDrawings.length === 0) return;
+    const list = pendingDrawings;
+    list.forEach((q) => tried.current.add(q.id));
+    void (async () => {
+      setDrawing({ done: 0, total: list.length });
+      let failed = 0;
+      for (let n = 0; n < list.length; n++) {
+        try {
+          const key = await uploadMedia(await notationPng(list[n].notation!));
+          const r = await setQuestionImage(list[n].id, key);
+          if (!r.ok) failed++;
+        } catch {
+          failed++;
+        }
+        setDrawing({ done: n + 1, total: list.length });
+      }
+      setDrawing(null);
+      if (failed) toast.warning(t("{0} notation images could not be drawn. Open the question to fix its notation.", failed));
+      else toast.success(t("{0} notation images added to the questions.", list.length));
+      router.refresh();
+    })();
+    // Runs when the set of undrawn questions changes, not on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingKey, paused]);
+  return drawing;
+}
+
 /* ------------------------------------------------------------------ questions */
 
 function SoalTab({
@@ -669,7 +690,20 @@ function SoalTab({
               {letter(gi)}. {t(SECTION_META[g.section].label)} <span className="text-muted-foreground">({range(g)})</span>
             </h3>
             {g.items.map((it) => (
-              <SoalCard key={it.id} examId={examId} item={it} bank={bank.filter((b) => b.type === SECTION_META[g.section].type && !used.has(b.id))} locked={locked} imageAi={imageAi} provider={provider} />
+              <SoalCard
+                key={it.id}
+                actions={{
+                  rewrite: (d) => rewriteExamItem(it.id, d),
+                  link: (id) => linkExamQuestion(it.id, id),
+                  keep: () => keepExamQuestion(it.id),
+                  back: `/teacher/exams/${examId}`,
+                }}
+                item={it}
+                bank={bank.filter((b) => b.type === SECTION_META[g.section].type && !used.has(b.id))}
+                locked={locked}
+                imageAi={imageAi}
+                provider={provider}
+              />
             ))}
           </section>
         ))}
@@ -678,15 +712,15 @@ function SoalTab({
   );
 }
 
-function SoalCard({
-  examId,
+export function SoalCard({
+  actions,
   item,
   bank,
   locked,
   imageAi,
   provider,
 }: {
-  examId: string;
+  actions: CardActions;
   item: WorkspaceItem & { no: number };
   bank: BankQuestion[];
   locked: boolean;
@@ -749,7 +783,7 @@ function SoalCard({
 
   function rewrite() {
     startWriting(async () => {
-      const r = await rewriteExamItem(item.id, { provider, catatan: note, gambar: rewriteImages });
+      const r = await actions.rewrite({ provider, catatan: note, gambar: rewriteImages });
       if (!r.ok) return void toast.error(r.error);
       toast.success(r.message);
       setRewriting(false);
@@ -761,7 +795,8 @@ function SoalCard({
 
   function keep() {
     start(async () => {
-      const r = await keepExamQuestion(item.id);
+      if (!actions.keep) return;
+      const r = await actions.keep();
       if (!r.ok) return void toast.error(r.error);
       toast.success(r.message);
       router.refresh();
@@ -770,7 +805,7 @@ function SoalCard({
 
   function link(questionId: string | null) {
     start(async () => {
-      const r = await linkExamQuestion(item.id, questionId);
+      const r = await actions.link(questionId);
       if (!r.ok) return void toast.error(r.error);
       toast.success(r.message);
       setPicking(false);
@@ -830,7 +865,7 @@ function SoalCard({
         {q && (
           <>
             <Button asChild variant="outline" size="sm">
-              <Link href={`/teacher/question-bank/${q.id}?back=${encodeURIComponent(`/teacher/exams/${examId}`)}`}>
+              <Link href={`/teacher/question-bank/${q.id}?back=${encodeURIComponent(actions.back)}`}>
                 <Pencil /> {t("Edit question")}
               </Link>
             </Button>
@@ -849,7 +884,7 @@ function SoalCard({
             <Button variant="ghost" size="sm" disabled={busy || locked} onClick={() => link(null)}>
               <Unlink /> {t("Remove")}
             </Button>
-            {item.kisiChanged && (
+            {item.kisiChanged && actions.keep && (
               <Button variant="ghost" size="sm" disabled={busy || locked} onClick={keep} title={t("The question still fits the edited blueprint: remove the mark")}>
                 <CircleCheck /> {t("Keep question")}
               </Button>
@@ -1314,7 +1349,7 @@ function PracticeSection({
         <p className="text-sm text-muted-foreground">{t("A practice version of this exam for students to get ready: several attempts and answers shown right away. It never counts as the exam.")}</p>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
-        {option("copy", t("Copy the exam questions"), t("Exact copies of the {0} exam questions. Edit any of them afterwards from the practice quiz preview; the exam itself does not change.", filled))}
+        {option("copy", t("Copy the exam questions"), t("Exact copies of the {0} exam questions. Change any of them afterwards with Manage questions; the exam itself does not change.", filled))}
         {option("ai", t("Similar questions by AI"), t("The AI writes a new question for each of the {0} blueprint rows: same TP, material, indicator and level, but different wording, numbers and choices.", items.length))}
       </div>
       {mode === "ai" && (
@@ -1368,14 +1403,15 @@ function PracticeSection({
         <div className="grid gap-2">
           <p className="text-sm font-bold">{t("Practice already sent")}</p>
           {practices.map((q) => (
-            <Link key={q.id} href={`/teacher/quizzes/${q.id}`} className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm hover:border-primary">
+            <Link key={q.id} href={`/teacher/quizzes/${q.id}/soal`} className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm hover:border-primary">
               <span className="font-semibold">{q.classroomName}</span>
               <span className="text-muted-foreground">{q.title}</span>
               <Badge tone={q.published ? "success" : "warning"}>{q.published ? t("Published") : t("Draft")}</Badge>
               <Badge>{t("{0} attempts", q.attempts)}</Badge>
+              <span className="ml-auto text-xs font-semibold text-primary">{t("Manage questions")} →</span>
             </Link>
           ))}
-          <p className="text-xs text-muted-foreground">{t("Practice questions are separate copies in the question bank: open the practice quiz → Preview → Edit on a question to change it. The exam stays the same.")}</p>
+          <p className="text-xs text-muted-foreground">{t("Practice questions are separate copies in the question bank: open one above to replace, rewrite with AI, edit, or take out a question. The exam stays the same.")}</p>
         </div>
       )}
     </section>
