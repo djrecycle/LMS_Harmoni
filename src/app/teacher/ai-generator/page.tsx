@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { AiGenerator } from "@/components/generator-ai";
 import { PageHeader } from "@/components/ui/misc";
 import { dailyLimit, providerOptions, remainingAllowance } from "@/lib/ai";
+import { listExamSources } from "@/lib/exam-store";
 import { topicSuggestions } from "@/lib/form-data";
 import { requireTeacher } from "@/lib/session";
 import { getT } from "@/i18n/server";
@@ -14,11 +15,11 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function GeneratorAiPage() {
   const t = await getT();
   const teacher = await requireTeacher();
-  const [{ remaining }, topics] = await Promise.all([remainingAllowance(teacher.id), topicSuggestions(teacher.id)]);
+  const [{ remaining }, topics, exams] = await Promise.all([remainingAllowance(teacher.id), topicSuggestions(teacher.id), listExamSources(teacher.id)]);
   return (
     <>
       <PageHeader title={t("AI Generator")} description={t("The AI drafts questions and lessons. You review, edit, and save them.")} />
-      <AiGenerator providers={await providerOptions(teacher.id)} remainingInitial={remaining} limit={await dailyLimit(teacher.id)} topicSuggestions={topics} />
+      <AiGenerator providers={await providerOptions(teacher.id)} remainingInitial={remaining} limit={await dailyLimit(teacher.id)} topicSuggestions={topics} exams={exams} />
     </>
   );
 }

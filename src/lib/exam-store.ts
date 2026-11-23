@@ -1,5 +1,5 @@
 /** Database access for exams. Every function takes the teacher id: a teacher only sees their own exams. */
-import { and, asc, eq, inArray, lt } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, lt } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { isUuid } from "./access";
 import { EXAM_SECTIONS, type ExamSection } from "./exam";
@@ -44,3 +44,17 @@ export async function nextPosition(examId: string): Promise<number> {
   const rows = await db.select({ position: S.examItem.position }).from(S.examItem).where(eq(S.examItem.examId, examId));
   return rows.reduce((m, r) => Math.max(m, r.position + 1), 0);
 }
+
+/** The teacher's exams that have at least one blueprint row, newest first: offered as a source for an AI study summary. */
+export async function listExamSources(teacherId: string) {
+  const rows = await db
+    .select({ id: S.exam.id, title: S.exam.title, info: S.exam.info, updatedAt: S.exam.updatedAt, items: count(S.examItem.id), questions: count(S.examItem.questionId) })
+    .from(S.exam)
+    .innerJoin(S.examItem, eq(S.examItem.examId, S.exam.id))
+    .where(eq(S.exam.teacherId, teacherId))
+    .groupBy(S.exam.id)
+    .orderBy(desc(S.exam.updatedAt));
+  return rows.map((r) => ({ id: r.id, title: r.title, jenis: r.info.jenis_ujian ?? "", kelas: r.info.kelas ?? "", items: r.items, questions: r.questions }));
+}
+
+export type ExamSource = Awaited<ReturnType<typeof listExamSources>>[number];

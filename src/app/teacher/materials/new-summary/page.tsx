@@ -4,6 +4,7 @@ import { SummaryForm, type SourceLesson } from "@/components/summary-form";
 import { PageHeader } from "@/components/ui/misc";
 import { db, schema } from "@/db";
 import { dailyLimit, providerOptions, remainingAllowance } from "@/lib/ai";
+import { listExamSources } from "@/lib/exam-store";
 import { materialFormData } from "@/lib/form-data";
 import { str } from "@/lib/perangkat/util";
 import { requireTeacher } from "@/lib/session";
@@ -19,7 +20,7 @@ export default async function NewSummaryPage() {
   const teacher = await requireTeacher();
   const S = schema;
 
-  const [form, ownMaterials, perangkatDocs, providers, { remaining }] = await Promise.all([
+  const [form, ownMaterials, perangkatDocs, providers, { remaining }, exams] = await Promise.all([
     materialFormData(teacher.id),
     db
       .select({ id: S.material.id, title: S.material.title, topic: S.material.topic })
@@ -33,11 +34,13 @@ export default async function NewSummaryPage() {
       .orderBy(desc(S.teachingDoc.createdAt)),
     providerOptions(teacher.id),
     remainingAllowance(teacher.id),
+    listExamSources(teacher.id),
   ]);
 
   const sources: SourceLesson[] = [
     ...ownMaterials.map((m) => ({ id: m.id, title: m.title, topic: m.topic, kind: "material" as const })),
     ...perangkatDocs.map((d) => ({ id: d.id, title: d.title, topic: str(d.context?.bab_judul) || str(d.context?.topik) || null, kind: d.kind as "materi_guru" | "materi_siswa" })),
+    ...exams.map((e) => ({ id: e.id, title: e.title, topic: e.title, kind: "exam" as const })),
   ];
 
   return (

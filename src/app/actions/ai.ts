@@ -12,7 +12,9 @@ import type { InteractiveLessonData } from "@/lib/interactive-lessons";
 import { materiKeMarkdown, ringkas } from "@/lib/perangkat/generator";
 import { docContext, getOwnedDoc } from "@/lib/perangkat/store";
 import { obj } from "@/lib/perangkat/util";
-import type { QuestionInput } from "@/lib/questions";
+import { SECTION_META, type ExamInfo } from "@/lib/exam";
+import { getOwnedExam, listExamItems, type ExamItemRow } from "@/lib/exam-store";
+import { formatAnswerKey, type QuestionInput } from "@/lib/questions";
 import { requireTeacher } from "@/lib/session";
 import { getLocale, getT } from "@/i18n/server";
 
@@ -149,13 +151,15 @@ const materialRequest = z
     topic: z.string().trim().max(300).optional(),
     sourceMaterialId: z.uuid().optional(),
     sourceDocId: z.uuid().optional(),
+    /** An exam (Ujian): the summary covers what its blueprint and questions test. */
+    sourceExamId: z.uuid().optional(),
     level: z.enum(LEVELS),
     kind: z.enum(["material", "summary"]),
     length: z.enum(["short", "medium", "long", "auto"]).default("auto"),
     note: z.string().trim().max(500).optional(),
     provider: z.enum(PROVIDER_CHOICES).default("auto"),
   })
-  .refine((v) => v.sourceMaterialId || v.sourceDocId || (v.note ?? "").trim() || (v.topic ?? "").trim().length >= 3, {
+  .refine((v) => v.sourceMaterialId || v.sourceDocId || v.sourceExamId || (v.note ?? "").trim() || (v.topic ?? "").trim().length >= 3, {
     message: "Enter a topic/TP, choose a document to base it on, or write instructions for the AI",
     path: ["topic"],
   });
@@ -174,7 +178,7 @@ export async function generateMaterialDraft(data: unknown): Promise<ActionResult
    * material) hold the actual content to condense or build on; a Modul Ajar only holds the lesson plan, so the
    * AI must elaborate on it rather than summarize it. Combinable with a topic/TP and the teacher's own note.
    */
-  let source: { title: string; label: string; text: string; verbatim: boolean } | null = null;
+  let source: { title: string; label: string; text: string; verbatim: boolean; exam?: boolean } | null = null;
   if (v.sourceMaterialId) {
     const m = await getOwnedMaterial(teacher.id, v.sourceMaterialId);
     if (!m) return fail(t("Lesson not found."));
@@ -194,6 +198,12 @@ export async function generateMaterialDraft(data: unknown): Promise<ActionResult
     } else {
       return fail(t("This document type cannot be used as a source."));
     }
+  } else if (v.sourceExamId) {
+    const e = await getOwnedExam(teacher.id, v.sourceExamId);
+    if (!e) return fail(t("Exam not found."));
+    const items = await listExamItems(e.id);
+    if (!items.length) return fail(t("This exam has no blueprint or questions yet."));
+    source = { title: e.title, label: `Exam "${e.title}"`, text: examSourceText(e.title, e.info, e.tps, items), verbatim: false, exam: true };
   }
 
   if (!(await canUseAi(teacher.id, v.provider))) return fail(t(providerUnavailableMessage(v.provider)));
@@ -201,7 +211,9 @@ export async function generateMaterialDraft(data: unknown): Promise<ActionResult
   try {
     const sourceRule = !source
       ? ""
-      : source.verbatim && v.kind === "summary"
+      : source.exam
+        ? `\nThe source below is an exam: its blueprint (TP, material, indicator) and its questions with the answer keys. Write ${v.kind === "material" ? "teaching material" : "a study summary"} that students can learn from before the exam: cover EVERY concept, fact, term and skill these questions test, grouped by TP / material, so a student who studies it can answer each question on their own. Explain the concepts correctly (use the answer keys to be sure), but do NOT copy the questions, do NOT list questions with their answers, and do NOT mention that this comes from an exam or its question numbers.`
+        : source.verbatim && v.kind === "summary"
         ? "\nA source document is given below: summarize it faithfully, without inventing facts beyond it."
         : `\nA source document is given below (from Perangkat Ajar / Lessons): use its topic, facts, and flow as the basis. You may add clarifying explanation and examples to write a complete ${v.kind === "material" ? "teaching material" : "summary"}, but do not contradict it.`;
     const { data: result } = await generateJson<{ title: string; content: string }>({
@@ -378,4 +390,23 @@ export async function saveMaterialFromAi(data: unknown): Promise<ActionResult<{ 
     .values({ teacherId: teacher.id, title: p.data.title, content: p.data.content, topic: p.data.topic || null, typeMedia: "text" })
     .returning({ id: schema.material.id });
   return succeed(t("Lesson saved."), { id: m.id });
+}
+
+/** An exam as source text for the AI: identity, TPs, then each blueprint row with its question and answer key. */
+function examSourceText(title: string, info: ExamInfo, tps: string[], items: ExamItemRow[]): string {
+  const ident = [info.jenis_ujian, info.mata_pelajaran, info.kelas && `Kelas ${info.kelas}`, info.semester && `Semester ${info.semester}`].filter(Boolean).join(", ");
+  const lines = [`Exam: ${title}${ident ? ` (${ident})` : ""}`];
+  if (tps.length) lines.push("Learning objectives (TP) tested:", ...tps.map((tp) => `- ${tp}`));
+  lines.push("", "Questions:");
+  items.forEach(({ item, question: q }, i) => {
+    const kisi = [item.tp && `TP: ${item.tp}`, item.materi && `Material: ${item.materi}`, item.indikator && `Indicator: ${item.indikator}`].filter(Boolean).join("; ");
+    lines.push(`${i + 1}. [${SECTION_META[item.section].nama}] ${kisi}`);
+    if (!q) return;
+    lines.push(`   Question: ${q.prompt}`);
+    if (q.options?.length) lines.push(`   Options: ${q.options.map((o, j) => `${String.fromCharCode(65 + j)}. ${o}`).join(" | ")}`);
+    if (q.matchRows?.length) lines.push(`   Left column: ${q.matchRows.join(" | ")}`);
+    if (q.answerKey) lines.push(`   Answer key: ${formatAnswerKey(q.answerKey, q.options, undefined, q.matchRows)}`);
+    if (q.explanation?.trim()) lines.push(`   Explanation: ${q.explanation.trim()}`);
+  });
+  return lines.join("\n");
 }

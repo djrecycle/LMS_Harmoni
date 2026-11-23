@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/input";
 import { Alert, Badge } from "@/components/ui/misc";
 import { ProviderSelect, providerReady, useProviderPick, type ProviderOption, type ProviderPick } from "@/components/provider-select";
+import type { ExamSource } from "@/lib/exam-store";
 import type { TopicSuggestions } from "@/lib/form-data";
 import { QUESTION_TYPE_LABELS, formatAnswerKey, type QuestionInput } from "@/lib/questions";
 import { cn } from "@/lib/utils";
@@ -35,7 +36,7 @@ const TYPES = [
 
 type Draft = { id: number; data: QuestionInput; choose: boolean; edit: boolean };
 
-export function AiGenerator({ providers, remainingInitial, limit, topicSuggestions }: { providers: ProviderOption[]; remainingInitial: number; limit: number; topicSuggestions: TopicSuggestions }) {
+export function AiGenerator({ providers, remainingInitial, limit, topicSuggestions, exams }: { providers: ProviderOption[]; remainingInitial: number; limit: number; topicSuggestions: TopicSuggestions; exams: ExamSource[] }) {
   const t = useT();
   const [pick, setPick] = useProviderPick();
   const anyProvider = providers.some((o) => o.available);
@@ -72,7 +73,7 @@ export function AiGenerator({ providers, remainingInitial, limit, topicSuggestio
       {tab === "question" ? (
         <QuestionsTab available={available} provider={pick} setRemaining={setRemaining} topicSuggestions={topicSuggestions} />
       ) : (
-        <MaterialTab available={available} provider={pick} setRemaining={setRemaining} topicSuggestions={topicSuggestions} />
+        <MaterialTab available={available} provider={pick} setRemaining={setRemaining} topicSuggestions={topicSuggestions} exams={exams} />
       )}
     </div>
   );
@@ -265,10 +266,14 @@ function DraftPreview({ s }: { s: QuestionInput }) {
 
 /* ------------------------------ Lesson ------------------------------ */
 
-function MaterialTab({ available, provider, setRemaining, topicSuggestions }: { available: boolean; provider: ProviderPick; setRemaining: (n: number) => void; topicSuggestions: TopicSuggestions }) {
+function MaterialTab({ available, provider, setRemaining, topicSuggestions, exams }: { available: boolean; provider: ProviderPick; setRemaining: (n: number) => void; topicSuggestions: TopicSuggestions; exams: ExamSource[] }) {
   const t = useT();
   const router = useRouter();
   const [topic, setTopic] = useState("");
+  /** Where the topic comes from: typed / picked from TP, or an exam's blueprint and questions. */
+  const [from, setFrom] = useState<"topic" | "exam">("topic");
+  const [examId, setExamId] = useState(exams[0]?.id ?? "");
+  const exam = exams.find((x) => x.id === examId);
   const [level, setLevel] = useState<(typeof LEVELS)[number]>("Junior high");
   const [kind, setKind] = useState<"material" | "summary">("material");
   const [length, setLength] = useState<"short" | "medium" | "long" | "auto">("medium");
@@ -283,7 +288,9 @@ function MaterialTab({ available, provider, setRemaining, topicSuggestions }: { 
   function create() {
     setError("");
     startCreate(async () => {
-      const r = await generateMaterialDraft({ topic, level, kind, length, note: note || undefined, provider });
+      const r = await generateMaterialDraft(
+        from === "exam" ? { sourceExamId: examId, level, kind, length, note: note || undefined, provider } : { topic, level, kind, length, note: note || undefined, provider },
+      );
       if (!r.ok || !r.data) return setError(r.error ?? t("Could not create the lesson."));
       setTitle(r.data.title);
       setContent(r.data.content);
@@ -294,7 +301,7 @@ function MaterialTab({ available, provider, setRemaining, topicSuggestions }: { 
 
   function save() {
     startSave(async () => {
-      const r = await saveMaterialFromAi({ title, content, topic });
+      const r = await saveMaterialFromAi({ title, content, topic: from === "exam" ? exam?.title : topic });
       if (!r.ok || !r.data) return void toast.error(r.error);
       toast.success(t("Lesson saved. Assign it to a class on this page."));
       router.push(`/teacher/materials/${r.data.id}`);
@@ -310,9 +317,52 @@ function MaterialTab({ available, provider, setRemaining, topicSuggestions }: { 
           create();
         }}
       >
-        <Field label={t("Topic")} htmlFor="m-topic" hint={`${t("Example: time signatures and beats, history of gamelan, reading staff notation")}. ${t("Pick a TP from Perangkat Ajar, or type your own.")}`}>
-          <TopicPicker id="m-topic" value={topic} onChange={setTopic} suggestions={topicSuggestions} maxLength={300} required />
-        </Field>
+        <div className="grid gap-1.5">
+          <span className="text-sm font-semibold">{t("Based on")}</span>
+          <div className="inline-flex w-fit rounded-lg bg-muted p-1 text-sm font-semibold">
+            {(
+              [
+                ["topic", t("Topic")],
+                ["exam", t("Exam")],
+              ] as const
+            ).map(([k, l]) => (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={from === k}
+                onClick={() => {
+                  setFrom(k);
+                  if (k === "exam") setKind("summary");
+                }}
+                className={cn("rounded-md px-4 py-1.5", from === k && "bg-card shadow-xs")}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+        {from === "topic" ? (
+          <Field label={t("Topic")} htmlFor="m-topic" hint={`${t("Example: time signatures and beats, history of gamelan, reading staff notation")}. ${t("Pick a TP from Perangkat Ajar, or type your own.")}`}>
+            <TopicPicker id="m-topic" value={topic} onChange={setTopic} suggestions={topicSuggestions} maxLength={300} required />
+          </Field>
+        ) : exams.length === 0 ? (
+          <Alert kind="info">
+            {t("No exams with a blueprint or questions yet.")}{" "}
+            <Link href="/teacher/exams" className="font-semibold underline">
+              {t("Create an exam")}
+            </Link>
+          </Alert>
+        ) : (
+          <Field label={t("Exam")} htmlFor="m-exam" hint={t("The AI covers every concept the exam's questions test, without copying the questions or their answers, so students can study for it.")}>
+            <Select id="m-exam" value={examId} onChange={(e) => setExamId(e.target.value)}>
+              {exams.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {[x.title, x.jenis, x.kelas && `${t("Class")} ${x.kelas}`, t("{0} questions", x.questions)].filter(Boolean).join(" · ")}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label={t("Type")} htmlFor="m-kind">
             <Select id="m-kind" value={kind} onChange={(e) => setKind(e.target.value as "material" | "summary")}>
@@ -343,7 +393,7 @@ function MaterialTab({ available, provider, setRemaining, topicSuggestions }: { 
         </Field>
         {error && <Alert kind="error">{error}</Alert>}
         <div>
-          <Button type="submit" size="lg" disabled={!available || membuat || topic.trim().length < 3}>
+          <Button type="submit" size="lg" disabled={!available || membuat || (from === "exam" ? !exam : topic.trim().length < 3)}>
             {membuat ? <LoaderCircle className="animate-spin" /> : <WandSparkles />} {membuat ? t("The AI is writing…") : t("Create draft")}
           </Button>
         </div>

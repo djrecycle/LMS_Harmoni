@@ -18,11 +18,11 @@ import { useT } from "@/i18n/client";
 
 const LEVELS = ["Upper elementary", "Junior high", "SMA/SMK"] as const;
 
-export type SourceLesson = { id: string; title: string; topic: string | null; kind: "material" | "materi_guru" | "materi_siswa" };
+export type SourceLesson = { id: string; title: string; topic: string | null; kind: "material" | "materi_guru" | "materi_siswa" | "exam" };
 type Classroom = { id: string; name: string };
 type ModulAjar = { id: string; title: string };
 
-const SOURCE_GROUP_LABEL = { material: "My Lessons", materi_guru: "Teacher material (Teaching Documents)", materi_siswa: "Student material (Teaching Documents)" } as const;
+const SOURCE_GROUP_LABEL = { material: "My Lessons", materi_guru: "Teacher material (Teaching Documents)", materi_siswa: "Student material (Teaching Documents)", exam: "Exams (concepts the questions test)" } as const;
 
 export function SummaryForm({
   classroom,
@@ -95,7 +95,7 @@ function SummarizeExistingForm({ sources, providers, remainingInitial, limit }: 
     setError("");
     startCreate(async () => {
       const r = await generateMaterialDraft({
-        ...(source.kind === "material" ? { sourceMaterialId: source.id } : { sourceDocId: source.id }),
+        ...(source.kind === "material" ? { sourceMaterialId: source.id } : source.kind === "exam" ? { sourceExamId: source.id } : { sourceDocId: source.id }),
         level,
         kind: "summary",
         length,
@@ -148,7 +148,7 @@ function SummarizeExistingForm({ sources, providers, remainingInitial, limit }: 
           </div>
           <Field label={t("Lesson to summarize")} htmlFor="s-source">
             <Select id="s-source" value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
-              {(["material", "materi_guru", "materi_siswa"] as const).map((k) => {
+              {(["material", "materi_guru", "materi_siswa", "exam"] as const).map((k) => {
                 const group = sources.filter((s) => s.kind === k);
                 if (!group.length) return null;
                 return (

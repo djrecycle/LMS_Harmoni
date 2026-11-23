@@ -2678,4 +2678,10 @@ export const id: Record<string, string> = {
   "Free models allow {0} requests a day, or {1} once the account has bought at least $10 of credits.": "Model gratis dibatasi {0} permintaan per hari, atau {1} bila akun pernah membeli kredit minimal $10.",
   "Ollama on the server itself: http://host.docker.internal:11434 (from Docker). Ollama on another computer, e.g. your laptop: connect both through Tailscale and use that computer's Tailscale address, e.g. http://100.x.y.z:11434. It has no API key.": "Ollama di server ini: http://host.docker.internal:11434 (dari Docker). Ollama di komputer lain, misalnya laptop Anda: hubungkan keduanya lewat Tailscale lalu pakai alamat Tailscale komputer itu, mis. http://100.x.y.z:11434. Ollama tidak memakai API key.",
   "Show the last AI usage summary": "Tampilkan ringkasan pemakaian AI terakhir",
+  "Based on": "Berdasarkan",
+  "No exams with a blueprint or questions yet.": "Belum ada ujian yang punya kisi-kisi atau soal.",
+  "Create an exam": "Buat ujian",
+  "The AI covers every concept the exam's questions test, without copying the questions or their answers, so students can study for it.": "AI merangkum semua konsep yang diujikan, tanpa menyalin soal atau jawabannya, supaya siswa bisa belajar untuk ujian.",
+  "Exams (concepts the questions test)": "Ujian (konsep yang diujikan)",
+  "This exam has no blueprint or questions yet.": "Ujian ini belum punya kisi-kisi atau soal.",
 };
