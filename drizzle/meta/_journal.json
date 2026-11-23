@@ -183,6 +183,13 @@
       "when": 1794897119199,
       "tag": "0025_exam_item_kisi_changed",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1795402369202,
+      "tag": "0026_quiz_practice",
+      "breakpoints": true
     }
   ]
 }

@@ -192,6 +192,8 @@ export type QuizSummary = {
   published: boolean;
   /** Set when this quiz is the online run of an exam (an official assessment, not a classroom quiz). */
   examId: string | null;
+  /** With examId: a practice run of the exam (Latihan Ujian) rather than the official one. */
+  practice: boolean;
   questionCount: number;
   /** Distinct topics (TP from Perangkat Ajar, or free text) of the quiz's questions. */
   topics: string[];
@@ -233,6 +235,7 @@ export async function teacherQuizList(teacherId: string, limit?: number): Promis
       classroomName,
       published: quiz.published,
       examId: quiz.examId,
+      practice: quiz.practice,
       questionCount: question.length,
       topics: [...new Set(question.map((s) => s.topic).filter((x): x is string => Boolean(x)))].sort(),
       studentCount: classroomStudents.size,

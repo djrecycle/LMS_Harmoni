@@ -127,7 +127,7 @@ const jobSchema = z.object({
 });
 
 /** Start an AI job on the exam (only one at a time). Returns an error message, or null when it started. */
-async function claimJob(examId: string, teacherId: string, job: "kisi" | "soal" | "ulang" | "gambar" | "periksa", provider: ProviderChoice): Promise<string | null> {
+async function claimJob(examId: string, teacherId: string, job: "kisi" | "soal" | "ulang" | "gambar" | "periksa" | "latihan", provider: ProviderChoice): Promise<string | null> {
   const t = await getT();
   if (!(await canUseAi(teacherId, provider))) return t(providerUnavailableMessage(provider));
   const claimed = await db
@@ -712,4 +712,127 @@ export async function publishExam(examId: string, data: unknown): Promise<Action
   }
   revalidatePath("/", "layout");
   return succeed(v.published ? t("Exam published to {0} classes.", ids.length) : t("Exam saved as a draft quiz in {0} classes.", ids.length), { count: ids.length });
+}
+
+/* ------------------------------------------------------------------ practice (Latihan Ujian) */
+
+const practiceSchema = z.object({
+  classroomIds: z.array(z.uuid()).min(1, "Choose at least one class").max(50),
+  title: z.string().trim().min(3, "Title must be at least 3 characters").max(150),
+  /** "copy": duplicate the exam's questions; "ai": the AI writes a similar but different question for each row. */
+  mode: z.enum(["copy", "ai"]),
+  maxAttempts: z.number().int().min(1).max(20),
+  instantFeedback: z.boolean(),
+  published: z.boolean(),
+  provider: z.enum(PROVIDER_CHOICES).default("auto"),
+  catatan: z.string().trim().max(1500).default(""),
+});
+
+type PracticeRow = { section: ExamSection; questionId: string };
+
+/** Points per question that follow the exam weights, when the sections in use add up to 100%; otherwise each question's own points. */
+function practicePoints(composition: unknown, rows: PracticeRow[]): Partial<Record<ExamSection, number>> {
+  const comp = readComposition(composition);
+  const counts = Object.fromEntries(EXAM_SECTIONS.map((s) => [s, rows.filter((r) => r.section === s).length])) as Record<ExamSection, number>;
+  const weight = EXAM_SECTIONS.reduce((n, s) => n + (counts[s] > 0 ? comp[s].weight : 0), 0);
+  return Math.abs(weight - 100) < 0.01 ? pointsPerQuestion(comp, counts) : {};
+}
+
+/** One practice quiz per class, linked to the exam, with the given questions in exam order. */
+async function insertPracticeQuizzes(teacherId: string, examId: string, composition: unknown, rows: PracticeRow[], v: z.infer<typeof practiceSchema>) {
+  const points = practicePoints(composition, rows);
+  for (const classroomId of [...new Set(v.classroomIds)]) {
+    const [k] = await db
+      .insert(S.quiz)
+      .values({ teacherId, classroomId, examId, practice: true, title: v.title, maxAttempts: v.maxAttempts, instantFeedback: v.instantFeedback, published: v.published })
+      .returning({ id: S.quiz.id });
+    await db.insert(S.quizQuestion).values(rows.map((r, position) => ({ quizId: k.id, questionId: r.questionId, position, points: points[r.section] ?? null })));
+  }
+}
+
+/**
+ * Make a practice version of the exam (Latihan Ujian) for students: a quiz per class with more attempts and instant
+ * feedback. The questions are new bank questions, so editing them never changes the exam: either exact copies of the
+ * exam's questions ("copy", done at once) or similar questions the AI writes from each blueprint row ("ai", in the background).
+ */
+export async function createExamPractice(examId: string, data: unknown): Promise<ActionResult<{ count: number; background: boolean }>> {
+  const t = await getT();
+  const teacher = await requireTeacher();
+  const p = practiceSchema.safeParse(data);
+  if (!p.success) return zodError(p.error);
+  const v = p.data;
+  const e = await getOwnedExam(teacher.id, examId);
+  if (!e) return fail(t("Exam not found."));
+  if (e.job) return fail(t("The AI is still working on this exam. Wait until it finishes."));
+  const ids = [...new Set(v.classroomIds)];
+  const owned = await db.select({ id: S.classroom.id }).from(S.classroom).where(and(eq(S.classroom.teacherId, teacher.id), inArray(S.classroom.id, ids)));
+  if (owned.length !== ids.length) return fail(t("Invalid class."));
+  const items = (await listExamItems(e.id)).map((r, i) => ({ ...r, no: i + 1 }));
+
+  if (v.mode === "copy") {
+    const withQuestion = items.filter((r) => r.question);
+    if (withQuestion.length === 0) return fail(t("This exam has no questions yet."));
+    const rows: PracticeRow[] = [];
+    for (const { item, question } of withQuestion) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { id, createdAt, updatedAt, ...copy } = question!;
+      const [fresh] = await db.insert(S.question).values(copy).returning({ id: S.question.id });
+      rows.push({ section: item.section, questionId: fresh.id });
+    }
+    await insertPracticeQuizzes(teacher.id, e.id, e.composition, rows, v);
+    revalidatePath("/", "layout");
+    return succeed(t("Exam practice with {0} copied questions sent to {1} classes.", rows.length, ids.length), { count: ids.length, background: false });
+  }
+
+  if (items.length === 0) return fail(t("Make the blueprint (kisi-kisi) first."));
+  const busy = await claimJob(e.id, teacher.id, "latihan", v.provider);
+  if (busy) return fail(busy);
+  const comp = readComposition(e.composition);
+  const meta = { kelas: e.info.kelas || null, semester: semesterGanjilGenap(e.info.semester), pgOptions: comp.pgOptions };
+  after(async () => {
+    const written = new Map<number, PracticeRow>();
+    let firstError: string | null = null;
+    for (const section of EXAM_SECTIONS) {
+      const rows = items.filter((r) => r.item.section === section);
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const chunk = rows.slice(i, i + BATCH);
+        const targets: SoalTarget[] = chunk.map((r) => ({ no: r.no, section, tp: r.item.tp, materi: r.item.materi, indikator: r.item.indikator, level: r.item.level }));
+        const originals = chunk
+          .filter((r) => r.question)
+          .map((r) => `No ${r.no}: ${r.question!.prompt}${r.question!.options?.length ? ` | Pilihan: ${r.question!.options.join(" / ")}` : ""}`);
+        const notes = [
+          v.catatan,
+          "Ini soal LATIHAN untuk persiapan ujian: ukur hal yang sama (TP, materi, indikator, level), tetapi JANGAN sama dengan soal ujian. Ganti kalimat, tokoh/situasi, angka, contoh, dan urutan pilihannya, supaya siswa berlatih memahami konsep, bukan menghafal jawaban ujian.",
+          originals.length ? `Soal ujian asli (JANGAN diulang):\n${originals.join("\n")}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+        try {
+          const got = await ask(teacher.id, v.provider, soalPrompt(e.info, comp, section, targets, notes, false), parseSoal);
+          for (const r of chunk) {
+            const raw = got.get(r.no);
+            const q = raw ? toExamQuestion(raw, section, targets.find((x) => x.no === r.no)!, meta) : null;
+            if (!q) continue;
+            const [fresh] = await db.insert(S.question).values({ teacherId: teacher.id, ...toDbValues(normalize(q)) }).returning({ id: S.question.id });
+            written.set(r.no, { section, questionId: fresh.id });
+          }
+        } catch (err) {
+          console.error("[exam] practice batch failed", section, err);
+          firstError ??= aiErrorMessage(err);
+        }
+      }
+    }
+    const rows = items.map((r) => written.get(r.no)).filter((x): x is PracticeRow => Boolean(x));
+    if (rows.length === 0) return endJob(e.id, teacher.id, firstError ?? "The AI could not write the questions. Try again.", true);
+    try {
+      await insertPracticeQuizzes(teacher.id, e.id, e.composition, rows, v);
+    } catch (err) {
+      console.error("[exam] practice quiz failed", err);
+      return endJob(e.id, teacher.id, "The practice questions were written to the question bank, but the practice quiz could not be made. Try again.");
+    }
+    const missing = items.length - rows.length;
+    await endJob(e.id, teacher.id, missing ? "Some practice questions could not be written. Add them yourself with Edit on the practice quiz." : null);
+  });
+  refresh();
+  return succeed(undefined, { count: ids.length, background: true });
 }

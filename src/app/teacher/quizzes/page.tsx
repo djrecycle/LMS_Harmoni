@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ClipboardList, Eye, FileCheck2, Pencil, Plus } from "lucide-react";
+import { ClipboardList, Dumbbell, Eye, FileCheck2, Pencil, Plus } from "lucide-react";
 import { DeleteQuizButton } from "@/components/quiz-actions";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
@@ -23,9 +23,10 @@ export default async function QuizList({ searchParams }: { searchParams: Promise
   const all = await teacherQuizList(teacher.id);
   const topicList = [...new Set(all.flatMap((k) => k.topics))].sort();
   const list = topic ? all.filter((k) => (topic === "without" ? k.topics.length === 0 : k.topics.includes(topic))) : all;
-  // Online runs of an exam are official assessments; everything else is a flexible classroom quiz.
+  // Online runs of an exam are official assessments, its practice runs prepare students for it; everything else is a classroom quiz.
   const hasExams = all.some((k) => k.examId);
-  const exams = list.filter((k) => k.examId);
+  const exams = list.filter((k) => k.examId && !k.practice);
+  const practices = list.filter((k) => k.examId && k.practice);
   const quizzes = list.filter((k) => !k.examId);
   const filtered = t("No quiz matches this TP / topic.");
   return (
@@ -75,12 +76,26 @@ export default async function QuizList({ searchParams }: { searchParams: Promise
                 </Button>
               }
             >
-              {exams.length === 0 ? <p className="text-sm text-muted-foreground">{filtered}</p> : exams.map((k) => <QuizCard key={k.id} k={k} t={t} />)}
+              {exams.length === 0 ? <p className="text-sm text-muted-foreground">{topic ? filtered : t("No exams run online yet.")}</p> : exams.map((k) => <QuizCard key={k.id} k={k} t={t} />)}
+            </Section>
+          )}
+          {hasExams && (
+            <Section
+              icon={<Dumbbell />}
+              title={t("Exam practice")}
+              count={practices.length}
+              description={t("Practice versions of an exam with copied or similar questions: several attempts and instant feedback. Make them in Exams → Download & publish.")}
+            >
+              {practices.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{topic ? filtered : t("No exam practice yet.")}</p>
+              ) : (
+                practices.map((k) => <QuizCard key={k.id} k={k} t={t} />)
+              )}
             </Section>
           )}
           <Section
             icon={<ClipboardList />}
-            title={hasExams ? t("Classroom quizzes") : t("Quizzes")}
+            title={t("Quizzes")}
             count={quizzes.length}
             description={t("Checks during learning. Free to build, change, and reschedule at any time.")}
           >
@@ -115,14 +130,14 @@ function Section({ icon, title, count, description, action, children }: { icon: 
 
 function QuizCard({ k, t }: { k: QuizSummary; t: Translate }) {
   return (
-    <div className={cn("relative rounded-xl border bg-card p-4 shadow-xs transition hover:border-primary hover:shadow-md", k.examId && "border-l-4 border-l-primary")}>
+    <div className={cn("relative rounded-xl border bg-card p-4 shadow-xs transition hover:border-primary hover:shadow-md", k.examId && (k.practice ? "border-l-4 border-l-success" : "border-l-4 border-l-primary"))}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Link href={`/teacher/quizzes/${k.id}`} className="font-bold break-words after:absolute after:inset-0 after:rounded-xl">
               {k.title}
             </Link>
-            {k.examId && <Badge tone="primary">{t("Exam")}</Badge>}
+            {k.examId && (k.practice ? <Badge tone="success">{t("Exam practice")}</Badge> : <Badge tone="primary">{t("Exam")}</Badge>)}
             <Badge tone={k.published ? "success" : "warning"}>{k.published ? t("Published") : t("Draft")}</Badge>
           </div>
           <p className="mt-0.5 text-sm text-muted-foreground">

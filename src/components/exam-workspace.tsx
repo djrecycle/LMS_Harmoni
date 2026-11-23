@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { UserRoundPen, ChevronDown, RefreshCw, ScanSearch, TriangleAlert, CircleCheck, Download, ImageIcon, ImageOff, ImagePlus, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
+import { UserRoundPen, ChevronDown, Dumbbell, RefreshCw, ScanSearch, TriangleAlert, CircleCheck, Download, ImageIcon, ImageOff, ImagePlus, FileSpreadsheet, Library, ListPlus, LoaderCircle, Pencil, Plus, Search, Send, Settings2, Sparkles, Trash, Unlink, X } from "lucide-react";
 import { toast } from "sonner";
-import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, keepExamQuestion, linkExamQuestion, publishExam, rewriteExamItem, saveExamItem, setOptionImage, setQuestionImage, startGambar, startKisi, startPeriksa, startSoal } from "@/app/actions/exam";
+import { addExamItem, deleteExam, deleteExamItem, dismissExamError, examJobStatus, fillExamFromQuiz, keepExamQuestion, linkExamQuestion, publishExam, createExamPractice, rewriteExamItem, saveExamItem, setOptionImage, setQuestionImage, startGambar, startKisi, startPeriksa, startSoal } from "@/app/actions/exam";
 import { DeleteButton } from "@/components/delete-button";
 import { ProviderSelect, providerReady, useProviderPick, type ProviderOption, type ProviderPick } from "@/components/provider-select";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,7 @@ export function ExamWorkspace({
   quizzes,
   classrooms,
   linked,
+  practices,
   providers,
   imageAi,
 }: {
@@ -68,6 +69,8 @@ export function ExamWorkspace({
   quizzes: { id: string; title: string; classroomName: string; n: number }[];
   classrooms: { id: string; name: string }[];
   linked: { id: string; title: string; published: boolean; classroomName: string; attempts: number }[];
+  /** Practice runs of this exam (Latihan Ujian). */
+  practices: { id: string; title: string; published: boolean; classroomName: string; attempts: number }[];
   providers: ProviderOption[];
   /** Which AI pictures the teacher can make. */
   imageAi: ImageReady;
@@ -152,6 +155,8 @@ export function ExamWorkspace({
                   ? t("The AI chose the questions that get an image.")
                   : job === "ulang"
                     ? t("The changed questions were rewritten. Check them.")
+                    : job === "latihan"
+                      ? t("The exam practice is ready. Find it under Exam practice in Quizzes.")
                     : job === "periksa"
                       ? r.data.changed
                         ? t("Check done: {0} questions are marked “Blueprint changed”.", r.data.changed)
@@ -268,6 +273,8 @@ export function ExamWorkspace({
                 ? t("The AI is choosing questions that need an image…")
                 : job === "ulang"
                   ? t("The AI is rewriting the changed questions…")
+                  : job === "latihan"
+                    ? t("The AI is writing the exam practice questions…")
                   : job === "periksa"
                     ? t("The AI is checking whether the questions fit the blueprint…")
                     : t("The AI is writing the questions…")
@@ -386,7 +393,26 @@ export function ExamWorkspace({
       )}
       {tab === "kisi" && <KisiTab examId={exam.id} groups={bySection} tps={exam.tps} comp={comp} locked={Boolean(job)} />}
       {tab === "soal" && <SoalTab examId={exam.id} groups={bySection} bank={bank} quizzes={quizzes} locked={Boolean(job)} imageAi={imageAi} provider={pick} />}
-      {tab === "publish" && <PublishTab exam={exam} items={items} groups={bySection} classrooms={classrooms} linked={linked} locked={Boolean(job)} />}
+      {tab === "publish" && (
+        <>
+          <PublishTab exam={exam} items={items} groups={bySection} classrooms={classrooms} linked={linked} locked={Boolean(job)} />
+          <PracticeSection
+            exam={exam}
+            items={items}
+            classrooms={classrooms}
+            practices={practices}
+            providers={providers}
+            pick={pick}
+            setPick={setPick}
+            locked={Boolean(job)}
+            onStarted={() => {
+              setProgress(null);
+              setJob("latihan");
+              router.refresh();
+            }}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -1216,5 +1242,142 @@ function PublishTab({
         )}
       </section>
     </div>
+  );
+}
+
+/** Latihan Ujian: a practice version of the exam for students, with copied or AI-made similar questions. */
+function PracticeSection({
+  exam,
+  items,
+  classrooms,
+  practices,
+  providers,
+  pick,
+  setPick,
+  locked,
+  onStarted,
+}: {
+  exam: ExamView;
+  items: WorkspaceItem[];
+  classrooms: { id: string; name: string }[];
+  practices: { id: string; title: string; published: boolean; classroomName: string; attempts: number }[];
+  providers: ProviderOption[];
+  pick: ProviderPick;
+  setPick: (v: ProviderPick) => void;
+  locked: boolean;
+  onStarted: () => void;
+}) {
+  const t = useT();
+  const router = useRouter();
+  const [title, setTitle] = useState(`${t("Practice")}: ${exam.title}`);
+  const [mode, setMode] = useState<"copy" | "ai">("copy");
+  const [targets, setTargets] = useState<string[]>([]);
+  const [attempts, setAttempts] = useState("3");
+  const [feedback, setFeedback] = useState(true);
+  const [catatan, setCatatan] = useState("");
+  const [busy, start] = useTransition();
+  const filled = items.filter((i) => i.question).length;
+  const noProvider = !providerReady(providers, pick);
+  const blocked = busy || locked || targets.length === 0 || title.trim().length < 3 || !Number(attempts) || (mode === "copy" ? filled === 0 : items.length === 0 || noProvider);
+
+  function create(published: boolean) {
+    start(async () => {
+      const r = await createExamPractice(exam.id, { classroomIds: targets, title, mode, maxAttempts: Number(attempts), instantFeedback: feedback, published, provider: pick, catatan });
+      if (!r.ok || !r.data) return void toast.error(r.error ?? t("Could not save."));
+      setTargets([]);
+      if (r.data.background) {
+        toast.info(t("The AI is writing the practice questions. You can leave this page; the practice appears in Quizzes when it is done."));
+        onStarted();
+      } else {
+        toast.success(r.message);
+        router.refresh();
+      }
+    });
+  }
+
+  const option = (k: "copy" | "ai", label: string, hint: string) => (
+    <label className={cn("flex cursor-pointer items-start gap-2.5 rounded-lg border p-3 text-sm", mode === k ? "border-primary bg-primary-soft/50" : "hover:bg-muted")}>
+      <input type="radio" name="practice-mode" className="mt-0.5 size-4 accent-[var(--primary)]" checked={mode === k} onChange={() => setMode(k)} />
+      <span>
+        <b>{label}</b>
+        <span className="block text-xs text-muted-foreground">{hint}</span>
+      </span>
+    </label>
+  );
+
+  return (
+    <section className="mt-6 grid gap-4 rounded-xl border bg-card p-4">
+      <div>
+        <p className="flex items-center gap-2 font-bold">
+          <Dumbbell className="size-5 text-primary" /> {t("Exam practice")}
+        </p>
+        <p className="text-sm text-muted-foreground">{t("A practice version of this exam for students to get ready: several attempts and answers shown right away. It never counts as the exam.")}</p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {option("copy", t("Copy the exam questions"), t("Exact copies of the {0} exam questions. Edit any of them afterwards from the practice quiz preview; the exam itself does not change.", filled))}
+        {option("ai", t("Similar questions by AI"), t("The AI writes a new question for each of the {0} blueprint rows: same TP, material, indicator and level, but different wording, numbers and choices.", items.length))}
+      </div>
+      {mode === "ai" && (
+        <div className="grid gap-3">
+          <ProviderSelect options={providers} value={pick} onChange={setPick} disabled={locked} />
+          <Field label={t("Notes for the AI (optional)")} htmlFor="pr-catatan">
+            <Textarea id="pr-catatan" rows={2} value={catatan} onChange={(e) => setCatatan(e.target.value)} maxLength={1500} placeholder={t("Example: make the practice a little easier than the exam.")} />
+          </Field>
+        </div>
+      )}
+      <Field label={t("Title for students")} htmlFor="pr-title">
+        <Input id="pr-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={150} />
+      </Field>
+      <fieldset>
+        <legend className="mb-1.5 text-sm font-semibold">{t("Classes")}</legend>
+        {classrooms.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t("You have no classes yet.")}</p>
+        ) : (
+          <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+            {classrooms.map((c) => (
+              <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-lg border p-2 text-sm hover:bg-muted">
+                <input type="checkbox" className="size-4 accent-[var(--primary)]" checked={targets.includes(c.id)} onChange={() => setTargets((a) => (a.includes(c.id) ? a.filter((x) => x !== c.id) : [...a, c.id]))} />
+                {c.name}
+              </label>
+            ))}
+          </div>
+        )}
+      </fieldset>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label={t("Attempts per student")} htmlFor="pr-attempts" hint={t("The best attempt counts in the practice grade.")}>
+          <Input id="pr-attempts" type="number" min={1} max={20} value={attempts} onChange={(e) => setAttempts(e.target.value)} />
+        </Field>
+        <label className="flex cursor-pointer items-start gap-2.5 self-center text-sm">
+          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--primary)]" checked={feedback} onChange={(e) => setFeedback(e.target.checked)} />
+          <span>
+            <b>{t("Instant feedback")}</b>
+            <span className="block text-xs text-muted-foreground">{t("Students see right/wrong and the explanation after each question.")}</span>
+          </span>
+        </label>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button disabled={blocked} onClick={() => create(true)}>
+          {busy ? <LoaderCircle className="animate-spin" /> : mode === "ai" ? <Sparkles /> : <Send />} {t("Send practice to {0} classes", targets.length)}
+        </Button>
+        <Button variant="outline" disabled={blocked} onClick={() => create(false)}>
+          {t("Save as draft")}
+        </Button>
+      </div>
+
+      {practices.length > 0 && (
+        <div className="grid gap-2">
+          <p className="text-sm font-bold">{t("Practice already sent")}</p>
+          {practices.map((q) => (
+            <Link key={q.id} href={`/teacher/quizzes/${q.id}`} className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm hover:border-primary">
+              <span className="font-semibold">{q.classroomName}</span>
+              <span className="text-muted-foreground">{q.title}</span>
+              <Badge tone={q.published ? "success" : "warning"}>{q.published ? t("Published") : t("Draft")}</Badge>
+              <Badge>{t("{0} attempts", q.attempts)}</Badge>
+            </Link>
+          ))}
+          <p className="text-xs text-muted-foreground">{t("Practice questions are separate copies in the question bank: open the practice quiz → Preview → Edit on a question to change it. The exam stays the same.")}</p>
+        </div>
+      )}
+    </section>
   );
 }

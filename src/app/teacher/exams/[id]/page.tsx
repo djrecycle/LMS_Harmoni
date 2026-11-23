@@ -45,7 +45,7 @@ export default async function ExamPage({ params }: { params: Promise<{ id: strin
       .orderBy(desc(S.quiz.createdAt)),
     db.select({ id: S.classroom.id, name: S.classroom.name }).from(S.classroom).where(eq(S.classroom.teacherId, teacher.id)).orderBy(asc(S.classroom.name)),
     db
-      .select({ id: S.quiz.id, title: S.quiz.title, published: S.quiz.published, classroomName: S.classroom.name, attempts: count(S.attempt.id) })
+      .select({ id: S.quiz.id, title: S.quiz.title, published: S.quiz.published, practice: S.quiz.practice, classroomName: S.classroom.name, attempts: count(S.attempt.id) })
       .from(S.quiz)
       .innerJoin(S.classroom, eq(S.classroom.id, S.quiz.classroomId))
       .leftJoin(S.attempt, eq(S.attempt.quizId, S.quiz.id))
@@ -92,7 +92,8 @@ export default async function ExamPage({ params }: { params: Promise<{ id: strin
         bank={bank}
         quizzes={quizzes.map((q) => ({ ...q, n: Number(q.n) }))}
         classrooms={classrooms}
-        linked={linked.map((q) => ({ ...q, attempts: Number(q.attempts) }))}
+        linked={linked.filter((q) => !q.practice).map((q) => ({ ...q, attempts: Number(q.attempts) }))}
+        practices={linked.filter((q) => q.practice).map((q) => ({ ...q, attempts: Number(q.attempts) }))}
         providers={providers}
         imageAi={imageAi}
       />

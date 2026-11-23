@@ -1,0 +1,1 @@
+ALTER TABLE "quiz" ADD COLUMN "practice" boolean DEFAULT false NOT NULL;

@@ -21,7 +21,7 @@ export async function expireStaleExamJob(examId: string) {
   await db
     .update(S.exam)
     .set({ job: null, jobError: "The AI job was interrupted (the server may have restarted). Please try again." })
-    .where(and(eq(S.exam.id, examId), lt(S.exam.jobStartedAt, cutoff), inArray(S.exam.job, ["kisi", "soal", "ulang", "gambar", "periksa"])));
+    .where(and(eq(S.exam.id, examId), lt(S.exam.jobStartedAt, cutoff), inArray(S.exam.job, ["kisi", "soal", "ulang", "gambar", "periksa", "latihan"])));
 }
 
 const sectionOrder = (s: ExamSection) => EXAM_SECTIONS.indexOf(s);

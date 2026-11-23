@@ -345,6 +345,8 @@ export const quiz = pgTable(
     published: boolean("published").notNull().default(false),
     /** Set when this quiz is the online run of an exam (its questions and weights come from the exam). */
     examId: uuid("exam_id").references((): AnyPgColumn => exam.id, { onDelete: "set null" }),
+    /** With examId: a practice run of the exam (copied or AI-made similar questions, more attempts, instant feedback), not the official one. */
+    practice: boolean("practice").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("quiz_classroom_idx").on(t.classroomId), index("quiz_teacher_idx").on(t.teacherId)],
