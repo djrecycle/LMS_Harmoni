@@ -67,6 +67,7 @@ const NAV: Record<"teacher" | "student", Item[]> = {
 /** Only the Super Admin (first teacher) gets these; the pages and their actions enforce it again on the server. */
 const ADMIN_ITEMS: Item[] = [
   { href: "/teacher/admin/teachers", label: "Manage Teachers", Icon: Users },
+  { href: "/teacher/admin/ai-demo", label: "AI Demo Requests", Icon: Sparkles },
   { href: "/teacher/admin/server", label: "Server Status", Icon: Activity },
   { href: "/teacher/admin/traffic", label: "Visitors", Icon: Radio },
 ];

@@ -413,6 +413,39 @@ export async function clearAiKey(provider: KeyProvider, userId: string): Promise
   await writeStored(owner, cur, userId);
 }
 
+/* ------------------------------------------------------------------ */
+/* AI demo (see ai-demo.ts): the Super Admin fills a teacher's         */
+/* OpenAI-compatible settings with a demo token, and clears them again */
+/* ------------------------------------------------------------------ */
+
+/** Point `teacherId`'s OpenAI-compatible provider at the demo API. "Auto" (or unset) becomes "openai" so the demo is used. */
+export async function setTeacherDemoAi(teacherId: string, demo: { baseUrl: string; key: string; model: string }, by: string): Promise<void> {
+  const cur = await readStored(teacherId);
+  await writeStored(
+    teacherId,
+    {
+      ...cur,
+      openaiBaseUrl: demo.baseUrl.replace(/\/+$/, ""),
+      openaiKeyEnc: encryptSecret(demo.key),
+      openaiModel: demo.model,
+      provider: !cur.provider || cur.provider === "auto" ? "openai" : cur.provider,
+    },
+    by,
+  );
+}
+
+/** Undo setTeacherDemoAi, but only while the teacher still uses that demo key (they may have entered their own since). */
+export async function clearTeacherDemoAi(teacherId: string, demoKey: string, by: string): Promise<void> {
+  const cur = await readStored(teacherId);
+  if (!cur.openaiKeyEnc || decryptSecret(cur.openaiKeyEnc) !== demoKey) return;
+  const next: Stored = { ...cur };
+  delete next.openaiBaseUrl;
+  delete next.openaiKeyEnc;
+  delete next.openaiModel;
+  if (next.provider === "openai") delete next.provider;
+  await writeStored(teacherId, next, by);
+}
+
 async function writeStored(ownerId: string | null, s: Stored, userId: string) {
   const value = Object.fromEntries(Object.entries(s).filter(([, v]) => v !== undefined)) as Record<string, unknown>;
   await db
